@@ -495,14 +495,9 @@ function rememberHashtag(seen, hashtags, hashtag) {
   hashtags.push(hashtag);
 }
 
-function hashtagLabel(anchor) {
-  const identity = hashtagIdentityFromNode(anchor);
-
-  return identity.name ? `${identity.mark}${identity.name}` : '';
-}
-
 // Hashtag anchors in document order. NFKC case-insensitive duplicates keep
-// the first visible spelling. Parsing stays on an inert <template>.
+// the first visible spelling. The stored name drops either hash mark; the
+// text keeps the mark that was written. Parsing stays on an inert <template>.
 export function collectStatusHashtags(html) {
   if (typeof html !== 'string' || html === '' || !/hashtag|[#＃]/.test(html)) {
     return [];
@@ -518,12 +513,15 @@ export function collectStatusHashtags(html) {
       return;
     }
 
-    const text = hashtagLabel(anchor);
-    const name = text.replace(/^#/, '');
+    const identity = hashtagIdentityFromNode(anchor);
+
+    if (!identity.name) {
+      return;
+    }
 
     rememberHashtag(seen, hashtags, {
-      name,
-      text,
+      name: identity.name,
+      text: `${identity.mark}${identity.name}`,
       href: anchor.getAttribute('href'),
     });
   });

@@ -1,6 +1,6 @@
 import { storedReactionHidden } from './emoji_mute_projection';
 import { logicalEmojiMuteAttribute, logicalEmojiMuteText } from './emoji_mute_sources';
-import { bindHashtagMenuName } from './hashtag_menu_names';
+import { bindHashtagMenuName, concealImageDerivedSegments, hashtagMenuStoredIdentity, projectHashtagLabel } from './hashtag_menu_names';
 import { emojiMuteTextIndexFromState, isUserEmojiImage, presentEmojiMutePlain, projectedEmojiImage, SUPPRESS_UNVERIFIED_INDEX, suppressUnicodeEmoji, UNVERIFIED_EMOJI_PLACEHOLDER } from './emoji_mute_text';
 
 // One selector for both the clear and the record. A host cleared here has to
@@ -472,21 +472,97 @@ export function scrubUnverifiedEmojiFrom(root, sink) {
   });
   concealText(root);
   // The badge attribute still has the original name until React commits.
-  // Clear it in this same walk so suppress does not leave the glyph behind.
+  // Unicode is not the only leak: an image shortcode such as party:blob:
+  // is unchanged by suppressUnicodeEmoji, but the stored ranges say it
+  // came from an emoji image. Clear that link in this same walk.
   root.querySelectorAll('a[data-menu-hashtag]').forEach(link => {
-    const name = link.getAttribute('data-menu-hashtag') || '';
-
-    if (!name || suppressUnicodeEmoji(name) === name) {
-      return;
-    }
-
-    noteAttribute(sink, link, 'data-menu-hashtag');
-    noteAttribute(sink, link, 'data-menu-hashtag-token');
-    bindHashtagMenuName(link, name, SUPPRESS_UNVERIFIED_INDEX);
-    link.setAttribute('data-menu-hashtag', '');
+    concealHashtagMenuLink(sink, link);
   });
   stampScrubWrites(sink);
 }
+
+const attributeNoted = (sink, element, name) => sink.some(record => (
+  record.kind === 'attribute' && record.element === element && record.name === name
+));
+
+const textNoted = (sink, node) => sink.some(record => record.kind === 'text' && record.node === node);
+
+// One link. Image-derived slices leave the menu attribute, the readable
+// labels, and the text React has not committed yet. A typed shortcode has
+// no stored range, so this leaves it alone. The image URL itself is removed
+// by the earlier img walk.
+const concealHashtagMenuLink = (sink, link) => {
+  const attributeName = link.getAttribute('data-menu-hashtag') || '';
+  const identity = hashtagMenuStoredIdentity(link);
+  const ranges = identity.imageRanges || [];
+  const name = identity.name || attributeName;
+  const unicodeChanges = attributeName !== '' && suppressUnicodeEmoji(attributeName) !== attributeName;
+  const imageConceals = ranges.length > 0 && projectHashtagLabel(name, ranges, SUPPRESS_UNVERIFIED_INDEX) !== name;
+
+  if (!unicodeChanges && !imageConceals) {
+    return;
+  }
+
+  if (!attributeNoted(sink, link, 'data-menu-hashtag')) {
+    noteAttribute(sink, link, 'data-menu-hashtag');
+  }
+
+  if (!attributeNoted(sink, link, 'data-menu-hashtag-token')) {
+    noteAttribute(sink, link, 'data-menu-hashtag-token');
+  }
+
+  bindHashtagMenuName(link, name, SUPPRESS_UNVERIFIED_INDEX, ranges);
+  link.setAttribute('data-menu-hashtag', '');
+
+  if (!imageConceals) {
+    return;
+  }
+
+  READABLE_ATTRIBUTES.forEach(attr => {
+    const value = link.getAttribute(attr);
+
+    if (!value) {
+      return;
+    }
+
+    const next = concealImageDerivedSegments(value, name, ranges);
+
+    if (next === value) {
+      return;
+    }
+
+    if (!attributeNoted(sink, link, attr)) {
+      noteAttribute(sink, link, attr);
+    }
+
+    link.setAttribute(attr, next);
+  });
+
+  const owner = link.ownerDocument || document;
+  const walker = owner.createTreeWalker(link, NodeFilter.SHOW_TEXT, null);
+  const nodes = [];
+  let current = walker.nextNode();
+
+  while (current) {
+    nodes.push(current);
+    current = walker.nextNode();
+  }
+
+  nodes.forEach(node => {
+    const value = node.nodeValue || '';
+    const next = concealImageDerivedSegments(value, name, ranges);
+
+    if (next === value) {
+      return;
+    }
+
+    if (!textNoted(sink, node)) {
+      noteText(sink, node);
+    }
+
+    node.nodeValue = next;
+  });
+};
 
 export function unverifiedEmojiRoot() {
   if (typeof document === 'undefined') {

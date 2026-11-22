@@ -71,7 +71,7 @@ import Overlay from 'react-overlays/Overlay';
 import { fetchFavouriteTagSuccess } from 'mastodon/actions/favourite_tags';
 import { EMOJI_MUTES_APPLY, EMOJI_MUTES_DISABLE, EMOJI_MUTES_ENABLE, EMOJI_MUTES_FAIL, EMOJI_MUTES_IGNORE, EMOJI_MUTES_REVISION } from 'mastodon/actions/emoji_mutes';
 import emojify from 'mastodon/features/emoji/emoji';
-import { hashtagMenuStoredName } from 'mastodon/features/emoji/hashtag_menu_names';
+import { hashtagMenuStoredIdentity, hashtagMenuStoredName } from 'mastodon/features/emoji/hashtag_menu_names';
 import { createUnverifiedEmojiGuard } from 'mastodon/features/emoji/emoji_mute_live_dom';
 import favouriteTagsReducer from 'mastodon/reducers/favourite_tags';
 import emojiMutesReducer from 'mastodon/reducers/emoji_mutes';
@@ -1837,5 +1837,289 @@ describe('HashtagMenuController', () => {
     click(link);
     fireEvent.click(screen.getAllByRole('button').find(button => button.textContent === `Mute #${'\u25FB'}`));
     expect(store.getState().getIn(['modal', 'hashtag'])).toBe(native);
+  });
+
+  it('hides an image shortcode before React commits and restores the original name', () => {
+    const custom = '<img class="emojione custom-emoji" alt=":blob:" title="blob" src="https://cdn.example/blob.svg" data-original="https://cdn.example/blob.svg">';
+    const tagged = (href, label, body) => `<a href="${href}" class="mention hashtag" rel="tag" title="#${label}" aria-label="tag ${label}">${body}</a>`;
+    const imageBody = name => `#<span>${name}${custom}</span>`;
+    const bodyHref = 'https://remote.example/topics/image';
+    const literalHref = 'https://remote.example/topics/literal';
+    const cwHref = 'https://remote.example/topics/cw';
+    const badgeHref = 'https://remote.example/topics/badge';
+    const sourceHtml = `<p>See ${tagged(bodyHref, 'party:blob:', imageBody('party'))} ${tagged(literalHref, 'kept:blob:', '#<span>kept:blob:</span>')} stays<br><br>${tagged(badgeHref, 'badge:blob:', imageBody('badge'))}</p>`;
+    const spoilerHtml = `<p>CW ${tagged(cwHref, 'cw:blob:', imageBody('cw'))} note</p>`;
+    const emojiMutes = {
+      revision: '1',
+      appliedRevision: '1',
+      phase: 'ready',
+      failure: null,
+      rules: [],
+      availability: 'enabled',
+      display: 'apply',
+    };
+    const { container, store } = renderMenu({
+      signedIn: true,
+      emojiMutes,
+      status: buildStatus({
+        contentHtml: sourceHtml,
+        spoilerHtml,
+        spoiler_text: 'CW note',
+        tags: [],
+      }),
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Show more' }));
+    container.className = 'emoji-mutes-privacy-portal';
+
+    const body = container.querySelector(`a[href="${bodyHref}"]`);
+    const literal = container.querySelector(`a[href="${literalHref}"]`);
+    const cw = container.querySelector(`a[href="${cwHref}"]`);
+    const badge = container.querySelector(`a.status__content__hashtag-badge[href="${badgeHref}"]`);
+    const guard = createUnverifiedEmojiGuard();
+    const stopGuard = store.subscribe(() => guard(store.getState()));
+    let beforeCommit = null;
+    const stopWatch = store.subscribe(() => {
+      if (store.getState().getIn(['emojiMutes', 'display']) === 'suppress' && !beforeCommit) {
+        const image = body.querySelector('img');
+
+        beforeCommit = {
+          bodyAttr: body.getAttribute('data-menu-hashtag'),
+          bodyTitle: body.getAttribute('title'),
+          bodyAria: body.getAttribute('aria-label'),
+          bodySrc: image && image.getAttribute('src'),
+          bodyHtml: body.outerHTML,
+          cwAttr: cw.getAttribute('data-menu-hashtag'),
+          cwTitle: cw.getAttribute('title'),
+          cwAria: cw.getAttribute('aria-label'),
+          cwHtml: cw.outerHTML,
+          badgeAttr: badge.getAttribute('data-menu-hashtag'),
+          badgeText: badge.textContent,
+          literalAttr: literal.getAttribute('data-menu-hashtag'),
+          literalText: literal.textContent,
+          literalTitle: literal.getAttribute('title'),
+        };
+      }
+    });
+
+    expect(hashtagMenuStoredIdentity(body).imageRanges).toEqual([[5, 11]]);
+    expect(body.getAttribute('data-menu-hashtag')).toBe('party:blob:');
+    expect(badge).not.toBeNull();
+
+    act(() => {
+      store.dispatch({ type: EMOJI_MUTES_REVISION, revision: '2' });
+    });
+
+    expect(beforeCommit.bodyAttr).toBe('');
+    expect(beforeCommit.bodyTitle).toBe(`#party${'\u25FB'}`);
+    expect(beforeCommit.bodyAria).toBe(`tag party${'\u25FB'}`);
+    expect(beforeCommit.bodySrc).toBeNull();
+    expect(beforeCommit.bodyHtml).not.toContain(':blob:');
+    expect(beforeCommit.bodyHtml).not.toContain('cdn.example/blob.svg');
+    expect(beforeCommit.cwAttr).toBe('');
+    expect(beforeCommit.cwTitle).toBe(`#cw${'\u25FB'}`);
+    expect(beforeCommit.cwAria).toBe(`tag cw${'\u25FB'}`);
+    expect(beforeCommit.cwHtml).not.toContain(':blob:');
+    expect(beforeCommit.cwHtml).not.toContain('cdn.example/blob.svg');
+    expect(beforeCommit.badgeAttr).toBe('');
+    expect(beforeCommit.badgeText).toBe(`#badge${'\u25FB'}`);
+    expect(beforeCommit.badgeText).not.toContain(':blob:');
+    expect(beforeCommit.literalAttr).toBe('kept:blob:');
+    expect(beforeCommit.literalText).toContain(':blob:');
+    expect(beforeCommit.literalTitle).toBe('#kept:blob:');
+    expect(hashtagMenuStoredIdentity(body)).toEqual({ name: 'party:blob:', imageRanges: [[5, 11]] });
+    expect(hashtagMenuStoredIdentity(cw)).toEqual({ name: 'cw:blob:', imageRanges: [[2, 8]] });
+    expect(hashtagMenuStoredIdentity(badge)).toEqual({ name: 'badge:blob:', imageRanges: [[5, 11]] });
+
+    const live = () => ({
+      body: container.querySelector(`a[href="${bodyHref}"]`),
+      literal: container.querySelector(`a[href="${literalHref}"]`),
+      cw: container.querySelector(`a[href="${cwHref}"]`),
+      badge: container.querySelector(`a.status__content__hashtag-badge[href="${badgeHref}"]`),
+    });
+    const restored = () => {
+      const node = live();
+
+      expect(node.body.getAttribute('data-menu-hashtag')).toBe('party:blob:');
+      expect(node.body.hasAttribute('data-menu-hashtag-token')).toBe(false);
+      expect(hashtagMenuStoredIdentity(node.body)).toEqual({ name: 'party:blob:', imageRanges: [[5, 11]] });
+      expect(node.badge.getAttribute('data-menu-hashtag')).toBe('badge:blob:');
+      expect(node.badge.hasAttribute('data-menu-hashtag-token')).toBe(false);
+      expect(hashtagMenuStoredIdentity(node.badge)).toEqual({ name: 'badge:blob:', imageRanges: [[5, 11]] });
+      expect(node.cw.getAttribute('data-menu-hashtag')).toBe('cw:blob:');
+      expect(hashtagMenuStoredIdentity(node.cw)).toEqual({ name: 'cw:blob:', imageRanges: [[2, 8]] });
+      expect(node.literal.getAttribute('data-menu-hashtag')).toBe('kept:blob:');
+      expect(node.literal.textContent).toContain(':blob:');
+    };
+    const concealed = () => {
+      const node = live();
+
+      expect(node.body.getAttribute('data-menu-hashtag') || '').not.toContain(':blob:');
+      expect(hashtagMenuStoredIdentity(node.body)).toEqual({ name: 'party:blob:', imageRanges: [[5, 11]] });
+      expect(node.literal.getAttribute('data-menu-hashtag')).toBe('kept:blob:');
+      expect(node.literal.textContent).toContain(':blob:');
+    };
+
+    concealed();
+
+    act(() => {
+      store.dispatch({
+        type: EMOJI_MUTES_APPLY,
+        revision: '2',
+        availability: 'enabled',
+        mutes: [],
+      });
+    });
+    restored();
+
+    act(() => {
+      store.dispatch({ type: EMOJI_MUTES_REVISION, revision: '3' });
+    });
+    concealed();
+
+    act(() => {
+      store.dispatch({ type: EMOJI_MUTES_FAIL, failure: 'unavailable' });
+    });
+    expect(store.getState().getIn(['emojiMutes', 'display'])).toBe('suppress');
+    concealed();
+
+    act(() => {
+      store.dispatch({
+        type: EMOJI_MUTES_APPLY,
+        revision: '3',
+        availability: 'enabled',
+        mutes: [],
+      });
+    });
+    restored();
+
+    act(() => {
+      store.dispatch({ type: EMOJI_MUTES_REVISION, revision: '4' });
+    });
+    act(() => {
+      store.dispatch({ type: EMOJI_MUTES_IGNORE });
+    });
+    expect(store.getState().getIn(['emojiMutes', 'display'])).toBe('show');
+    restored();
+
+    act(() => {
+      store.dispatch({ type: EMOJI_MUTES_ENABLE });
+    });
+    expect(store.getState().getIn(['emojiMutes', 'display'])).toBe('suppress');
+    concealed();
+    act(() => {
+      store.dispatch({ type: EMOJI_MUTES_DISABLE });
+    });
+    expect(store.getState().getIn(['emojiMutes', 'display'])).toBe('show');
+    restored();
+
+    stopGuard();
+    stopWatch();
+  });
+
+  it('rebinds a stable trailing badge when its image ranges change', () => {
+    const href = 'https://remote.example/topics/badge';
+    const literal = `<p>Hello<br><br><a href="${href}" class="mention hashtag" rel="tag">#<span>party:blob:</span></a></p>`;
+    const custom = '<img class="emojione custom-emoji" alt=":blob:" src="https://cdn.example/blob.svg">';
+    const image = `<p>Hello<br><br><a href="${href}" class="mention hashtag" rel="tag">#<span>party${custom}</span></a></p>`;
+    const emojiMutes = {
+      revision: '1',
+      appliedRevision: '1',
+      phase: 'ready',
+      failure: null,
+      rules: [],
+      availability: 'enabled',
+      display: 'apply',
+    };
+    const literalStatus = buildStatus({ contentHtml: literal, tags: [] });
+    const imageStatus = buildStatus({ contentHtml: image, tags: [] });
+    const { container, store, rerender } = renderMenu({
+      signedIn: true,
+      emojiMutes,
+      status: literalStatus,
+    });
+    const tree = status => (
+      <Provider store={store}>
+        <RouterProvider>
+          <StatusContent status={status} onTranslate={jest.fn()} onClick={jest.fn()} />
+          <HashtagMenuController signedIn />
+        </RouterProvider>
+      </Provider>
+    );
+    const badge = () => container.querySelector('a.status__content__hashtag-badge');
+    const first = badge();
+
+    expect(first.getAttribute('data-menu-hashtag')).toBe('party:blob:');
+    expect(hashtagMenuStoredIdentity(first).imageRanges).toEqual([]);
+
+    rerender(tree(imageStatus));
+
+    expect(badge()).toBe(first);
+    expect(hashtagMenuStoredIdentity(first).imageRanges).toEqual([[5, 11]]);
+    expect(first.getAttribute('data-menu-hashtag')).toBe('party:blob:');
+
+    container.className = 'emoji-mutes-privacy-portal';
+    const guard = createUnverifiedEmojiGuard();
+    const stopGuard = store.subscribe(() => guard(store.getState()));
+    let beforeCommit = null;
+    const stopWatch = store.subscribe(() => {
+      if (store.getState().getIn(['emojiMutes', 'display']) === 'suppress' && !beforeCommit) {
+        beforeCommit = first.getAttribute('data-menu-hashtag');
+      }
+    });
+
+    act(() => {
+      store.dispatch({ type: EMOJI_MUTES_REVISION, revision: '2' });
+    });
+
+    expect(beforeCommit).toBe('');
+    expect(first.getAttribute('data-menu-hashtag')).toBe('');
+    expect(first.textContent).toBe(`#party${'\u25FB'}`);
+    expect(hashtagMenuStoredIdentity(first)).toEqual({ name: 'party:blob:', imageRanges: [[5, 11]] });
+
+    act(() => {
+      store.dispatch({
+        type: EMOJI_MUTES_APPLY,
+        revision: '2',
+        availability: 'enabled',
+        mutes: [],
+      });
+    });
+
+    expect(badge()).toBe(first);
+    expect(first.getAttribute('data-menu-hashtag')).toBe('party:blob:');
+    expect(first.hasAttribute('data-menu-hashtag-token')).toBe(false);
+    expect(hashtagMenuStoredIdentity(first).imageRanges).toEqual([[5, 11]]);
+
+    rerender(tree(literalStatus));
+
+    expect(badge()).toBe(first);
+    expect(hashtagMenuStoredIdentity(first).imageRanges).toEqual([]);
+
+    act(() => {
+      store.dispatch({ type: EMOJI_MUTES_REVISION, revision: '3' });
+    });
+    act(() => {
+      store.dispatch({ type: EMOJI_MUTES_FAIL, failure: 'unavailable' });
+    });
+
+    expect(store.getState().getIn(['emojiMutes', 'display'])).toBe('suppress');
+    expect(first.getAttribute('data-menu-hashtag')).toBe('party:blob:');
+    expect(first.textContent).toContain(':blob:');
+    expect(hashtagMenuStoredIdentity(first).imageRanges).toEqual([]);
+
+    act(() => {
+      store.dispatch({
+        type: EMOJI_MUTES_APPLY,
+        revision: '3',
+        availability: 'enabled',
+        mutes: [],
+      });
+    });
+
+    expect(first.getAttribute('data-menu-hashtag')).toBe('party:blob:');
+    expect(first.textContent).toContain(':blob:');
+    stopGuard();
+    stopWatch();
   });
 });

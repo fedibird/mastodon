@@ -713,6 +713,32 @@ describe('collectCopyHashtags', () => {
     ]).map(hashtag => hashtag.text)).toEqual(['#foo', '#bar']);
   });
 
+  it('treats a fullwidth hash as the same tag without dropping its mark', () => {
+    const full = '<a href="https://remote.example/tags/two" class="mention hashtag" rel="tag">＃two</a>';
+    const half = '<a href="https://example.com/tags/two" class="mention hashtag" rel="tag">#<span>Two</span></a>';
+    const html = `<p>See ${full} ${half}<br><br>${full}</p>`;
+    const translation = '<p>訳 <a href="https://remote.example/tags/two" class="mention hashtag" rel="tag">#<span>ふたつ</span></a></p>';
+    const tags = [
+      { name: 'two', url: 'https://example.com/tags/two' },
+      { name: 'extra', url: 'https://example.com/tags/extra' },
+    ];
+
+    expect(collectStatusHashtags(html)).toEqual([
+      expect.objectContaining({ name: 'two', text: '＃two' }),
+    ]);
+    expect(collectStatusHashtags(translation).map(hashtag => hashtag.text)).toEqual(['#ふたつ']);
+    expect(collectCopyHashtags(html, tags).map(hashtag => hashtag.text)).toEqual(['＃two', '#extra']);
+    expect(collectCopyHashtags(html, fromJS(tags)).map(hashtag => hashtag.name)).toEqual(['two', 'extra']);
+    expect(collectCopyHashtags(translation, tags).map(hashtag => hashtag.text)).not.toContain('＃two');
+
+    const badges = computeStatusHashtagBadges(html, tags);
+
+    expect(badges.html).toContain('＃two');
+    expect(badges.hashtags.map(hashtag => hashtag.text)).toEqual(['#extra']);
+    expect(badges.hashtags.map(hashtag => hashtag.name)).not.toContain('＃two');
+    expect(computeStatusHashtagBadges(translation, tags).hashtags.map(hashtag => hashtag.name)).toEqual(['two', 'extra']);
+  });
+
   it('keeps the visible spelling when the API name differs only by case or NFKC', () => {
     const html = `<p>${anchor('FediBird')} ${anchor('Ａ')}</p>`;
 

@@ -72,6 +72,29 @@ export function hashtagIdentityFromNode(anchor) {
   return { name, imageRanges, mark };
 }
 
+// Replace only the slices that came from emoji images. A typed :blob: that
+// is not one of those slices stays in the string.
+export function concealImageDerivedSegments(value, name, imageRanges) {
+  if (typeof value !== 'string' || value === '' || typeof name !== 'string' || !imageRanges || imageRanges.length === 0) {
+    return value;
+  }
+
+  const ordered = imageRanges.slice().sort((left, right) => right[0] - left[0]);
+  let next = value;
+
+  ordered.forEach(([start, end]) => {
+    const segment = name.slice(start, end);
+
+    if (!segment) {
+      return;
+    }
+
+    next = next.split(segment).join(UNVERIFIED_EMOJI_PLACEHOLDER);
+  });
+
+  return next;
+}
+
 export function projectHashtagLabel(name, imageRanges, index) {
   const source = typeof name === 'string' ? name : '';
   let projected = source;

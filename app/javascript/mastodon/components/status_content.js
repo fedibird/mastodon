@@ -13,7 +13,7 @@ import { setStatusTranslationAssumption, setTranslationTargetLanguage } from 'ma
 import { autoPlayEmoji, disableReactions, me, translationBarVisibility, translationPreferredMode, translationPrivateContentAllowed } from 'mastodon/initial_state';
 import { selectAcceptedTranslationPreferences } from 'mastodon/selectors/user_preferences';
 import { translationCapability, translationRequestStatus } from 'mastodon/utils/translation_languages';
-import { bindHashtagMenuName, hashtagIdentityFromNode, hashtagMenuDomName, projectHashtagLabel } from 'mastodon/features/emoji/hashtag_menu_names';
+import { bindHashtagMenuName, concealImageDerivedSegments, hashtagIdentityFromNode, hashtagMenuDomName, projectHashtagLabel } from 'mastodon/features/emoji/hashtag_menu_names';
 import { emojiMuteTextIndexFromState, linkTargetEmojiRemains, replaceEmojiInDisplayHtml, retainMutedEmojiLinkLabel } from 'mastodon/features/emoji/emoji_mute_text';
 import { computeStatusHashtagBadges, isHashtagMenuLink, stripMatchingTrailingHashtags } from 'mastodon/utils/status_hashtags';
 import { sameLanguagePair, statusTranslationView, translationBarEffectivelyVisible, translationDisplayStatus, translationRequestPair, viewerTranslationPair } from 'mastodon/utils/translation_view';
@@ -93,6 +93,7 @@ class StatusContent extends React.PureComponent {
     emojiMuteTextIndex: PropTypes.shape({
       active: PropTypes.bool,
       signature: PropTypes.string,
+      suppressAll: PropTypes.bool,
     }),
     onTranslationAssumption: PropTypes.func,
     onTranslationTarget: PropTypes.func,
@@ -279,16 +280,14 @@ class StatusContent extends React.PureComponent {
     this._updateEmojiLinks();
   }
 
-  componentDidUpdate (prevProps) {
+  componentDidUpdate () {
     this._updateStatusLinks();
     this._updateEmojiLinks();
 
     // The badge callback stays stable, so React does not call it again when
-    // only the mute display changes. Bind the mounted nodes after the new
-    // attribute value is committed.
-    if (prevProps.emojiMuteTextIndex !== this.props.emojiMuteTextIndex) {
-      this.syncHashtagBadges();
-    }
+    // the mute display or the image ranges change. Bind the mounted nodes
+    // from the ranges recorded for this render.
+    this.syncHashtagBadges();
   }
 
   componentWillUnmount () {
@@ -451,13 +450,7 @@ class StatusContent extends React.PureComponent {
   }
 
   hashtagImageRanges (link) {
-    const fromHref = this.hashtagNameFromHref(link);
-    const fromTags = this.hashtagNameFromTags(link);
-
-    if (fromHref || fromTags) {
-      return [];
-    }
-
+    const trusted = this.hashtagNameFromHref(link) || this.hashtagNameFromTags(link);
     const status = this.props.status;
 
     if (!status) {
@@ -468,25 +461,48 @@ class StatusContent extends React.PureComponent {
     const same = this.hashtagAnchorsFromHtml(html).filter(anchor => anchor.href === link.href);
     const identities = same.map(anchor => hashtagIdentityFromNode(anchor));
     const translated = this._hashtagViewMode === 'translated' || link.closest('.status-translation-pair__target');
+    const rangesFor = identity => {
+      if (!identity) {
+        return [];
+      }
+
+      // A tag or /tags URL can name this link. Keep the image slices only
+      // when that name is the saved HTML at this occurrence.
+      if (trusted && identity.name !== trusted) {
+        return [];
+      }
+
+      return identity.imageRanges || [];
+    };
 
     if (translated) {
       const names = identities.map(identity => identity.name).filter(Boolean);
       const unique = names.filter((entry, index) => names.indexOf(entry) === index);
 
-      if (names.length === identities.length && unique.length === 1) {
-        const match = identities.find(identity => identity.name === unique[0]);
-
-        return match ? match.imageRanges : [];
+      if (names.length !== identities.length || unique.length !== 1) {
+        return [];
       }
 
-      return [];
+      if (trusted && unique[0] !== trusted) {
+        return [];
+      }
+
+      const matched = identities.filter(identity => identity.name === unique[0]);
+      const first = matched[0] ? (matched[0].imageRanges || []) : [];
+      const agree = matched.every(identity => {
+        const ranges = identity.imageRanges || [];
+
+        return ranges.length === first.length && ranges.every((range, index) => range[0] === first[index][0] && range[1] === first[index][1]);
+      });
+
+      return agree ? first : [];
     }
 
     const inBody = !!link.closest('.status__content__text');
     const region = inBody ? link.closest('.status__content__text') : link.closest('.status__content');
 
     if (!region) {
-      return identities[0] ? identities[0].imageRanges : [];
+      return rangesFor(identities[0]);
     }
 
     const live = Array.from(region.querySelectorAll('a')).filter(item => (
@@ -495,9 +511,28 @@ class StatusContent extends React.PureComponent {
       && !item.closest('.status-translation-pair__target')
       && (inBody || !item.closest('.status__content__text'))
     ));
-    const identity = identities[live.indexOf(link)];
 
-    return identity ? identity.imageRanges : [];
+    return rangesFor(identities[live.indexOf(link)]);
+  }
+
+  projectHashtagLinkLabels (link, name, imageRanges) {
+    if (!link || !name || !imageRanges || imageRanges.length === 0 || !this.props.emojiMuteTextIndex || this.props.emojiMuteTextIndex.suppressAll !== true) {
+      return;
+    }
+
+    ['title', 'aria-label', 'aria-description', 'aria-valuetext'].forEach(attr => {
+      const value = link.getAttribute(attr);
+
+      if (!value) {
+        return;
+      }
+
+      const next = concealImageDerivedSegments(value, name, imageRanges);
+
+      if (next !== value) {
+        link.setAttribute(attr, next);
+      }
+    });
   }
 
   markHashtagLink (link) {
@@ -515,6 +550,7 @@ class StatusContent extends React.PureComponent {
     const { id, name: accountName } = this.statusAccountIdentity();
 
     link.setAttribute('data-menu-hashtag', bindHashtagMenuName(link, name, this.props.emojiMuteTextIndex, imageRanges));
+    this.projectHashtagLinkLabels(link, name, imageRanges);
 
     if (id) {
       link.setAttribute('data-account-id', id);
@@ -698,9 +734,12 @@ class StatusContent extends React.PureComponent {
       return;
     }
 
-    this._badgeNodes.forEach(({ node, name, imageRanges }) => {
-      if (node.isConnected) {
-        bindHashtagMenuName(node, name, this.props.emojiMuteTextIndex, imageRanges);
+    this._badgeNodes.forEach((entry, key) => {
+      const imageRanges = this._badgeRanges ? (this._badgeRanges.get(key) || []) : [];
+
+      if (entry.node.isConnected) {
+        bindHashtagMenuName(entry.node, entry.name, this.props.emojiMuteTextIndex, imageRanges);
+        this._badgeNodes.set(key, { node: entry.node, name: entry.name, imageRanges });
       }
     });
   }

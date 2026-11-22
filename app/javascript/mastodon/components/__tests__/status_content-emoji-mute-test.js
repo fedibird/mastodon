@@ -54,7 +54,7 @@ jest.mock('mastodon/components/icon', () => () => null);
 import { EMOJI_MUTES_APPLY, EMOJI_MUTES_DISABLE, EMOJI_MUTES_IGNORE, EMOJI_MUTES_REVISION } from '../../actions/emoji_mutes';
 import { normalizeStatus, normalizeStatusTranslation } from '../../actions/importer/normalizer';
 import emojify from '../../features/emoji/emoji';
-import { hashtagMenuStoredName } from '../../features/emoji/hashtag_menu_names';
+import { hashtagMenuStoredIdentity, hashtagMenuStoredName } from '../../features/emoji/hashtag_menu_names';
 import { resetEmojiMuteTextForTests } from '../../features/emoji/emoji_mute_text';
 import { resetEmojiActionsBusForTests, setEmojiActionsListener } from '../../features/emoji/emoji_actions/bus';
 import emojiMutesReducer from '../../reducers/emoji_mutes';
@@ -693,6 +693,122 @@ describe('StatusContent unverified emoji suppression', () => {
     });
 
     assertNoEmojiLeak(container);
+  });
+
+  it('keeps image ranges when a tag route or status.tags supplies the same name', () => {
+    const custom = '<img class="emojione custom-emoji" alt=":blob:" src="https://cdn.example/blob.svg">';
+    const href = 'https://remote.example/tags/party%3Ablob%3A';
+    const tagged = `<a href="${href}" class="mention hashtag" rel="tag" title="#party:blob:" aria-label="tag party:blob:">#<span>party${custom}</span></a>`;
+    const source = `<p>See ${tagged} stays</p>`;
+    const spoiler = `<p>CW ${tagged} note</p>`;
+    const target = `<p>訳 <a href="${href}" class="mention hashtag" rel="tag">#<span>パーティー</span></a> です</p>`;
+    const targetSpoiler = `<p>警告 <a href="${href}" class="mention hashtag" rel="tag">#<span>秘密</span></a></p>`;
+    const suppressState = fromJS({
+      server: { translationLanguages: { items: { en: ['ja'] } } },
+      emojiMutes: {
+        revision: '1',
+        appliedRevision: '1',
+        phase: 'stale',
+        failure: null,
+        rules: [],
+        availability: 'enabled',
+        display: 'suppress',
+      },
+    });
+    const mount = status => {
+      const view = render(
+        <Provider store={createStore(reducer, suppressState)}>
+          <StatusContent status={status} onTranslate={jest.fn()} onClick={jest.fn()} />
+        </Provider>,
+      );
+
+      return view;
+    };
+    const expectConcealed = link => {
+      expect(link.getAttribute('data-menu-hashtag') || '').not.toContain(':blob:');
+      expect(link.hasAttribute('data-menu-hashtag-token')).toBe(true);
+      expect(hashtagMenuStoredIdentity(link)).toEqual({ name: 'party:blob:', imageRanges: [[5, 11]] });
+      expect(link.getAttribute('title') || '').not.toContain(':blob:');
+      expect(link.getAttribute('aria-label') || '').not.toContain(':blob:');
+      expect(link.outerHTML).not.toContain('cdn.example/blob.svg');
+    };
+
+    const withTags = mount(buildStatus({
+      contentHtml: source,
+      spoilerHtml: spoiler,
+      spoiler_text: 'CW note',
+      tags: [{ name: 'party:blob:', url: href }],
+    }));
+
+    fireEvent.click(withTags.container.querySelector('button'));
+    expectConcealed(withTags.container.querySelector('.status__content__text a.mention.hashtag'));
+    expectConcealed(Array.from(withTags.container.querySelectorAll('a.mention.hashtag')).find(link => (
+      link.closest('p') && link.closest('p').textContent.includes('CW')
+    )));
+    withTags.unmount();
+
+    const withoutTags = mount(buildStatus({
+      contentHtml: source,
+      tags: [],
+    }));
+
+    expectConcealed(withoutTags.container.querySelector('a.mention.hashtag'));
+    withoutTags.unmount();
+
+    const translated = mount(buildStatus({
+      contentHtml: source,
+      spoilerHtml: spoiler,
+      spoiler_text: 'CW note',
+      tags: [{ name: 'party:blob:', url: href }],
+      language: 'en',
+      translationMode: 'translated',
+      translation: {
+        contentHtml: target,
+        spoilerHtml: targetSpoiler,
+        language: 'ja',
+        detected_source_language: 'en',
+        requested_source_language: 'en',
+        requested_target_language: 'ja',
+        provider: 'test',
+      },
+    }));
+
+    fireEvent.click(translated.container.querySelector('button'));
+    const translatedBody = translated.container.querySelector('.status__content__text a.mention.hashtag');
+    const translatedCw = Array.from(translated.container.querySelectorAll('a.mention.hashtag')).find(link => link.textContent.includes('秘密'));
+
+    expect(translatedBody.textContent).toContain('パーティー');
+    expectConcealed(translatedBody);
+    expect(translatedCw.textContent).toContain('秘密');
+    expectConcealed(translatedCw);
+    translated.unmount();
+
+    const mismatchHref = 'https://remote.example/tags/other';
+    const gardenHref = 'https://remote.example/tags/garden';
+    const mismatch = mount(buildStatus({
+      contentHtml: `<p><a href="${mismatchHref}" class="mention hashtag" rel="tag">#<span>party${custom}</span></a> <a href="${gardenHref}" class="mention hashtag" rel="tag">#<span>garden</span></a></p>`,
+      tags: [{ name: 'other', url: mismatchHref }],
+    }));
+    const mismatched = mismatch.container.querySelector(`a[href="${mismatchHref}"]`);
+    const garden = mismatch.container.querySelector(`a[href="${gardenHref}"]`);
+
+    expect(mismatched.getAttribute('data-menu-hashtag')).toBe('other');
+    expect(mismatched.hasAttribute('data-menu-hashtag-token')).toBe(false);
+    expect(hashtagMenuStoredIdentity(mismatched).imageRanges).toEqual([]);
+    expect(garden.getAttribute('data-menu-hashtag')).toBe('garden');
+    expect(hashtagMenuStoredIdentity(garden).imageRanges).toEqual([]);
+    mismatch.unmount();
+
+    const shared = 'https://remote.example/topics/shared';
+    const ambiguous = mount(buildStatus({
+      contentHtml: `<p><a href="${shared}" class="mention hashtag" rel="tag">#<span>party${custom}</span></a> <a href="${shared}" class="mention hashtag" rel="tag">#<span>garden</span></a></p>`,
+      tags: [{ name: 'party:blob:', url: shared }],
+    }));
+    const links = ambiguous.container.querySelectorAll(`a[href="${shared}"]`);
+
+    expectConcealed(links[0]);
+    expect(hashtagMenuStoredIdentity(links[1]).imageRanges).toEqual([]);
+    ambiguous.unmount();
   });
 });
 
