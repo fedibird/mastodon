@@ -94,14 +94,24 @@ class MediaItem extends ImmutablePureComponent {
     }
   }
 
+  bindImage = node => {
+    this.imageNode = node;
+
+    if (node && typeof this.rawDescription === 'string') {
+      rememberEmojiMuteAttributeSource(node, 'alt', this.rawDescription);
+    }
+  }
+
   componentDidMount () {
     this.bindOpenLabel();
     this.bindVideo(this.videoNode);
+    this.bindImage(this.imageNode);
   }
 
   componentDidUpdate () {
     this.bindOpenLabel();
     this.bindVideo(this.videoNode);
+    this.bindImage(this.imageNode);
   }
 
   handleClick = e => {
@@ -149,7 +159,7 @@ class MediaItem extends ImmutablePureComponent {
           const focusY = attachment.getIn(['meta', 'focus', 'y']) || 0;
           const x = ((focusX / 2) + 0.5) * 100;
           const y = ((focusY / -2) + 0.5) * 100;
-          content = <img src={preview} alt={description || ''} style={{ objectPosition: `${x}% ${y}%` }} loading='lazy' />;
+          content = <img ref={this.bindImage} src={preview} alt={description || ''} style={{ objectPosition: `${x}% ${y}%` }} loading='lazy' />;
         }
       } else if (type === 'gifv') {
         content = (
