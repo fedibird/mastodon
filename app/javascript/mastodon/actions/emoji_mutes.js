@@ -719,12 +719,12 @@ export function restoreVisibleEmojiMuteStatus(id) {
 
 let documentSyncGeneration = 0;
 let initialDocumentSync = null;
-let emojiMuteSyncsInFlight = 0;
+// Only the newest sync owns the notice. An older request can still be on
+// the network, and that must not keep a newer failure hidden.
+let emojiMuteCurrentSyncPending = false;
 
-// True only while a document sync has started and has not settled. A finished
-// failure can leave Redux in loading after this returns to zero.
 export function emojiMuteSyncInFlight() {
-  return emojiMuteSyncsInFlight > 0;
+  return emojiMuteCurrentSyncPending;
 }
 let initialDocumentRequestVersion = null;
 
@@ -801,7 +801,7 @@ export function syncEmojiMutes(options = {}) {
     }
 
     const generation = ++documentSyncGeneration;
-    emojiMuteSyncsInFlight += 1;
+    emojiMuteCurrentSyncPending = true;
     let syncReleased = false;
     const releaseSync = () => {
       if (syncReleased) {
@@ -809,7 +809,10 @@ export function syncEmojiMutes(options = {}) {
       }
 
       syncReleased = true;
-      emojiMuteSyncsInFlight = Math.max(0, emojiMuteSyncsInFlight - 1);
+
+      if (generation === documentSyncGeneration) {
+        emojiMuteCurrentSyncPending = false;
+      }
     };
     const preferenceGeneration = emojiMutePreferenceGeneration();
     const previousRevision = appliedEmojiMuteRevision();
@@ -857,6 +860,10 @@ export function syncEmojiMutes(options = {}) {
           return null;
         }
 
+        // A fulfilled GET can still be a failure, for example an older
+        // revision. Clear this sync before the failure dispatch, or the
+        // observer still treats it as in flight and the card stays hidden.
+        releaseSync();
         dispatch({
           type: EMOJI_MUTES_FAIL,
           failure: emojiMuteAuthorizationFailure() || 'unavailable',

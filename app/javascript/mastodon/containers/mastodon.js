@@ -249,8 +249,8 @@ export default class Mastodon extends React.PureComponent {
     } else if (phase === 'ready') {
       next = 'ready';
     } else if (syncing || (phase === 'loading' && this.emojiMuteRequestInFlight)) {
-      // Hide the previous card while any current sync is still pending.
-      // A finished failure can leave phase at loading with nothing in flight.
+      // Hide the previous card only while the newest sync is still pending.
+      // An older request, and a finished failure left in loading, do not.
       next = 'loading';
     } else if (phase === 'error') {
       next = 'error';

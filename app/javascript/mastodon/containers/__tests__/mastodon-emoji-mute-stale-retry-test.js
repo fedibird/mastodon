@@ -321,4 +321,126 @@ describe('obsolete emoji mute retry', () => {
     expect(notice(view).textContent).toContain('Couldn\'t load emoji mutes');
     view.unmount();
   });
+
+  const failNewerFirst = async view => {
+    await failInitial(view);
+
+    await act(async () => {
+      fireEvent.click(view.getByText('Try again'));
+    });
+
+    const older = gets[1];
+    const newer = mockHarness.dispatch(syncEmojiMutes({ changed: { revision: '2' } }));
+
+    await act(async () => {
+      gets[2].reject(new Error('offline'));
+      try {
+        await newer;
+      } catch (error) {
+        // The newer request owns the notice even while the older one is open.
+      }
+      await flush();
+    });
+
+    expect(notice(view)).not.toBeNull();
+    expect(notice(view).textContent).toContain('Couldn\'t load emoji mutes');
+    expect(mockHarness.getState().getIn(['emojiMutes', 'phase'])).toBe('error');
+    expect(mockHarness.getState().getIn(['emojiMutes', 'failure'])).toBe('unavailable');
+    expect(mockHarness.getState().getIn(['emojiMutes', 'display'])).toBe('suppress');
+    return older;
+  };
+
+  const expectNewerFailureUnchanged = view => {
+    expect(notice(view)).not.toBeNull();
+    expect(notice(view).textContent).toContain('Couldn\'t load emoji mutes');
+    expect(view.container.textContent).not.toContain('Reload and sign in');
+    expect(mockHarness.getState().getIn(['emojiMutes', 'phase'])).toBe('error');
+    expect(mockHarness.getState().getIn(['emojiMutes', 'failure'])).toBe('unavailable');
+    expect(mockHarness.getState().getIn(['emojiMutes', 'display'])).toBe('suppress');
+  };
+
+  it('shows the newer failure before the older request succeeds, and keeps that failure', async () => {
+    const view = render(<Mastodon locale='en' />);
+    const older = await failNewerFirst(view);
+
+    await act(async () => {
+      older.resolve(documentFor('1'));
+      await older.promise;
+      await flush();
+    });
+
+    expectNewerFailureUnchanged(view);
+    const started = gets.length;
+    await act(async () => {
+      fireEvent.click(view.getByText('Try again'));
+    });
+    expect(gets.length).toBe(started + 1);
+    await act(async () => {
+      gets[started].resolve(documentFor('3'));
+      await flush();
+    });
+    view.unmount();
+  });
+
+  it('shows the newer failure before an older 401, and does not ask for sign-in', async () => {
+    const view = render(<Mastodon locale='en' />);
+    const older = await failNewerFirst(view);
+
+    await act(async () => {
+      older.reject(Object.assign(new Error('unauthorized'), { response: { status: 401 } }));
+      try {
+        await older.promise;
+      } catch (error) {
+        // The superseded 401 does not own the notice.
+      }
+      await flush();
+    });
+
+    expectNewerFailureUnchanged(view);
+    view.unmount();
+  });
+
+  it('shows the newer failure before an older 500, and keeps that failure', async () => {
+    const view = render(<Mastodon locale='en' />);
+    const older = await failNewerFirst(view);
+
+    await act(async () => {
+      older.reject(new Error('offline'));
+      try {
+        await older.promise;
+      } catch (error) {
+        // The superseded 500 does not own the notice.
+      }
+      await flush();
+    });
+
+    expectNewerFailureUnchanged(view);
+    view.unmount();
+  });
+
+  it('shows a failure when a stream sync is answered with an older revision', async () => {
+    const view = render(<Mastodon locale='en' />);
+    await failInitial(view);
+
+    let newer;
+    act(() => {
+      newer = mockHarness.dispatch(syncEmojiMutes({ changed: { revision: '2' } }));
+    });
+
+    expect(notice(view)).toBeNull();
+
+    await act(async () => {
+      gets[1].resolve(documentFor('1'));
+      await newer;
+      await flush();
+    });
+
+    expect(notice(view)).not.toBeNull();
+    expect(notice(view).textContent).toContain('Couldn\'t load emoji mutes');
+    expect(mockHarness.getState().getIn(['emojiMutes', 'phase'])).toBe('error');
+    expect(mockHarness.getState().getIn(['emojiMutes', 'failure'])).toBe('unavailable');
+    expect(mockHarness.getState().getIn(['emojiMutes', 'display'])).toBe('suppress');
+    expect(mockHarness.getState().getIn(['emojiMutes', 'appliedRevision'])).toBeNull();
+    view.unmount();
+  });
 });
