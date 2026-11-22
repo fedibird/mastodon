@@ -9,6 +9,7 @@ import { closeModal } from '../../../actions/modal';
 import { fetchFilters } from '../../../actions/filters';
 import { muteHashtag, unmuteHashtag, updateHashtagMute } from '../../../actions/hashtag_mutes';
 import { HASHTAG_MUTE_CONTEXTS, HASHTAG_MUTE_DURATIONS, findHashtagMute } from '../../../utils/hashtag_mute';
+import { emojiMuteTextIndexFromState, presentEmojiMutePlain } from 'mastodon/features/emoji/emoji_mute_text';
 
 const messages = defineMessages({
   minutes: { id: 'intervals.full.minutes', defaultMessage: '{number, plural, one {# minute} other {# minutes}}' },
@@ -71,6 +72,7 @@ const mapStateToProps = (state, { hashtag }) => ({
   // open dialog render again at the end time, while Date.now() still decides
   // whether the saved mute has ended.
   filterClock: state.get('filterClock') || 0,
+  emojiMuteTextIndex: emojiMuteTextIndexFromState(state),
 });
 
 const mapDispatchToProps = dispatch => ({
@@ -107,7 +109,14 @@ class HashtagMuteModal extends React.PureComponent {
     onMute: PropTypes.func.isRequired,
     onUpdate: PropTypes.func.isRequired,
     onUnmute: PropTypes.func.isRequired,
+    emojiMuteTextIndex: PropTypes.object,
   };
+
+  visibleHashtag() {
+    const shown = presentEmojiMutePlain(this.props.hashtag, this.props.emojiMuteTextIndex);
+
+    return typeof shown === 'string' && shown !== '' ? shown : this.props.hashtag;
+  }
 
   state = {
     duration: null,
@@ -282,7 +291,7 @@ class HashtagMuteModal extends React.PureComponent {
   }
 
   render() {
-    const { hashtag, existing, intl, onClose } = this.props;
+    const { existing, intl, onClose } = this.props;
     const { loadState, submitting } = this.state;
     const ready = loadState === 'ready';
     const duration = this.resolvedDuration();
@@ -297,7 +306,7 @@ class HashtagMuteModal extends React.PureComponent {
       <div className='modal-root__modal mute-modal' role='dialog' aria-modal='true' aria-labelledby='hashtag-mute-title'>
         <div className='mute-modal__container'>
           <p id='hashtag-mute-title'>
-            <strong>{intl.formatMessage(messages.title, { name: hashtag })}</strong>
+            <strong>{intl.formatMessage(messages.title, { name: this.visibleHashtag() })}</strong>
           </p>
           <p className='mute-modal__explanation'>
             {intl.formatMessage(messages.explanation)}
