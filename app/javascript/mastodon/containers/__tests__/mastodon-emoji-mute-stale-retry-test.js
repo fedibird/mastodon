@@ -238,4 +238,87 @@ describe('obsolete emoji mute retry', () => {
     expect(view.container.textContent).not.toContain('Reload and sign in');
     view.unmount();
   });
+
+  const flush = async () => {
+    for (let step = 0; step < 8; step += 1) {
+      await Promise.resolve();
+    }
+  };
+
+  it('does not show an error or start the cooldown when an older success finishes during a newer sync', async () => {
+    const view = render(<Mastodon locale='en' />);
+    await failInitial(view);
+
+    await act(async () => {
+      fireEvent.click(view.getByText('Try again'));
+    });
+
+    const older = gets[1];
+    const newer = mockHarness.dispatch(syncEmojiMutes({ changed: { revision: '2' } }));
+
+    await act(async () => {
+      older.resolve(documentFor('1'));
+      await older.promise;
+      await flush();
+    });
+
+    expect(notice(view)).toBeNull();
+    expect(mockHarness.getState().getIn(['emojiMutes', 'phase'])).not.toBe('error');
+    expect(mockHarness.getState().getIn(['emojiMutes', 'phase'])).not.toBe('ready');
+    expect(mockHarness.getState().getIn(['emojiMutes', 'failure'])).toBeNull();
+
+    await act(async () => {
+      gets[2].reject(new Error('offline'));
+      try {
+        await newer;
+      } catch (error) {
+        // The newer request owns the notice.
+      }
+      await flush();
+    });
+
+    expect(notice(view)).not.toBeNull();
+    expect(notice(view).textContent).toContain('Couldn\'t load emoji mutes');
+    expect(view.container.textContent).not.toContain('Reload and sign in');
+
+    const started = gets.length;
+    await act(async () => {
+      fireEvent.click(view.getByText('Try again'));
+    });
+    expect(gets.length).toBe(started + 1);
+    await act(async () => {
+      gets[started].resolve(documentFor('3'));
+      await flush();
+    });
+    view.unmount();
+  });
+
+  it('hides the previous card during a sync that this component did not start, and shows it again only after that sync fails', async () => {
+    const view = render(<Mastodon locale='en' />);
+    await failInitial(view);
+    expect(notice(view)).not.toBeNull();
+
+    let newer;
+    act(() => {
+      newer = mockHarness.dispatch(syncEmojiMutes());
+    });
+
+    expect(notice(view)).toBeNull();
+    expect(mockHarness.getState().getIn(['emojiMutes', 'phase'])).toBe('loading');
+
+    await act(async () => {
+      gets[1].reject(new Error('offline'));
+      try {
+        await newer;
+      } catch (error) {
+        // The stream caller discards this rejection.
+      }
+      await flush();
+    });
+
+    expect(mockHarness.getState().getIn(['emojiMutes', 'phase'])).toBe('error');
+    expect(notice(view)).not.toBeNull();
+    expect(notice(view).textContent).toContain('Couldn\'t load emoji mutes');
+    view.unmount();
+  });
 });

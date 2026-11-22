@@ -14,7 +14,7 @@ import { hydrateStore } from '../actions/store';
 import { startMastodonSubscriptions } from './mastodon_subscriptions';
 import { IntlProvider, addLocaleData } from 'react-intl';
 import EmojiMuteLoadNotice, { EmojiMuteNoticeContext } from '../components/emoji_mute_load_notice';
-import { invalidateEmojiMuteAsyncWork, retryEmojiMuteLoad, ignoreEmojiMutesThisView, disableEmojiMuteFeature, EMOJI_MUTES_RESET } from '../actions/emoji_mutes';
+import { invalidateEmojiMuteAsyncWork, retryEmojiMuteLoad, ignoreEmojiMutesThisView, disableEmojiMuteFeature, emojiMuteSyncInFlight, EMOJI_MUTES_RESET } from '../actions/emoji_mutes';
 import { classifyEmojiMuteFetchError } from '../features/emoji/emoji_mute_fetch_error';
 import { resetEmojiMuteSession } from '../features/emoji/emoji_mute_store';
 import { currentEmojiMuteBoot } from '../features/emoji/emoji_mute_availability';
@@ -242,14 +242,18 @@ export default class Mastodon extends React.PureComponent {
     const availability = state.getIn(['emojiMutes', 'availability']);
     let next = this.requestedBootPhase;
 
+    const syncing = emojiMuteSyncInFlight();
+
     if (availability === 'temporary_ignore') {
       next = 'ignored';
-    } else if (phase === 'loading' && this.emojiMuteRequestInFlight) {
+    } else if (phase === 'ready') {
+      next = 'ready';
+    } else if (syncing || (phase === 'loading' && this.emojiMuteRequestInFlight)) {
+      // Hide the previous card while any current sync is still pending.
+      // A finished failure can leave phase at loading with nothing in flight.
       next = 'loading';
     } else if (phase === 'error') {
       next = 'error';
-    } else if (phase === 'ready') {
-      next = 'ready';
     }
 
     if (next !== 'ready' && next !== 'error' && next !== 'ignored' && next !== 'loading') {
@@ -283,7 +287,7 @@ export default class Mastodon extends React.PureComponent {
     // refresh because the columns are mounting. A later retry must restore them.
     const initialDocumentFetch = !this.emojiMuteInitialFetchStarted;
     this.emojiMuteInitialFetchStarted = true;
-    store.dispatch(retryEmojiMuteLoad({ bootstrap: initialDocumentFetch })).then(() => {
+    store.dispatch(retryEmojiMuteLoad({ bootstrap: initialDocumentFetch })).then(result => {
       if (generation !== this.bootstrapGeneration) {
         return;
       }
@@ -291,6 +295,13 @@ export default class Mastodon extends React.PureComponent {
       this.emojiMuteRequestInFlight = false;
 
       if (!this.mounted || this.sessionChanged) {
+        return;
+      }
+
+      // The newer sync already changed Redux. This completion does not.
+      if (result && result.superseded) {
+        this.bootstrapComplete = true;
+        this.observeEmojiMuteState();
         return;
       }
 

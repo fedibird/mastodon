@@ -719,6 +719,13 @@ export function restoreVisibleEmojiMuteStatus(id) {
 
 let documentSyncGeneration = 0;
 let initialDocumentSync = null;
+let emojiMuteSyncsInFlight = 0;
+
+// True only while a document sync has started and has not settled. A finished
+// failure can leave Redux in loading after this returns to zero.
+export function emojiMuteSyncInFlight() {
+  return emojiMuteSyncsInFlight > 0;
+}
 let initialDocumentRequestVersion = null;
 
 function plainInitialFollowUp(options) {
@@ -794,6 +801,16 @@ export function syncEmojiMutes(options = {}) {
     }
 
     const generation = ++documentSyncGeneration;
+    emojiMuteSyncsInFlight += 1;
+    let syncReleased = false;
+    const releaseSync = () => {
+      if (syncReleased) {
+        return;
+      }
+
+      syncReleased = true;
+      emojiMuteSyncsInFlight = Math.max(0, emojiMuteSyncsInFlight - 1);
+    };
     const preferenceGeneration = emojiMutePreferenceGeneration();
     const previousRevision = appliedEmojiMuteRevision();
     const previousSignature = hideReactionSignature(currentEmojiMutes());
@@ -810,7 +827,8 @@ export function syncEmojiMutes(options = {}) {
 
     const syncPromise = pending.then(mutes => {
       if (generation !== documentSyncGeneration) {
-        return null;
+        // An older success must not be read as "this sync failed".
+        return { superseded: true };
       }
 
       if (currentEmojiMuteBoot().availability === 'disabled') {
@@ -905,15 +923,18 @@ export function syncEmojiMutes(options = {}) {
       const blocked = emojiMuteAuthorizationFailure();
 
       if (blocked || sessionRejected || options.verify === true || !emojiMuteDocumentReady()) {
+        // The failure dispatch is this request's outcome, not another in-flight sync.
+        releaseSync();
         dispatch({ type: EMOJI_MUTES_FAIL, failure: blocked || failure });
       }
 
       throw error;
     });
+    const settled = syncPromise.finally(releaseSync);
 
     if (options.bootstrap === true && !options.changed && options.verify !== true && !options.reconnect) {
       let tracked;
-      tracked = syncPromise.finally(() => {
+      tracked = settled.finally(() => {
         if (initialDocumentSync === tracked) {
           initialDocumentSync = null;
           initialDocumentRequestVersion = null;
@@ -924,6 +945,6 @@ export function syncEmojiMutes(options = {}) {
       return tracked;
     }
 
-    return syncPromise;
+    return settled;
   };
 }

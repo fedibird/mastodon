@@ -78,6 +78,7 @@ jest.mock('mastodon/actions/emoji_mutes', () => ({
     mockSubscribers.forEach(listener => listener());
   }),
   disableEmojiMuteFeature: jest.fn(() => () => Promise.resolve({ enabled: false, explicit: true, applied: true })),
+  emojiMuteSyncInFlight: () => false,
 }));
 jest.mock('mastodon/locales', () => ({ getLocale: () => ({ localeData: [], messages: {} }) }));
 jest.mock('react-intl', () => {
