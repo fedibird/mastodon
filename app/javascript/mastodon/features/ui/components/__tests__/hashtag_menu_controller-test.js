@@ -939,17 +939,26 @@ describe('HashtagMenuController', () => {
     });
   });
 
-  it('does not assign reordered translated-only hashtags by original position', () => {
-    const href = 'https://remote.example/topics/shared';
+  it.each(['translated', 'bilingual', 'original'])('keeps reordered shared-href hashtags on the %s view', mode => {
+    const href = 'https://remote.example/topics/common';
     const sourceHtml = `<p>First <a href="${href}" class="mention hashtag" rel="tag">#<span>alpha</span></a> then <a href="${href}" class="mention hashtag" rel="tag">#<span>beta</span></a> stays</p>`;
     const targetHtml = `<p>後で <a href="${href}" class="mention hashtag" rel="tag">#<span>ベータ</span></a> 先に <a href="${href}" class="mention hashtag" rel="tag">#<span>アルファ</span></a> です</p>`;
-    const { container } = renderMenu({
+    const { container, store } = renderMenu({
       signedIn: true,
+      emojiMutes: {
+        revision: '2',
+        appliedRevision: '1',
+        phase: 'stale',
+        failure: null,
+        rules: [],
+        availability: 'enabled',
+        display: 'suppress',
+      },
       status: buildStatus({
         contentHtml: sourceHtml,
         language: 'en',
         tags: [],
-        translationMode: 'translated',
+        translationMode: mode,
         translation: {
           contentHtml: targetHtml,
           spoilerHtml: '',
@@ -961,19 +970,72 @@ describe('HashtagMenuController', () => {
         },
       }),
     });
+    const expectOrdinary = link => {
+      expect(link.getAttribute('href')).toBe(href);
+      expect(link.hasAttribute('data-menu-hashtag')).toBe(false);
+      expect(link.outerHTML).not.toContain('alpha');
+      expect(link.outerHTML).not.toContain('beta');
+
+      const modified = click(link.querySelector('span') || link, { ctrlKey: true });
+      const open = click(link.querySelector('span') || link);
+
+      expect(modified.defaultPrevented).toBe(false);
+      expect(open.defaultPrevented).toBe(false);
+      expect(link.getAttribute('href')).toBe(href);
+    };
+    const expectNamed = (link, name) => {
+      expect(link.getAttribute('href')).toBe(href);
+      expect(link.getAttribute('data-menu-hashtag')).toBe(name);
+
+      const modified = click(link.querySelector('span') || link, { ctrlKey: true });
+
+      expect(modified.defaultPrevented).toBe(false);
+      expect(screen.queryByRole('button', { name: `Mute #${name}` })).toBeNull();
+      expect(link.getAttribute('href')).toBe(href);
+
+      const open = click(link.querySelector('span') || link);
+
+      expect(open.defaultPrevented).toBe(true);
+      fireEvent.click(screen.getByRole('button', { name: `Mute #${name}` }));
+      expect(store.getState().getIn(['modal', 'hashtag'])).toBe(name);
+
+      const again = click(link.querySelector('span') || link);
+
+      expect(again.defaultPrevented).toBe(true);
+      fireEvent.click(screen.getByRole('button', { name: 'Copy hashtag' }));
+      expect(navigator.clipboard.writeText).toHaveBeenLastCalledWith(`#${name}`);
+    };
+
+    if (mode === 'translated') {
+      const links = container.querySelectorAll('.status__content__text a.mention.hashtag');
+
+      expect(container.querySelector('.status-translation-pair')).toBeNull();
+      expect(links).toHaveLength(2);
+      links.forEach(expectOrdinary);
+      expect(screen.queryByRole('button', { name: 'Mute #alpha' })).toBeNull();
+      expect(screen.queryByRole('button', { name: 'Mute #beta' })).toBeNull();
+      return;
+    }
+
+    if (mode === 'bilingual') {
+      const source = container.querySelectorAll('.status-translation-pair__source a.mention.hashtag');
+      const target = container.querySelectorAll('.status-translation-pair__target a.mention.hashtag');
+
+      expect(source).toHaveLength(2);
+      expect(target).toHaveLength(2);
+      expectNamed(source[0], 'alpha');
+      expectNamed(source[1], 'beta');
+      target.forEach(expectOrdinary);
+      return;
+    }
+
     const links = container.querySelectorAll('.status__content__text a.mention.hashtag');
 
     expect(container.querySelector('.status-translation-pair')).toBeNull();
     expect(links).toHaveLength(2);
-    links.forEach(link => {
-      expect(link.getAttribute('href')).toBe(href);
-      expect(link.hasAttribute('data-menu-hashtag')).toBe(false);
-
-      const open = click(link.querySelector('span') || link);
-
-      expect(open.defaultPrevented).toBe(false);
-    });
-    expect(screen.queryByRole('button', { name: 'Mute #alpha' })).toBeNull();
-    expect(screen.queryByRole('button', { name: 'Mute #beta' })).toBeNull();
+    expect(links[0].textContent).toBe('#alpha');
+    expect(links[1].textContent).toBe('#beta');
+    expectNamed(links[0], 'alpha');
+    expectNamed(links[1], 'beta');
   });
 });

@@ -979,6 +979,8 @@ describe('mounted suppress transition', () => {
             title: img.getAttribute('title'),
             hidden: img.hasAttribute('hidden'),
             ariaHidden: img.getAttribute('aria-hidden'),
+            shortcode: img.getAttribute('data-emoji-shortcode'),
+            domain: img.getAttribute('data-emoji-domain'),
           });
         }
 
@@ -1034,12 +1036,16 @@ describe('mounted suppress transition', () => {
           expect(shot.title).toBeNull();
           expect(shot.hidden).toBe(true);
           expect(shot.ariaHidden).toBe('true');
+          expect(shot.shortcode).toBeNull();
+          expect(shot.domain).toBeNull();
         } else {
           expect(shot.src).toBe('https://cdn.example/blob.png');
           expect(shot.alt).toBe(':blob:');
           expect(shot.title).toBe('blob');
           expect(shot.hidden).toBe(false);
           expect(shot.ariaHidden).toBeNull();
+          expect(shot.shortcode).toBe('blob');
+          expect(shot.domain).toBe('remote.example');
         }
       });
 
