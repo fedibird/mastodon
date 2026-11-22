@@ -7,18 +7,43 @@ import { List as ImmutableList, fromJS } from 'immutable';
 import { barVisibleReaction } from 'mastodon/features/emoji/emoji_mute_projection';
 import { emojiReactionsForStatus, emojiReactionAccountIds } from '../utils/emoji_reactions';
 
+const accountIdList = ids => {
+  if (!ids) {
+    return [];
+  }
+
+  const list = typeof ids.toArray === 'function' ? ids.toArray() : ids;
+
+  return Array.isArray(list) ? list.map(String) : [];
+};
+
+const viewerOwnsReactionName = reaction => {
+  if (!reaction || me === null || me === undefined || me === '') {
+    return false;
+  }
+
+  const mine = String(me);
+  const parts = reaction.get ? reaction.get('parts') : reaction.parts;
+
+  if (parts && typeof parts.some === 'function' && parts.size !== 0) {
+    return parts.some(part => accountIdList(part.get ? part.get('account_ids') : part.account_ids).includes(mine));
+  }
+
+  return emojiReactionAccountIds(reaction).map(String).includes(mine);
+};
+
 const shownReaction = (reaction, rules) => {
+  const marked = reaction && reaction.get && (reaction.get('viewer_owns_name') === true || reaction.get('viewer_owns_name') === false);
+  const owns = marked ? reaction.get('viewer_owns_name') : viewerOwnsReactionName(reaction);
   const next = barVisibleReaction(reaction, rules);
 
   if (!next) {
     return null;
   }
 
-  if (next === reaction) {
-    return reaction;
-  }
+  const map = next.get && typeof next.get === 'function' ? next : fromJS(next);
 
-  return fromJS(next);
+  return map.set ? map.set('viewer_owns_name', owns) : map;
 };
 import TransitionMotion from 'react-motion/lib/TransitionMotion';
 import { reduceMotion, me, hideReactionCounter, hideListOfEmojiReactionsToPosts } from 'mastodon/initial_state';
@@ -90,10 +115,8 @@ class EmojiReactionsBar extends ImmutablePureComponent {
     }
 
     const styles = visibleReactions.map(emojiReaction => {
-      const domain = emojiReaction.get('domain', '');
-
       return {
-        key: `${emojiReaction.get('name')}${domain ? `@${domain}` : ''}`,
+        key: `${emojiReaction.get('name')}`,
         data: {
           emojiReaction: emojiReaction,
           myReaction: emojiReactionAccountIds(emojiReaction).includes(me),
@@ -117,7 +140,7 @@ class EmojiReactionsBar extends ImmutablePureComponent {
                 <EmojiReaction
                   key={key}
                   emojiReaction={emojiReaction}
-                  myReaction={emojiReactionAccountIds(emojiReaction).includes(me)}
+                  myReaction={!!(emojiReaction.get('viewer_owns_name') || emojiReactionAccountIds(emojiReaction).includes(me))}
                   style={{ transform: `scale(${style.scale})`, position: style.scale < 0.5 ? 'absolute' : 'static' }}
                   status={status}
                   addEmojiReaction={addEmojiReaction}

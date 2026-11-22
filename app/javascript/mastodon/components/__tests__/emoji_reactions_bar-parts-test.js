@@ -123,4 +123,85 @@ describe('EmojiReactionsBar unprojected local parts', () => {
     expect(container.querySelector('button.reactions-bar__item')).toBeNull();
     expect(container.innerHTML).not.toContain('cdn.example/8.png');
   });
+
+  it('draws the surviving part when the group image is not one of those parts', () => {
+    const stale = {
+      name: 'house',
+      count: 2,
+      account_ids: ['3', '4'],
+      url: 'https://cdn.example/7.png',
+      static_url: 'https://cdn.example/7.png',
+      parts: [
+        {
+          identity: { kind: 'custom', scope: 'local', custom_emoji_id: '8' },
+          custom_emoji_id: '8',
+          account_ids: ['3'],
+          url: 'https://cdn.example/8.png',
+          static_url: 'https://cdn.example/8.png',
+        },
+        {
+          identity: { kind: 'custom', scope: 'local', custom_emoji_id: '9' },
+          custom_emoji_id: '9',
+          account_ids: ['4'],
+          url: 'https://cdn.example/9.png',
+          static_url: 'https://cdn.example/9.png',
+        },
+      ],
+    };
+    const { container, store } = renderBar([stale]);
+
+    act(() => {
+      store.dispatch({
+        type: EMOJI_MUTES_APPLY,
+        revision: '2',
+        availability: 'enabled',
+        mutes: [localRule('7')],
+      });
+    });
+
+    expect(container.querySelectorAll('button.reactions-bar__item')).toHaveLength(1);
+    expect(container.querySelector('img').getAttribute('src')).toBe('https://cdn.example/8.png');
+    expect(container.querySelector('.reactions-bar__item__count').textContent).toBe('2');
+  });
+
+  it('keeps the chip selected when the viewer reaction is a hidden part of the same name', () => {
+    const owned = {
+      name: 'blob',
+      count: 2,
+      account_ids: ['1', '2'],
+      url: 'https://cdn.example/7.png',
+      static_url: 'https://cdn.example/7.png',
+      parts: [
+        {
+          identity: { kind: 'custom', scope: 'local', custom_emoji_id: '7' },
+          custom_emoji_id: '7',
+          account_ids: ['1'],
+          url: 'https://cdn.example/7.png',
+          static_url: 'https://cdn.example/7.png',
+        },
+        {
+          identity: { kind: 'custom', scope: 'local', custom_emoji_id: '8' },
+          custom_emoji_id: '8',
+          account_ids: ['2'],
+          url: 'https://cdn.example/8.png',
+          static_url: 'https://cdn.example/8.png',
+        },
+      ],
+    };
+    const { container, store } = renderBar([owned]);
+
+    act(() => {
+      store.dispatch({
+        type: EMOJI_MUTES_APPLY,
+        revision: '2',
+        availability: 'enabled',
+        mutes: [localRule('7')],
+      });
+    });
+
+    const button = container.querySelector('button.reactions-bar__item');
+
+    expect(container.querySelector('img').getAttribute('src')).toBe('https://cdn.example/8.png');
+    expect(button.className).toContain('active');
+  });
 });

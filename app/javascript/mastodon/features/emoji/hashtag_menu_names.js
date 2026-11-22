@@ -283,8 +283,20 @@ export function concealImageDerivedSegments(value, name, imageRanges, options) {
   }
 
   // A second pass sees the placeholder already sitting in the image range.
+  // Adjacent ranges were merged on the first pass, so compare that form.
   // Leave the typed shortcode that follows it.
-  const projectedName = concealAlignedSegments(name, imageRanges, 0);
+  const mergedRanges = imageRanges.slice().sort((left, right) => left[0] - right[0]).reduce((merged, [start, end]) => {
+    const last = merged[merged.length - 1];
+
+    if (last && start <= last[1]) {
+      last[1] = Math.max(last[1], end);
+      return merged;
+    }
+
+    merged.push([start, end]);
+    return merged;
+  }, []);
+  const projectedName = concealAlignedSegments(name, mergedRanges, 0);
 
   if (projectedName !== name && alignedNameOffsets(value, projectedName).length > 0) {
     return value;
@@ -433,6 +445,10 @@ export function bindHashtagMenuName(element, name, index, imageRanges, label) {
 
   rememberLabelIdentity(element, label);
 
+  const actionImages = label && Object.prototype.hasOwnProperty.call(label, 'actionImages')
+    ? (label.actionImages || [])
+    : ((label && label.images) || []);
+
   if (!name) {
     namesByElement.delete(element);
     element.removeAttribute('data-menu-hashtag-token');
@@ -441,10 +457,8 @@ export function bindHashtagMenuName(element, name, index, imageRanges, label) {
 
   // Keep image ranges while the tag is verified. An open menu reads them
   // once, and still projects them after the display becomes unverified.
-  const images = (label && label.images) || [];
-
-  if (ranges.length > 0 || images.length > 0 || concealsName(name, ranges, index)) {
-    namesByElement.set(element, { name, imageRanges: ranges, images });
+  if (ranges.length > 0 || actionImages.length > 0 || concealsName(name, ranges, index)) {
+    namesByElement.set(element, { name, imageRanges: ranges, images: actionImages });
   } else {
     namesByElement.delete(element);
   }
@@ -457,6 +471,16 @@ export function bindHashtagMenuName(element, name, index, imageRanges, label) {
   element.setAttribute('data-menu-hashtag-token', '');
 
   return '';
+}
+
+export function hashtagMenuBoundImages(element) {
+  const stored = element && namesByElement.get(element);
+
+  if (!stored || typeof stored !== 'object' || typeof stored.name !== 'string') {
+    return null;
+  }
+
+  return stored.images || [];
 }
 
 export function hashtagMenuStoredIdentity(element) {

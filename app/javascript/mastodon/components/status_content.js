@@ -76,23 +76,26 @@ const rangesAgree = (left, right) => (
 // raw shortcode is not written into an attribute.
 const normalizationOffsets = text => {
   const offsets = new Array(text.length + 1);
-  let normalized = 0;
   let index = 0;
 
-  while (index < text.length) {
-    const chunk = String.fromCodePoint(text.codePointAt(index));
+  while (index <= text.length) {
+    offsets[index] = text.slice(0, index).normalize('NFKC').length;
 
-    offsets[index] = normalized;
+    const code = text.codePointAt(index);
 
-    if (chunk.length === 2) {
-      offsets[index + 1] = normalized;
+    if (code === undefined) {
+      break;
     }
 
-    normalized += chunk.normalize('NFKC').length;
-    index += chunk.length;
+    if (code > 0xFFFF) {
+      offsets[index + 1] = offsets[index];
+      index += 2;
+    } else {
+      index += 1;
+    }
   }
 
-  offsets[text.length] = normalized;
+  offsets[text.length] = text.normalize('NFKC').length;
 
   return offsets;
 };
@@ -861,7 +864,9 @@ class StatusContent extends React.PureComponent {
         return;
       }
 
-      const next = projectConcealedHashtagText(base, name, imageRanges || []);
+      const spelling = (base.match(/[#＃]\s*([^\s#＃]+)/) || [])[1] || '';
+      const ranges = spelling ? alignHashtagRanges(name, spelling, imageRanges || []) : (imageRanges || []);
+      const next = projectConcealedHashtagText(base, spelling || name, ranges || []);
 
       if (next !== current) {
         link.setAttribute(attr, next);
@@ -894,7 +899,12 @@ class StatusContent extends React.PureComponent {
 
     const menuImages = this.hashtagMenuImages(link);
     const menuLabel = translatedImages
-      ? { ...translatedImages, images: (translatedImages.images && translatedImages.images.length > 0) ? translatedImages.images : menuImages }
+      ? {
+        name: translatedImages.name,
+        imageRanges: translatedImages.imageRanges || [],
+        images: translatedImages.images || [],
+        actionImages: menuImages,
+      }
       : { name, imageRanges, images: menuImages };
 
     link.setAttribute('data-menu-hashtag', bindHashtagMenuName(link, name, this.props.emojiMuteTextIndex, imageRanges, menuLabel));
@@ -1052,7 +1062,7 @@ class StatusContent extends React.PureComponent {
     this.setState({ hashtagsExpanded: true });
   }
 
-  badgeRefFor (name, index, imageRanges) {
+  badgeRefFor (name, index, imageRanges, images) {
     if (!this._badgeRefs) {
       this._badgeRefs = new Map();
     }
@@ -1063,7 +1073,12 @@ class StatusContent extends React.PureComponent {
       this._badgeRanges = new Map();
     }
 
+    if (!this._badgeImages) {
+      this._badgeImages = new Map();
+    }
+
     this._badgeRanges.set(key, imageRanges || []);
+    this._badgeImages.set(key, images || []);
 
     let ref = this._badgeRefs.get(key);
 
@@ -1079,9 +1094,10 @@ class StatusContent extends React.PureComponent {
         }
 
         const imageRanges = this._badgeRanges ? (this._badgeRanges.get(key) || []) : [];
+        const images = this._badgeImages ? (this._badgeImages.get(key) || []) : [];
 
-        this._badgeNodes.set(key, { node, name, imageRanges });
-        bindHashtagMenuName(node, name, this.props.emojiMuteTextIndex, imageRanges);
+        this._badgeNodes.set(key, { node, name, imageRanges, images });
+        bindHashtagMenuName(node, name, this.props.emojiMuteTextIndex, imageRanges, { name, imageRanges, images });
       };
       this._badgeRefs.set(key, ref);
     }
@@ -1096,10 +1112,11 @@ class StatusContent extends React.PureComponent {
 
     this._badgeNodes.forEach((entry, key) => {
       const imageRanges = this._badgeRanges ? (this._badgeRanges.get(key) || []) : [];
+      const images = this._badgeImages ? (this._badgeImages.get(key) || []) : [];
 
       if (entry.node.isConnected) {
-        bindHashtagMenuName(entry.node, entry.name, this.props.emojiMuteTextIndex, imageRanges);
-        this._badgeNodes.set(key, { node: entry.node, name: entry.name, imageRanges });
+        bindHashtagMenuName(entry.node, entry.name, this.props.emojiMuteTextIndex, imageRanges, { name: entry.name, imageRanges, images });
+        this._badgeNodes.set(key, { node: entry.node, name: entry.name, imageRanges, images });
         syncOpenHashtagMenu(entry.node);
       }
     });
@@ -1129,7 +1146,7 @@ class StatusContent extends React.PureComponent {
               className='status__content__hashtag-badge status-link'
               target='_blank'
               rel='noopener noreferrer'
-              ref={this.badgeRefFor(name, index, imageRanges)}
+              ref={this.badgeRefFor(name, index, imageRanges, hashtag.images || [])}
               data-menu-hashtag={hashtagMenuDomName(name, this.props.emojiMuteTextIndex, imageRanges)}
               data-account-id={accountId || undefined}
               data-account-name={accountName || undefined}

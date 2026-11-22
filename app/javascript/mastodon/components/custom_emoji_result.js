@@ -6,7 +6,7 @@ import ImmutablePropTypes from 'react-immutable-proptypes';
 import { injectIntl, defineMessages, FormattedMessage } from 'react-intl';
 import Emoji from './emoji';
 import { attachInlineEmojiMenus, handleInlineEmojiClick, openInlineEmojiMenu } from 'mastodon/features/emoji/emoji_actions/inline_emoji';
-import { emojiMuteTextIndexFromState, replaceEmojiInDisplayHtml } from 'mastodon/features/emoji/emoji_mute_text';
+import { emojiMuteTextIndexFromState, replaceEmojiInDisplayHtml, retainMutedEmojiLinkLabel } from 'mastodon/features/emoji/emoji_mute_text';
 import { bindEmojiMuteHtmlSources } from 'mastodon/features/emoji/emoji_mute_sources';
 
 const messages = defineMessages({
@@ -15,6 +15,20 @@ const messages = defineMessages({
   linkToCustomEmojiInRemote: { id: 'status.link_to_custom_emoji_in_remote', defaultMessage: 'Link to :@{shortcode}: in @{domain}' },
   postByAcct: { id: 'status.post_by_acct', defaultMessage: 'Post by @{acct}' },
 });
+
+const hashtagNameFromLink = link => {
+  try {
+    const parts = new URL(link.getAttribute('href') || '', 'https://example.invalid').pathname.split('/').filter(Boolean);
+
+    if (parts.length === 2 && (parts[0] === 'tags' || parts[0] === 'tag')) {
+      return `#${decodeURIComponent(parts[1])}`;
+    }
+  } catch (error) {
+    // A relative or empty href keeps the visible label.
+  }
+
+  return link.text;
+};
 
 const mapStateToProps = (state, { shortcode_with_domain }) => ({
   custom_emoji: state.getIn(['custom_emojis_detail', shortcode_with_domain]),
@@ -76,9 +90,10 @@ class CustomEmojiResult extends React.PureComponent {
         } else {
           link.setAttribute('title', intl.formatMessage(messages.linkToCustomEmojiInLocal, { shortcode: link.dataset.shortcode }));
         }
+        retainMutedEmojiLinkLabel(link);
         link.addEventListener('click', this.onCustomEmojiUrlClick.bind(this, link.dataset.shortcode, link.dataset.domain), false);
       } else if (link.textContent[0] === '#' || (link.previousSibling && link.previousSibling.textContent && link.previousSibling.textContent[link.previousSibling.textContent.length - 1] === '#')) {
-        link.addEventListener('click', this.onHashtagClick.bind(this, link.text), false);
+        link.addEventListener('click', this.onHashtagClick.bind(this, hashtagNameFromLink(link)), false);
       } else if (link.classList.contains('account-url-link')) {
         link.setAttribute('title', intl.formatMessage(messages.linkToAcct, { acct: link.dataset.accountAcct }));
         link.addEventListener('click', this.onAccountUrlClick.bind(this, link.dataset.accountId, link.dataset.path ?? '', link.dataset.accountActorType), false);

@@ -11,7 +11,7 @@ import { muteHashtag, unmuteHashtag, updateHashtagMute } from '../../../actions/
 import { HASHTAG_MUTE_CONTEXTS, HASHTAG_MUTE_DURATIONS, findHashtagMute } from '../../../utils/hashtag_mute';
 import { projectHashtagLabel, registerHashtagDialogConcealer, replaceHashtagSlot } from 'mastodon/features/emoji/hashtag_menu_names';
 import { recordEmojiMuteText } from 'mastodon/features/emoji/emoji_mute_live_dom';
-import { rememberEmojiMuteTextSource } from 'mastodon/features/emoji/emoji_mute_sources';
+import { rememberEmojiMuteHashtagSlot } from 'mastodon/features/emoji/emoji_mute_sources';
 import { emojiMuteTextIndexFromState, SUPPRESS_UNVERIFIED_INDEX, suppressUnicodeEmoji, UNVERIFIED_EMOJI_PLACEHOLDER } from 'mastodon/features/emoji/emoji_mute_text';
 
 const messages = defineMessages({
@@ -168,7 +168,7 @@ class HashtagMuteModal extends React.PureComponent {
       if (next !== value) {
         const noted = sink && sink.find(record => record.kind === 'text' && record.node === node);
 
-        rememberEmojiMuteTextSource(node, logical);
+        rememberEmojiMuteHashtagSlot(node, { text: logical, name: raw, ranges, images });
 
         if (noted) {
           noted.value = logical;

@@ -86,12 +86,22 @@ class MediaItem extends ImmutablePureComponent {
     rememberEmojiMuteAttributeSource(this.openNode, 'aria-label', this.rawDescription);
   }
 
+  bindVideo = node => {
+    this.videoNode = node;
+
+    if (node && typeof this.rawDescription === 'string') {
+      rememberEmojiMuteAttributeSource(node, 'aria-label', this.rawDescription);
+    }
+  }
+
   componentDidMount () {
     this.bindOpenLabel();
+    this.bindVideo(this.videoNode);
   }
 
   componentDidUpdate () {
     this.bindOpenLabel();
+    this.bindVideo(this.videoNode);
   }
 
   handleClick = e => {
@@ -146,6 +156,7 @@ class MediaItem extends ImmutablePureComponent {
           <video
             className='media-gallery__item-gifv-thumbnail'
             aria-label={description || undefined}
+            ref={this.bindVideo}
             role='application'
             src={attachment.get('url')}
             onMouseEnter={this.handleMouseEnter}
@@ -180,7 +191,7 @@ class MediaItem extends ImmutablePureComponent {
             {blurred && <span className='timeline-media-tile__concealed-icon'><Icon id='eye-slash' /></span>}
             {!concealed && ['audio', 'video'].includes(type) && <span className='timeline-media-tile__play'><Icon id={type === 'audio' ? 'music' : 'play'} /></span>}
           </a>
-          {description && <div className='media-gallery__item__badges'><AltTextBadge description={description} /></div>}
+          {description && <div className='media-gallery__item__badges'><AltTextBadge description={description} rawOriginal={typeof rawDescription === 'string' ? rawDescription : undefined} /></div>}
         </div>
       </div>
     );

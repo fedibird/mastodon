@@ -11,9 +11,9 @@ import { me } from 'mastodon/initial_state';
 import { copyText } from 'mastodon/utils/clipboard';
 import { accountUrlForHashtag } from 'mastodon/utils/account_tag_url';
 import { collectCopyHashtags } from 'mastodon/utils/status_hashtags';
-import { hashtagMenuStoredIdentity, projectHashtagLabel, registerHashtagMenuBinding, registerHashtagMenuConcealer, replaceHashtagSlot } from 'mastodon/features/emoji/hashtag_menu_names';
+import { hashtagMenuBoundImages, hashtagMenuStoredIdentity, projectHashtagLabel, registerHashtagMenuBinding, registerHashtagMenuConcealer, replaceHashtagSlot } from 'mastodon/features/emoji/hashtag_menu_names';
 import { recordEmojiMuteText } from 'mastodon/features/emoji/emoji_mute_live_dom';
-import { rememberEmojiMuteTextSource } from 'mastodon/features/emoji/emoji_mute_sources';
+import { rememberEmojiMuteHashtagSlot } from 'mastodon/features/emoji/emoji_mute_sources';
 import { emojiMuteTextIndexFromState, SUPPRESS_UNVERIFIED_INDEX, suppressUnicodeEmoji, UNVERIFIED_EMOJI_PLACEHOLDER } from 'mastodon/features/emoji/emoji_mute_text';
 
 const messages = defineMessages({
@@ -108,9 +108,20 @@ class HashtagMenuController extends React.PureComponent {
     const next = this.actionRanges();
     const prev = this.state.imageRanges || [];
     const same = next.length === prev.length && next.every((range, index) => range[0] === prev[index][0] && range[1] === prev[index][1]);
+    const nextImages = this.actionImages();
+    const prevImages = this.state.hashtagImages || [];
+    const sameImages = nextImages.length === prevImages.length && nextImages.every((image, index) => {
+      const previous = prevImages[index] || {};
 
-    if (!same) {
-      this.setState({ imageRanges: next });
+      return image.start === previous.start
+        && image.end === previous.end
+        && (image.id || '') === (previous.id || '')
+        && (image.shortcode || '') === (previous.shortcode || '')
+        && (image.domain || '') === (previous.domain || '');
+    });
+
+    if (!same || !sameImages) {
+      this.setState({ imageRanges: next, hashtagImages: nextImages });
     }
   }
 
@@ -152,7 +163,7 @@ class HashtagMenuController extends React.PureComponent {
       if (next !== value) {
         const noted = sink && sink.find(record => record.kind === 'text' && record.node === node);
 
-        rememberEmojiMuteTextSource(node, logical);
+        rememberEmojiMuteHashtagSlot(node, { text: logical, name: raw, ranges, images });
 
         if (noted) {
           noted.value = logical;
@@ -173,8 +184,10 @@ class HashtagMenuController extends React.PureComponent {
     if (link && link.isConnected) {
       const identity = hashtagMenuStoredIdentity(link);
 
-      if (identity && identity.name === this.state.hashtag && identity.images && identity.images.length > 0) {
-        return identity.images;
+      const bound = hashtagMenuBoundImages(link);
+
+      if (bound && identity.name === this.state.hashtag) {
+        return bound;
       }
     }
 

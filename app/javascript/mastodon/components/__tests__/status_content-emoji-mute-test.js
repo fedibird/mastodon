@@ -868,6 +868,19 @@ describe('StatusContent unverified emoji suppression', () => {
     expect(hashtagMenuStoredName(foldedLink)).toBe('file:blob:');
     folded.unmount();
 
+    const composed = 'e\u0301:blob::blob:';
+    const canonical = '\u00e9:blob::blob:';
+    const composedHref = `https://remote.example/tags/${encodeURIComponent(canonical)}`;
+    const composedView = mount(buildStatus({
+      contentHtml: `<p><a href="${composedHref}" class="mention hashtag" rel="tag" title="#${canonical}">#<span>${composed.slice(0, 2)}${custom}:blob:</span></a></p>`,
+      tags: [{ name: canonical, url: composedHref }],
+    }));
+    const composedLink = composedView.container.querySelector('a.mention.hashtag');
+
+    expect(composedLink.getAttribute('title')).toBe(`#\u00e9${'\u25FB'}:blob:`);
+    expect(hashtagMenuStoredName(composedLink)).toBe(canonical);
+    composedView.unmount();
+
     const sharedTag = 'https://remote.example/tags/party%3Ablob%3A';
     const mixedSource = `<p><a href="${sharedTag}" class="mention hashtag" rel="tag">#<span>party${custom}</span></a> <a href="${sharedTag}" class="mention hashtag" rel="tag">#<span>party:blob:</span></a></p>`;
     const mixedTarget = `<p><a href="${sharedTag}" class="mention hashtag" rel="tag" title="#party:blob:" aria-label="tag party:blob:">#<span>訳語</span></a></p>`;

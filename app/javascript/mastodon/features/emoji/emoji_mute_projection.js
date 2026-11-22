@@ -161,8 +161,18 @@ export const projectStreamReaction = (payload, rules) => {
   const next = { ...payload, parts: kept, count: accountIds.length, account_ids: accountIds };
   const previousRepresentative = representativeId(parts);
   const keptRepresentative = representativeId(kept);
+  const ownsDisplay = part => {
+    const url = read(part, 'url');
+    const staticUrl = read(part, 'static_url');
 
-  if (previousRepresentative && previousRepresentative !== keptRepresentative) {
+    return (!!payload.url && url === payload.url) || (!!payload.static_url && staticUrl === payload.static_url);
+  };
+  const displayOwner = parts.find(ownsDisplay);
+  const displaySurvives = !!displayOwner && kept.some(part => partEmojiId(part) && partEmojiId(part) === partEmojiId(displayOwner));
+
+  if ((payload.url || payload.static_url) && !displaySurvives) {
+    Object.assign(next, displayFromParts(kept));
+  } else if (previousRepresentative && previousRepresentative !== keptRepresentative) {
     Object.assign(next, displayFromParts(kept));
   }
 
@@ -245,7 +255,13 @@ export const barVisibleReaction = (reaction, rules) => {
   const kept = result.payload && Array.isArray(result.payload.parts) ? result.payload.parts.length : list.length;
 
   if (kept === list.length) {
-    return reaction;
+    const payload = result.payload || {};
+    const sameUrl = (read(reaction, 'url') || null) === (payload.url || null);
+    const sameStatic = (read(reaction, 'static_url') || null) === (payload.static_url || null);
+
+    if (sameUrl && sameStatic) {
+      return reaction;
+    }
   }
 
   if (result.hidden || !result.payload || result.payload.count <= 0) {

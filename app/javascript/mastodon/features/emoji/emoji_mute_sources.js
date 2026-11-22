@@ -16,6 +16,23 @@ export function rememberEmojiMuteTextSource(node, source) {
   textSources.set(node, source);
 }
 
+// The open menu and mute dialog show one projected tag. Release has to
+// project that tag again from the raw name and its image identity.
+export function rememberEmojiMuteHashtagSlot(node, slot) {
+  if (!node || !slot || typeof slot.text !== 'string' || typeof slot.name !== 'string') {
+    return;
+  }
+
+  textSources.set(node, {
+    hashtagSlot: {
+      text: slot.text,
+      name: slot.name,
+      ranges: slot.ranges || [],
+      images: slot.images || [],
+    },
+  });
+}
+
 // Original HTML whose images this text node replaced. Plain-text projection
 // cannot expand a custom shortcode, so release uses the display HTML instead.
 export function rememberEmojiMuteDisplayHtml(node, html) {
@@ -146,7 +163,7 @@ const imageIdentity = node => [
   node.getAttribute('data-emoji-id') || '',
   node.getAttribute('data-domain') || '',
   node.getAttribute('data-shortcode') || '',
-  node.getAttribute('src') || '',
+  node.getAttribute('src') || node.getAttribute('srcset') || '',
 ].join('\0');
 
 // The live image is the same emoji that was not replaced. A photo with no

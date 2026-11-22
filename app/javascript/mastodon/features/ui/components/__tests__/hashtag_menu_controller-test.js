@@ -2212,6 +2212,7 @@ describe('HashtagMenuController', () => {
 
     expect(concealImageDerivedSegments('#Party:blob::blob: #party:blob::blob:', 'party:blob::blob:', [[5, 11]])).toBe(`#Party${'\u25FB'}:blob: #party${'\u25FB'}:blob:`);
     expect(concealImageDerivedSegments(`#Party${'\u25FB'}:blob: #party${'\u25FB'}:blob:`, 'party:blob::blob:', [[5, 11]])).toBe(`#Party${'\u25FB'}:blob: #party${'\u25FB'}:blob:`);
+    expect(concealImageDerivedSegments('party\u25FB:two:', 'party:one::two::two:', [[5, 10], [10, 15]])).toBe('party\u25FB:two:');
     expect(mixedLink.getAttribute('title')).toBe(mixedTitle);
     expect(hashtagMenuStoredIdentity(mixedLink)).toEqual(expect.objectContaining({ name: 'party:blob::blob:', imageRanges: [[5, 11]] }));
     expect(casedLink.getAttribute('data-menu-hashtag')).toBe('party:blob:');

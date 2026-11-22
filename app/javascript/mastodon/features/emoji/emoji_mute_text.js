@@ -436,7 +436,7 @@ const replaceCompleteEmojiSequence = (value, sequence, replacement) => {
   return result;
 };
 
-const attributeNamesIdentity = (value, identity) => {
+export const attributeNamesIdentity = (value, identity) => {
   if (!value || !identity) {
     return false;
   }
@@ -523,18 +523,6 @@ const hashtagLabelExempt = link => {
 
   if (link.hasAttribute('data-menu-hashtag') || link.hasAttribute('data-menu-hashtag-token')) {
     return true;
-  }
-
-  const href = link.getAttribute('href') || '';
-
-  try {
-    const parts = new URL(href, 'https://example.invalid').pathname.split('/').filter(Boolean);
-
-    if (parts.length === 2 && (parts[0] === 'tags' || parts[0] === 'tag')) {
-      return true;
-    }
-  } catch (error) {
-    // A relative or empty href is not a tag route.
   }
 
   return false;
