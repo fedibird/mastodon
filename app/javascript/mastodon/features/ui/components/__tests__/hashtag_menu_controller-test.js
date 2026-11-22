@@ -1282,8 +1282,10 @@ describe('HashtagMenuController', () => {
     expect(unicode.querySelector('img[src="/media/photo.jpg"]')).not.toBeNull();
     expect(hashtagMenuStoredName(unicode)).not.toContain('landscape');
     expect(hashtagMenuStoredName(customLink)).toBe('party:blob:');
-    expect(customLink.getAttribute('data-menu-hashtag')).toBe('party:blob:');
+    expect(customLink.hasAttribute('data-menu-hashtag-token')).toBe(true);
+    expect(customLink.getAttribute('data-menu-hashtag') || '').not.toContain(':blob:');
     expect(customLink.querySelector('img')).toBeNull();
+    expect(customLink.outerHTML).not.toContain(':blob:');
     expect(customLink.outerHTML).not.toContain('cdn.example/blob.svg');
 
     const clipboardCalls = navigator.clipboard.writeText.mock.calls.length;
@@ -1533,5 +1535,208 @@ describe('HashtagMenuController', () => {
     expect(badge.getAttribute('aria-label') || '').not.toContain(native);
     expect(hashtagMenuStoredName(badge)).toBe(wave);
     await useMenu(badge, `wave${'\u25FB'}`, wave);
+  });
+
+  it('reads only a real tag route and keeps a user path on the stored name', () => {
+    const gardening = 'https://remote.example/users/tag/topics/gardening';
+    const html = `<p>Keep <a href="${gardening}" class="mention hashtag" rel="tag">#<span>gardening</span></a> <a href="https://remote.example/tags/tag" class="mention hashtag" rel="tag">#<span>tag</span></a> <a href="https://remote.example/tag/tags" class="mention hashtag" rel="tag">#<span>tags</span></a> here</p>`;
+    const { container } = renderMenu({ contentHtml: html, status: buildStatus({ contentHtml: html, tags: [] }) });
+    const userPath = container.querySelector(`a[href="${gardening}"]`);
+    const tag = container.querySelector('a[href="https://remote.example/tags/tag"]');
+    const tags = container.querySelector('a[href="https://remote.example/tag/tags"]');
+
+    expect(userPath.getAttribute('data-menu-hashtag')).toBe('gardening');
+    expect(tag.getAttribute('data-menu-hashtag')).toBe('tag');
+    expect(tags.getAttribute('data-menu-hashtag')).toBe('tags');
+    click(userPath);
+    fireEvent.click(screen.getByRole('button', { name: 'Copy hashtag' }));
+    expect(navigator.clipboard.writeText).toHaveBeenLastCalledWith('#gardening');
+  });
+
+  it('leaves an empty original link ordinary when it shares a url with a named tag', () => {
+    const href = 'https://remote.example/topics/common';
+    const source = `<p><a href="${href}" class="mention hashtag" rel="tag">#</a> <a href="${href}" class="mention hashtag" rel="tag">#<span>garden</span></a> stays</p>`;
+    const target = `<p><a href="${href}" class="mention hashtag" rel="tag">#<span>共有</span></a> です</p>`;
+    const { container } = renderMenu({
+      status: buildStatus({
+        contentHtml: source,
+        language: 'en',
+        tags: [],
+        translationMode: 'bilingual',
+        translation: {
+          contentHtml: target,
+          spoilerHtml: '',
+          language: 'ja',
+          detected_source_language: 'en',
+          requested_source_language: 'en',
+          requested_target_language: 'ja',
+          provider: 'test',
+        },
+      }),
+    });
+    const sources = container.querySelectorAll('.status-translation-pair__source a.mention.hashtag');
+    const translated = container.querySelector('.status-translation-pair__target a.mention.hashtag');
+
+    expect(sources[0].hasAttribute('data-menu-hashtag')).toBe(false);
+    expect(sources[1].getAttribute('data-menu-hashtag')).toBe('garden');
+    expect(translated.hasAttribute('data-menu-hashtag')).toBe(false);
+    expect(click(sources[0]).defaultPrevented).toBe(false);
+    expect(click(sources[0], { ctrlKey: true }).defaultPrevented).toBe(false);
+    expect(sources[0].getAttribute('href')).toBe(href);
+  });
+
+  it('drops a menu binding when the same anchor loses its tag metadata', () => {
+    const href = 'https://remote.example/topics/mystery';
+    const html = `<p>See <a href="${href}" class="mention hashtag" rel="tag">#</a> stays</p>`;
+    const tagged = buildStatus({
+      contentHtml: html,
+      tags: [{ name: 'garden', url: href }],
+    });
+    const view = renderMenu({ status: tagged, signedIn: true });
+    const link = view.container.querySelector(`a[href="${href}"]`);
+
+    expect(link.getAttribute('data-menu-hashtag')).toBe('garden');
+    view.rerender(
+      <Provider store={view.store}>
+        <RouterProvider>
+          <StatusContent status={buildStatus({ contentHtml: html, tags: [] })} onTranslate={jest.fn()} onClick={jest.fn()} />
+          <HashtagMenuController signedIn />
+        </RouterProvider>
+      </Provider>,
+    );
+
+    const same = view.container.querySelector(`a[href="${href}"]`);
+
+    expect(same).toBe(link);
+    expect(same.hasAttribute('data-menu-hashtag')).toBe(false);
+    expect(same.hasAttribute('data-menu-hashtag-token')).toBe(false);
+    expect(hashtagMenuStoredName(same)).toBe('');
+    expect(same.getAttribute('href')).toBe(href);
+    expect(click(same).defaultPrevented).toBe(false);
+    expect(click(same, { ctrlKey: true }).defaultPrevented).toBe(false);
+  });
+
+  it('keeps an emojified trailing badge and hides an image shortcode while unverified', () => {
+    const native = '👍';
+    const href = 'https://remote.example/topics/party';
+    const emoji = `<img class="emojione" alt="${native}" src="/emoji/1f44d.svg">`;
+    const custom = '<img class="emojione custom-emoji" alt=":blob:" src="https://cdn.example/blob.svg">';
+    const party = `<a href="${href}" class="mention hashtag" rel="tag">#<span>party${emoji}</span></a>`;
+    const imageName = `<a href="https://remote.example/topics/image" class="mention hashtag" rel="tag">#<span>party${custom}</span></a>`;
+    const literal = '<a href="https://remote.example/topics/literal" class="mention hashtag" rel="tag">#<span>party:blob:</span></a>';
+    const html = `<p>See ${party} and ${imageName} and ${literal} stays</p>`;
+    const trailingHtml = `<p>Note<br><br>${party}</p>`;
+    const spoiler = `<p>CW ${imageName}</p>`;
+    const target = `<p>${imageName}</p>`;
+    const muted = {
+      revision: '1',
+      appliedRevision: '1',
+      phase: 'stale',
+      failure: null,
+      rules: [],
+      availability: 'enabled',
+      display: 'suppress',
+    };
+    const { container } = renderMenu({
+      signedIn: true,
+      emojiMutes: muted,
+      status: buildStatus({
+        contentHtml: html,
+        spoilerHtml: spoiler,
+        spoiler_text: 'CW',
+        language: 'en',
+        tags: [],
+        translationMode: 'bilingual',
+        translation: {
+          contentHtml: target,
+          spoilerHtml: '',
+          language: 'ja',
+          detected_source_language: 'en',
+          requested_source_language: 'en',
+          requested_target_language: 'ja',
+          provider: 'test',
+        },
+      }),
+    });
+    const inline = container.querySelector(`.status__content__text a[href="${href}"]`);
+    const trailing = renderMenu({
+      signedIn: true,
+      emojiMutes: muted,
+      status: buildStatus({ contentHtml: trailingHtml, tags: [] }),
+    });
+    const badge = trailing.container.querySelector(`.status__content__hashtag-badge[href="${href}"]`);
+    const image = container.querySelector('a[href="https://remote.example/topics/image"]');
+    const typed = container.querySelector('a[href="https://remote.example/topics/literal"]');
+    const spoilerLink = Array.from(container.querySelectorAll('a[href="https://remote.example/topics/image"]')).find(link => (
+      !link.closest('.status__content__text') && !link.classList.contains('status__content__hashtag-badge')
+    ));
+    const translated = container.querySelector('.status-translation-pair__target a[href="https://remote.example/topics/image"]');
+
+    expect(hashtagMenuStoredName(inline)).toBe(`party${native}`);
+    expect(hashtagMenuStoredName(badge)).toBe(`party${native}`);
+    expect(inline.outerHTML).not.toContain(native);
+    expect(badge.outerHTML).not.toContain(native);
+    expect(badge.getAttribute('title') || '').not.toContain(native);
+    expect(badge.getAttribute('aria-label') || '').not.toContain(native);
+    click(inline);
+    fireEvent.click(screen.getAllByRole('button', { name: 'Copy hashtag' }).slice(-1)[0]);
+    expect(navigator.clipboard.writeText).toHaveBeenLastCalledWith(`#party${native}`);
+    click(badge);
+    fireEvent.click(screen.getAllByRole('button', { name: 'Copy hashtag' }).slice(-1)[0]);
+    expect(navigator.clipboard.writeText).toHaveBeenLastCalledWith(`#party${native}`);
+
+    [image, spoilerLink, translated].forEach(link => {
+      expect(hashtagMenuStoredName(link)).toBe('party:blob:');
+      expect(link.outerHTML).not.toContain(':blob:');
+      expect(link.getAttribute('title') || '').not.toContain(':blob:');
+      expect(link.getAttribute('aria-label') || '').not.toContain(':blob:');
+    });
+    expect(typed.getAttribute('data-menu-hashtag')).toBe('party:blob:');
+    expect(typed.outerHTML).toContain(':blob:');
+    click(image);
+    expect(screen.getAllByRole('button', { name: `Mute #party${'\u25FB'}` }).length).toBeGreaterThan(0);
+    fireEvent.click(screen.getAllByRole('button', { name: 'Copy hashtag' }).slice(-1)[0]);
+    expect(navigator.clipboard.writeText).toHaveBeenLastCalledWith('#party:blob:');
+  });
+
+  it('keeps an empty emoji replacement out of the menu labels', () => {
+    const native = '👍';
+    const href = 'https://remote.example/topics/thumb';
+    const html = `<p>See <a href="${href}" class="mention hashtag" rel="tag">#<span>${native}</span></a> stays</p>`;
+    const { container, store } = renderMenu({
+      signedIn: true,
+      contentHtml: html,
+      status: buildStatus({ contentHtml: html, tags: [] }),
+      emojiMutes: {
+        revision: '1',
+        appliedRevision: '1',
+        phase: 'ready',
+        failure: null,
+        rules: [{
+          id: 'empty',
+          revision: '1',
+          emoji: { kind: 'unicode', native },
+          replacement: '',
+          effects: { replace_in_text: true, hide_reactions: false, hide_in_picker: false, reject_reactions_to_own_posts: false },
+        }],
+        availability: 'enabled',
+        display: 'apply',
+      },
+    });
+    const link = container.querySelector(`a[href="${href}"]`);
+
+    click(link);
+
+    const mute = screen.getAllByRole('button').find(button => button.textContent === `Mute #${'\u25FB'}`);
+    const browse = screen.getAllByRole('button').find(button => button.textContent === `View posts with #${'\u25FB'}`);
+
+    expect(browse).toBeTruthy();
+    expect(mute).toBeTruthy();
+    expect(mute.textContent).not.toContain(native);
+    fireEvent.click(screen.getByRole('button', { name: 'Copy hashtag' }));
+    expect(navigator.clipboard.writeText).toHaveBeenLastCalledWith(`#${native}`);
+    click(link);
+    fireEvent.click(screen.getAllByRole('button').find(button => button.textContent === `Mute #${'\u25FB'}`));
+    expect(store.getState().getIn(['modal', 'hashtag'])).toBe(native);
   });
 });

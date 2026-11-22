@@ -1,3 +1,5 @@
+import { hashtagIdentityFromNode } from 'mastodon/features/emoji/hashtag_menu_names';
+
 // Separate a trailing hashtag run from sanitized status HTML.
 // Parsing stays on an inert <template> so the fragment is not executed.
 
@@ -289,12 +291,15 @@ function collectTrailingRun(container) {
 }
 
 function hashtagData(anchor) {
-  const text = anchor.textContent || '';
+  const identity = hashtagIdentityFromNode(anchor);
+  const name = identity.name;
+  const text = name ? `#${name}` : (anchor.textContent || '');
 
   return {
-    name: text.replace(/^[#＃]/, ''),
+    name,
     text,
     href: anchor.getAttribute('href'),
+    imageRanges: identity.imageRanges,
   };
 }
 

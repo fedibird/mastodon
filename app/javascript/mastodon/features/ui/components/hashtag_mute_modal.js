@@ -9,7 +9,7 @@ import { closeModal } from '../../../actions/modal';
 import { fetchFilters } from '../../../actions/filters';
 import { muteHashtag, unmuteHashtag, updateHashtagMute } from '../../../actions/hashtag_mutes';
 import { HASHTAG_MUTE_CONTEXTS, HASHTAG_MUTE_DURATIONS, findHashtagMute } from '../../../utils/hashtag_mute';
-import { emojiMuteTextIndexFromState, presentEmojiMutePlain } from 'mastodon/features/emoji/emoji_mute_text';
+import { emojiMuteTextIndexFromState, presentEmojiMutePlain, UNVERIFIED_EMOJI_PLACEHOLDER } from 'mastodon/features/emoji/emoji_mute_text';
 
 const messages = defineMessages({
   minutes: { id: 'intervals.full.minutes', defaultMessage: '{number, plural, one {# minute} other {# minutes}}' },
@@ -115,7 +115,12 @@ class HashtagMuteModal extends React.PureComponent {
   visibleHashtag() {
     const shown = presentEmojiMutePlain(this.props.hashtag, this.props.emojiMuteTextIndex);
 
-    return typeof shown === 'string' && shown !== '' ? shown : this.props.hashtag;
+    if (typeof shown !== 'string') {
+      return this.props.hashtag;
+    }
+
+    // An empty replacement is a real projection. Saving still uses the original tag.
+    return shown !== '' ? shown : UNVERIFIED_EMOJI_PLACEHOLDER;
   }
 
   state = {

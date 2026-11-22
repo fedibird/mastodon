@@ -11,8 +11,8 @@ import { me } from 'mastodon/initial_state';
 import { copyText } from 'mastodon/utils/clipboard';
 import { accountUrlForHashtag } from 'mastodon/utils/account_tag_url';
 import { collectCopyHashtags } from 'mastodon/utils/status_hashtags';
-import { hashtagMenuStoredName } from 'mastodon/features/emoji/hashtag_menu_names';
-import { emojiMuteTextIndexFromState, presentEmojiMutePlain } from 'mastodon/features/emoji/emoji_mute_text';
+import { hashtagMenuStoredIdentity, projectHashtagLabel } from 'mastodon/features/emoji/hashtag_menu_names';
+import { emojiMuteTextIndexFromState, UNVERIFIED_EMOJI_PLACEHOLDER } from 'mastodon/features/emoji/emoji_mute_text';
 
 const messages = defineMessages({
   browse: { id: 'hashtag.browse', defaultMessage: 'View posts with #{hashtag}' },
@@ -46,6 +46,7 @@ class HashtagMenuController extends React.PureComponent {
   state = {
     element: null,
     hashtag: '',
+    imageRanges: [],
     hashtagUrl: '',
     accountId: '',
     statusId: '',
@@ -72,6 +73,7 @@ class HashtagMenuController extends React.PureComponent {
     this.setState({
       element: null,
       hashtag: '',
+      imageRanges: [],
       hashtagUrl: '',
       accountId: '',
       statusId: '',
@@ -97,7 +99,8 @@ class HashtagMenuController extends React.PureComponent {
       return;
     }
 
-    const hashtag = hashtagMenuStoredName(link);
+    const identity = hashtagMenuStoredIdentity(link);
+    const hashtag = identity.name;
 
     if (!hashtag) {
       return;
@@ -114,6 +117,7 @@ class HashtagMenuController extends React.PureComponent {
     this.setState({
       element: link,
       hashtag,
+      imageRanges: identity.imageRanges,
       hashtagUrl: link.href || '',
       accountId: link.getAttribute('data-account-id') || '',
       statusId: link.getAttribute('data-status-id') || '',
@@ -211,9 +215,10 @@ class HashtagMenuController extends React.PureComponent {
   }
 
   visibleHashtag () {
-    const shown = presentEmojiMutePlain(this.state.hashtag, this.props.emojiMuteTextIndex);
+    const shown = projectHashtagLabel(this.state.hashtag, this.state.imageRanges, this.props.emojiMuteTextIndex);
 
-    return typeof shown === 'string' && shown !== '' ? shown : this.state.hashtag;
+    // An empty replacement is a real projection. The action value stays original.
+    return shown !== '' ? shown : UNVERIFIED_EMOJI_PLACEHOLDER;
   }
 
   menuItems () {

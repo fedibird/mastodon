@@ -117,6 +117,32 @@ describe('HashtagMuteModal', () => {
     await waitFor(() => expect(mockPost).toHaveBeenCalledWith('/api/v1/hashtag_mutes', { name: '番組', expires_in: 10800 }));
   });
 
+  it('uses a neutral heading when the replacement is empty and saves the original tag', async () => {
+    const native = '👍';
+    renderModal(native, {
+      revision: '1',
+      appliedRevision: '1',
+      phase: 'ready',
+      failure: null,
+      rules: [{
+        id: 'empty',
+        revision: '1',
+        emoji: { kind: 'unicode', native },
+        replacement: '',
+        effects: { replace_in_text: true, hide_reactions: false, hide_in_picker: false, reject_reactions_to_own_posts: false },
+      }],
+      availability: 'enabled',
+      display: 'apply',
+    });
+    const dialog = await screen.findByRole('dialog', { name: `Mute #${'\u25FB'}?` });
+
+    expect(document.getElementById('hashtag-mute-title').textContent).toBe(`Mute #${'\u25FB'}?`);
+    expect(dialog.textContent).not.toContain(native);
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Mute' })).not.toBeDisabled());
+    fireEvent.click(screen.getByRole('button', { name: 'Mute' }));
+    await waitFor(() => expect(mockPost).toHaveBeenCalledWith('/api/v1/hashtag_mutes', { name: native }));
+  });
+
   it('projects only the heading while the saved tag stays party👌', async () => {
     const native = '👌';
     const tag = `party${native}`;
