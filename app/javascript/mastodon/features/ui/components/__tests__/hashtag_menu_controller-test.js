@@ -878,4 +878,64 @@ describe('HashtagMenuController', () => {
     expect(plain.getAttribute('href')).toBe(unnamed);
     expect(screen.queryByRole('button', { name: 'View posts with #' })).toBeNull();
   });
+
+  it('reuses one original hashtag name for both bilingual blocks', () => {
+    const native = '👍';
+    const tag = `party${native}`;
+    const href = `https://remote.example/topics/${encodeURIComponent(tag)}`;
+    const sourceHtml = `<p>See the garden <a href="${href}" class="mention hashtag" rel="tag">#<span>${tag}</span></a> today</p>`;
+    const targetHtml = `<p>庭を見て <a href="${href}" class="mention hashtag" rel="tag">#<span>園芸</span></a> ください</p>`;
+    const { container, store } = renderMenu({
+      signedIn: true,
+      emojiMutes: {
+        revision: '2',
+        appliedRevision: '1',
+        phase: 'stale',
+        failure: null,
+        rules: [],
+        availability: 'enabled',
+        display: 'suppress',
+      },
+      status: buildStatus({
+        contentHtml: sourceHtml,
+        language: 'en',
+        tags: [],
+        translationMode: 'bilingual',
+        translation: {
+          contentHtml: targetHtml,
+          spoilerHtml: '',
+          language: 'ja',
+          detected_source_language: 'en',
+          requested_source_language: 'en',
+          requested_target_language: 'ja',
+          provider: 'test',
+        },
+      }),
+    });
+    const source = container.querySelector('.status-translation-pair__source a.mention.hashtag');
+    const target = container.querySelector('.status-translation-pair__target a.mention.hashtag');
+
+    expect(container.querySelector('.status__content__hashtag-badge')).toBeNull();
+    expect(source.textContent).toBe(`#party${'\u25FB'}`);
+    expect(target.textContent).toBe('#園芸');
+    [source, target].forEach(link => {
+      const visible = link.cloneNode(true);
+
+      visible.removeAttribute('data-menu-hashtag');
+      expect(link.getAttribute('href')).toBe(href);
+      expect(link.getAttribute('data-menu-hashtag')).toBe(tag);
+      expect(visible.outerHTML).not.toContain(native);
+      expect(link.getAttribute('title') || '').not.toContain(native);
+      expect(link.getAttribute('aria-label') || '').not.toContain(native);
+
+      const open = click(link.querySelector('span') || link);
+
+      expect(open.defaultPrevented).toBe(true);
+      expect(screen.getByRole('button', { name: `Mute #party${'\u25FB'}` })).toBeTruthy();
+      expect(document.querySelector('.dropdown-menu').textContent).not.toContain(native);
+      expect(document.querySelector('.dropdown-menu').textContent).not.toContain('園芸');
+      fireEvent.click(screen.getByRole('button', { name: `Mute #party${'\u25FB'}` }));
+      expect(store.getState().getIn(['modal', 'hashtag'])).toBe(tag);
+    });
+  });
 });

@@ -364,31 +364,57 @@ class StatusContent extends React.PureComponent {
     return (anchor.textContent || '').replace(/^[#＃]/, '').trim();
   }
 
-  // Pair a live anchor with the same href in stored HTML. That HTML is not
-  // the projected label, so an emoji in the tag survives suppression.
+  // The stored original, not the projected label or the translated wording.
+  // A bilingual block repeats the href, so the two copies are not two
+  // occurrences of the original HTML.
   hashtagNameFromUnprojectedHtml (link) {
     const status = this.props.status;
-    const sources = status ? [status.get('contentHtml'), status.get('spoilerHtml')] : [];
 
-    for (let sourceIndex = 0; sourceIndex < sources.length; sourceIndex += 1) {
-      const same = this.hashtagAnchorsFromHtml(sources[sourceIndex]).filter(anchor => anchor.href === link.href);
-
-      if (same.length === 0) {
-        continue;
-      }
-
-      const region = link.closest('.status__content__text') || link.closest('.status__content') || link.ownerDocument;
-      const live = Array.from(region.querySelectorAll('a')).filter(item => isHashtagMenuLink(item) && item.href === link.href);
-      const occurrence = live.indexOf(link);
-      const anchor = occurrence >= 0 ? same[occurrence] : null;
-      const name = anchor ? this.hashtagNameFromAnchor(anchor) : '';
-
-      if (name) {
-        return name;
-      }
+    if (!status) {
+      return '';
     }
 
-    return '';
+    const html = link.closest('.status__content__text') ? status.get('contentHtml') : status.get('spoilerHtml');
+    const same = this.hashtagAnchorsFromHtml(html).filter(anchor => anchor.href === link.href);
+
+    if (same.length === 0) {
+      return '';
+    }
+
+    const names = [];
+
+    same.forEach(anchor => {
+      const name = this.hashtagNameFromAnchor(anchor);
+
+      if (name && names.indexOf(name) === -1) {
+        names.push(name);
+      }
+    });
+
+    if (names.length === 1) {
+      return names[0];
+    }
+
+    // Several original names share this href. The translation is not a
+    // second copy of that list, so it stays a normal link.
+    if (link.closest('.status-translation-pair__target')) {
+      return '';
+    }
+
+    const region = link.closest('.status-translation-pair__source')
+      || link.closest('.status__content__text')
+      || link.closest('.status__content');
+
+    if (!region) {
+      return '';
+    }
+
+    const live = Array.from(region.querySelectorAll('a')).filter(item => (
+      isHashtagMenuLink(item) && item.href === link.href && !item.closest('.status-translation-pair__target')
+    ));
+    const anchor = same[live.indexOf(link)];
+
+    return anchor ? this.hashtagNameFromAnchor(anchor) : '';
   }
 
   hashtagNameFromTags (link) {
