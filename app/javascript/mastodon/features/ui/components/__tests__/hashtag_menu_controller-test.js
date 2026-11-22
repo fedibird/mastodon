@@ -776,4 +776,41 @@ describe('HashtagMenuController', () => {
     expect(store.getState().getIn(['modal', 'hashtag'])).toBe(tag);
     expect(store.getState().getIn(['modal', 'hashtag'])).not.toContain('\u25FB');
   });
+
+  it('opens the in-app menu for body hashtags named tag and tags without status.tags', () => {
+    const routes = ['/tags/tag', '/tags/tags', '/tag/tag', '/tag/tags'];
+    const html = `<p>before ${routes.map(path => {
+      const name = path.split('/').pop();
+
+      return `<a href="https://example.com${path}" class="mention hashtag" rel="tag">#<span>${name}</span></a>`;
+    }).join(' mid ')} after</p>`;
+    const { container } = renderMenu({
+      signedIn: true,
+      contentHtml: html,
+      status: buildStatus({ contentHtml: html, tags: [] }),
+    });
+    const links = container.querySelectorAll('a.mention.hashtag');
+
+    expect(links).toHaveLength(4);
+    expect(container.querySelector('.status__content__hashtag-badge')).toBeNull();
+
+    links.forEach((link, index) => {
+      const name = routes[index].split('/').pop();
+
+      expect(link.getAttribute('data-menu-hashtag')).toBe(name);
+      expect(link.getAttribute('href')).toBe(`https://example.com${routes[index]}`);
+      expect(link.textContent).not.toContain('\u25FB');
+
+      const plain = click(link.querySelector('span') || link);
+
+      expect(plain.defaultPrevented).toBe(true);
+      expect(screen.getByRole('button', { name: `View posts with #${name}` })).toBeTruthy();
+      click(link.querySelector('span') || link);
+
+      const modified = click(link.querySelector('span') || link, { ctrlKey: true });
+
+      expect(modified.defaultPrevented).toBe(false);
+      expect(link.getAttribute('href')).toBe(`https://example.com${routes[index]}`);
+    });
+  });
 });

@@ -331,10 +331,14 @@ class StatusContent extends React.PureComponent {
     try {
       const url = new URL(href, window.location.origin);
       const parts = url.pathname.split('/').filter(Boolean);
-      const tagsAt = parts.lastIndexOf('tags');
-      const tagAt = parts.lastIndexOf('tag');
-      const at = Math.max(tagsAt, tagAt);
-      const encoded = at === -1 ? '' : parts[at + 1];
+      let encoded = '';
+
+      // A final segment named tag or tags is the hashtag, not the route.
+      for (let index = 0; index < parts.length - 1; index += 1) {
+        if (parts[index] === 'tags' || parts[index] === 'tag') {
+          encoded = parts[index + 1];
+        }
+      }
 
       return encoded ? decodeURIComponent(encoded).replace(/^[#＃]/, '') : '';
     } catch (error) {
