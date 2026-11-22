@@ -133,6 +133,12 @@ const sameSurvivingImage = (original, live) => {
   return identity !== '\0\0\0' && identity === imageIdentity(live);
 };
 
+const isEmojiImage = node => !!(node && node.tagName === 'IMG' && (
+  node.getAttribute('data-emoji-id')
+  || node.getAttribute('data-shortcode')
+  || (node.classList && (node.classList.contains('emojione') || node.classList.contains('custom-emoji')))
+));
+
 // Walk both trees together. A paragraph that projects to nothing does not
 // drop the source of the paragraph after it. A text node keeps only the
 // original text and images that folded into it. An image that is still in
@@ -189,6 +195,13 @@ const bindHtmlChildren = (original, live) => {
     }
 
     const next = liveChildren[liveIndex];
+
+    // An emoji image that was removed must not lend its alt to the next
+    // image. A photo has no emoji identity, so it still pairs by position.
+    if (isEmojiImage(child) && next && next.tagName === 'IMG' && !sameSurvivingImage(child, next)) {
+      originalIndex += 1;
+      continue;
+    }
 
     if (next && next.nodeType === Node.ELEMENT_NODE && next.tagName === child.tagName) {
       rememberElementSources(child, next);

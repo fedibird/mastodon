@@ -414,6 +414,84 @@ describe('emoji mute source restore', () => {
     view.unmount();
   });
 
+  it('does not copy a removed leading emoji onto the image that stays', () => {
+    resetEmojiMuteLiveDomProbe();
+    const guard = createUnverifiedEmojiGuard();
+    const store = createStore(reducer);
+    const emojis = fromJS([
+      { id: '10', shortcode: 'blob', url: 'https://cdn.example/blob.svg', static_url: 'https://cdn.example/blob.png', domain: null },
+      { id: '11', shortcode: 'other', url: 'https://cdn.example/other.svg', static_url: 'https://cdn.example/other.png', domain: null },
+    ]);
+    const rule = {
+      id: 'mb',
+      revision: '2',
+      emoji: { kind: 'custom', scope: 'local', custom_emoji_id: '10', shortcode: 'blob' },
+      replacement: '',
+      effects: { replace_in_text: true, hide_reactions: false, hide_in_picker: false, reject_reactions_to_own_posts: false },
+    };
+    let atRelease = null;
+
+    store.subscribe(() => guard(store.getState()));
+    store.subscribe(() => {
+      if (store.getState().getIn(['emojiMutes', 'revision']) !== '4' || store.getState().getIn(['emojiMutes', 'display']) !== 'apply') {
+        return;
+      }
+
+      const image = document.querySelector('.emoji-mutes-privacy-portal img');
+
+      atRelease = image ? {
+        src: image.getAttribute('src'),
+        alt: image.getAttribute('alt'),
+        title: image.getAttribute('title'),
+      } : null;
+    });
+
+    const view = render(
+      <Provider store={store}>
+        <div className='emoji-mutes-privacy-portal'>
+          <CustomEmojiText text=':blob::other:' customEmojis={emojis} />
+        </div>
+      </Provider>,
+    );
+
+    act(() => {
+      store.dispatch({
+        type: EMOJI_MUTES_APPLY,
+        revision: '2',
+        availability: 'enabled',
+        mutes: [rule],
+      });
+    });
+
+    const image = () => view.container.querySelector('.emoji-mutes-privacy-portal img');
+
+    expect(view.container.querySelectorAll('img')).toHaveLength(1);
+    expect(image().getAttribute('data-emoji-id')).toBe('11');
+    expect(image().getAttribute('alt')).toBe(':other:');
+    expect(image().getAttribute('title')).toBe('other');
+
+    act(() => {
+      store.dispatch({ type: EMOJI_MUTES_REVISION, revision: '3' });
+      store.dispatch({
+        type: EMOJI_MUTES_APPLY,
+        revision: '4',
+        availability: 'enabled',
+        mutes: [{ ...rule, revision: '4' }],
+      });
+    });
+
+    expect(atRelease).toEqual({
+      src: 'https://cdn.example/other.png',
+      alt: ':other:',
+      title: 'other',
+    });
+    expect(image().getAttribute('src')).toBe('https://cdn.example/other.png');
+    expect(image().getAttribute('alt')).toBe(':other:');
+    expect(image().getAttribute('title')).toBe('other');
+    expect(image().getAttribute('alt')).not.toBe(':blob:');
+    view.unmount();
+  });
+
   it('restores a mixed embed text node without taking the surviving image alt', () => {
     resetEmojiMuteLiveDomProbe();
     const guard = createUnverifiedEmojiGuard();
