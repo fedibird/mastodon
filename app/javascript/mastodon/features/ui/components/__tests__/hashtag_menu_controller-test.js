@@ -69,7 +69,9 @@ jest.mock('mastodon/components/icon', () => () => null);
 
 import Overlay from 'react-overlays/Overlay';
 import { fetchFavouriteTagSuccess } from 'mastodon/actions/favourite_tags';
+import { EMOJI_MUTES_APPLY } from 'mastodon/actions/emoji_mutes';
 import favouriteTagsReducer from 'mastodon/reducers/favourite_tags';
+import emojiMutesReducer from 'mastodon/reducers/emoji_mutes';
 import StatusContent from 'mastodon/components/status_content';
 import HashtagMenuController from '../hashtag_menu_controller';
 
@@ -108,7 +110,14 @@ const translation = {
 };
 
 function reducer(state, action) {
-  const next = state.set('favourite_tags', favouriteTagsReducer(state.get('favourite_tags'), action));
+  const emojiType = action && typeof action.type === 'string' && action.type.indexOf('EMOJI_MUTES_') === 0;
+  let next = state;
+
+  if (emojiType || next.has('emojiMutes')) {
+    next = next.set('emojiMutes', emojiMutesReducer(next.get('emojiMutes'), action));
+  }
+
+  next = next.set('favourite_tags', favouriteTagsReducer(next.get('favourite_tags'), action));
 
   if (action.type === 'MODAL_OPEN') {
     return next.set('modal', fromJS({ modalType: action.modalType, hashtag: action.modalProps.hashtag }));
@@ -161,7 +170,7 @@ function buildStatus(overrides = {}) {
   });
 }
 
-function renderMenu({ status, signedIn, onClick = jest.fn(), account, accounts, tags, contentHtml: html } = {}) {
+function renderMenu({ status, signedIn, onClick = jest.fn(), account, accounts, tags, contentHtml: html, emojiMutes } = {}) {
   let state = initialState();
 
   if (account) {
@@ -180,6 +189,10 @@ function renderMenu({ status, signedIn, onClick = jest.fn(), account, accounts, 
 
   if (tags) {
     state = state.setIn(['statuses', 's1', 'tags'], fromJS(tags));
+  }
+
+  if (emojiMutes) {
+    state = state.set('emojiMutes', fromJS(emojiMutes));
   }
 
   const statusProp = status || buildStatus({
@@ -673,5 +686,65 @@ describe('HashtagMenuController', () => {
 
     expect(navigator.clipboard.writeText).toHaveBeenCalledWith('#FediBird #bar');
     expect(navigator.clipboard.writeText).not.toHaveBeenCalledWith(expect.stringContaining('#different'));
+  });
+
+  it('projects hashtag menu labels while suppression is active and keeps the raw tag for actions', () => {
+    const native = '👌';
+    const tag = `party${native}`;
+    const html = `<p>Hello ${anchor(tag)}</p>`;
+    const { container, store } = renderMenu({
+      signedIn: true,
+      contentHtml: html,
+      emojiMutes: {
+        revision: '2',
+        appliedRevision: '1',
+        phase: 'stale',
+        failure: null,
+        rules: [],
+        availability: 'enabled',
+        display: 'suppress',
+      },
+      status: buildStatus({ contentHtml: html, tags: [{ name: tag, url: `https://example.com/tags/${encodeURIComponent(tag)}` }] }),
+    });
+
+    const link = container.querySelector('a[data-menu-hashtag]');
+
+    expect(link.textContent).toBe(`#party${'\u25FB'}`);
+    expect(link.getAttribute('data-menu-hashtag')).toBe(tag);
+    click(link.querySelector('span') || link);
+
+    const menu = document.querySelector('.dropdown-menu');
+    const browse = screen.getByRole('button', { name: `View posts with #party${'\u25FB'}` });
+    const account = screen.getByRole('button', { name: `View alice's posts with #party${'\u25FB'}` });
+
+    expect(menu.textContent).not.toContain(native);
+    expect(browse).not.toHaveAttribute('title', expect.stringContaining(native));
+    expect(browse.getAttribute('aria-label') || browse.textContent).not.toContain(native);
+    expect(browse).toHaveAttribute('href', `${window.location.origin}/tags/${encodeURIComponent(tag)}`);
+    expect(account).toHaveAttribute('href', `${window.location.origin}/@alice/tagged/${encodeURIComponent(tag)}`);
+    expect(link.getAttribute('data-menu-hashtag')).toBe(tag);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Copy hashtag' }));
+    expect(navigator.clipboard.writeText).toHaveBeenCalledWith(`#${tag}`);
+
+    click(link.querySelector('span') || link);
+    fireEvent.click(screen.getByRole('button', { name: `Mute #party${'\u25FB'}` }));
+    expect(store.getState().getIn(['modal', 'hashtag'])).toBe(tag);
+
+    act(() => {
+      store.dispatch({
+        type: EMOJI_MUTES_APPLY,
+        revision: '3',
+        availability: 'enabled',
+        mutes: [],
+      });
+    });
+
+    const restored = container.querySelector('a[data-menu-hashtag]');
+
+    expect(restored.textContent).toBe(`#${tag}`);
+    expect(restored.getAttribute('data-menu-hashtag')).toBe(tag);
+    click(restored.querySelector('span') || restored);
+    expect(screen.getByRole('button', { name: `View posts with #${tag}` })).toHaveAttribute('href', `${window.location.origin}/tags/${encodeURIComponent(tag)}`);
   });
 });

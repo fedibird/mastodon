@@ -11,6 +11,7 @@ import { me } from 'mastodon/initial_state';
 import { copyText } from 'mastodon/utils/clipboard';
 import { accountUrlForHashtag } from 'mastodon/utils/account_tag_url';
 import { collectCopyHashtags } from 'mastodon/utils/status_hashtags';
+import { emojiMuteTextIndexFromState, presentEmojiMutePlain } from 'mastodon/features/emoji/emoji_mute_text';
 
 const messages = defineMessages({
   browse: { id: 'hashtag.browse', defaultMessage: 'View posts with #{hashtag}' },
@@ -38,6 +39,7 @@ class HashtagMenuController extends React.PureComponent {
     signedIn: PropTypes.bool,
     onAddFavourite: PropTypes.func.isRequired,
     onMuteHashtag: PropTypes.func.isRequired,
+    emojiMuteTextIndex: PropTypes.object,
   };
 
   state = {
@@ -207,19 +209,26 @@ class HashtagMenuController extends React.PureComponent {
     }
   }
 
+  visibleHashtag () {
+    const shown = presentEmojiMutePlain(this.state.hashtag, this.props.emojiMuteTextIndex);
+
+    return typeof shown === 'string' && shown !== '' ? shown : this.state.hashtag;
+  }
+
   menuItems () {
     const { intl } = this.props;
     const hashtag = this.state.hashtag;
+    const label = this.visibleHashtag();
     const tagPath = `/timelines/tag/${encodeURIComponent(hashtag)}`;
     const accountPath = `/accounts/${this.state.accountId}/posts/${encodeURIComponent(hashtag)}`;
     const items = [
       {
-        text: intl.formatMessage(messages.browse, { hashtag }),
+        text: intl.formatMessage(messages.browse, { hashtag: label }),
         href: this.tagHref(),
         to: tagPath,
       },
       {
-        text: intl.formatMessage(messages.browseAccount, { hashtag, name: this.accountLabel() }),
+        text: intl.formatMessage(messages.browseAccount, { hashtag: label, name: this.accountLabel() }),
         href: this.accountTagHref(),
         to: accountPath,
       },
@@ -246,7 +255,7 @@ class HashtagMenuController extends React.PureComponent {
 
     if (this.isSignedIn()) {
       items.push(null, {
-        text: intl.formatMessage(messages.mute, { hashtag }),
+        text: intl.formatMessage(messages.mute, { hashtag: label }),
         href: null,
         target: null,
         action: () => this.props.onMuteHashtag(hashtag),
@@ -315,6 +324,7 @@ class HashtagMenuController extends React.PureComponent {
 const mapStateToProps = state => ({
   accounts: state.get('accounts'),
   statuses: state.get('statuses'),
+  emojiMuteTextIndex: emojiMuteTextIndexFromState(state),
 });
 
 const mapDispatchToProps = dispatch => ({

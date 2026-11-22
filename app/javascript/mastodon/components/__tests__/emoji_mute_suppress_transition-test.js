@@ -750,4 +750,164 @@ describe('mounted suppress transition', () => {
     expect(emojiMuteLiveDomProbe.scans).toBe(1);
     expect(() => view.unmount()).not.toThrow();
   });
+
+  it('restores reaction images that hide_reactions allows and keeps replace_in_text on body emoji', () => {
+    resetEmojiMuteLiveDomProbe();
+    const guard = createUnverifiedEmojiGuard();
+    const store = createStore(reducer);
+    let beforeCommit = null;
+    const DOWN = '👎';
+    const reactionStatus = fromJS({
+      id: 's4',
+      account: 'a1',
+      emoji_reactions: [
+        { name: 'blob', count: 1, account_ids: ['2'], domain: 'remote.example', url: 'https://cdn.example/blob.svg', static_url: 'https://cdn.example/blob.png' },
+        { name: 'house', count: 1, account_ids: ['2'], custom_emoji_id: '42', url: 'https://cdn.example/house.svg', static_url: 'https://cdn.example/house.png' },
+      ],
+    });
+    const rule = (emoji, id, hide) => ({
+      id,
+      revision: '3',
+      emoji,
+      replacement: '[muted]',
+      effects: { replace_in_text: true, hide_reactions: hide, hide_in_picker: false, reject_reactions_to_own_posts: false },
+    });
+
+    store.subscribe(() => guard(store.getState()));
+    store.subscribe(() => {
+      if (store.getState().getIn(['emojiMutes', 'display']) !== 'apply' || store.getState().getIn(['emojiMutes', 'revision']) !== '3') {
+        return;
+      }
+
+      const allowed = document.querySelector('.allowed-unicode img');
+      const hidden = document.querySelector('.hidden-unicode img');
+      beforeCommit = {
+        allowedSrc: allowed.getAttribute('src'),
+        allowedAlt: allowed.getAttribute('alt'),
+        allowedHidden: allowed.hasAttribute('hidden'),
+        allowedSource: document.querySelector('.allowed-unicode source').getAttribute('src'),
+        hiddenSrc: hidden.getAttribute('src'),
+        hiddenAlt: hidden.getAttribute('alt'),
+        hiddenSource: document.querySelector('.hidden-unicode source').getAttribute('src'),
+        blobSrc: document.querySelector('button[data-emoji-reaction-name="blob"] img').getAttribute('src'),
+        houseSrc: document.querySelector('button[data-emoji-reaction-name="house"] img').getAttribute('src'),
+        bodySrc: document.querySelector('.body-ok').getAttribute('src'),
+        bodyAlt: document.querySelector('.body-ok').getAttribute('alt'),
+      };
+    });
+
+    const view = render(
+      <Provider store={store}>
+        <div className='emoji-mutes-privacy-portal'>
+          <EmojiReactionsBar status={reactionStatus} addEmojiReaction={jest.fn()} removeEmojiReaction={jest.fn()} />
+          <button type='button' className='reactions-bar__item allowed-unicode' data-emoji-reaction-name={OK} data-emoji-native={OK}>
+            <picture>
+              <source src={`/emoji/${OK}.svg`} srcSet={`/emoji/${OK}.svg 2x`} />
+              <img className='emojione' alt={OK} title={OK} src={`/emoji/${OK}.svg`} />
+            </picture>
+          </button>
+          <button type='button' className='reactions-bar__item hidden-unicode' data-emoji-reaction-name={DOWN} data-emoji-native={DOWN}>
+            <picture>
+              <source src='/emoji/1f44e.svg' srcSet='/emoji/1f44e.svg 2x' />
+              <img className='emojione' alt={DOWN} src='/emoji/1f44e.svg' />
+            </picture>
+          </button>
+          <img className='emojione body-ok' alt={OK} title={OK} src={`/emoji/${OK}.svg`} />
+          <input aria-label='draft' defaultValue='draft stays' />
+        </div>
+      </Provider>,
+    );
+
+    act(() => {
+      store.dispatch({ type: EMOJI_MUTES_REVISION, revision: '2' });
+      store.dispatch({
+        type: EMOJI_MUTES_APPLY,
+        revision: '3',
+        availability: 'enabled',
+        mutes: [
+          rule({ kind: 'unicode', native: OK }, 'm-ok', false),
+          rule({ kind: 'unicode', native: DOWN }, 'm-down', true),
+          rule({ kind: 'custom', scope: 'remote', domain: 'remote.example', shortcode: 'blob' }, 'm-blob', false),
+          rule({ kind: 'custom', scope: 'local', custom_emoji_id: '42', shortcode: 'house' }, 'm-house', false),
+        ],
+      });
+    });
+
+    expect(beforeCommit.allowedSrc).toBe(`/emoji/${OK}.svg`);
+    expect(beforeCommit.allowedAlt).toBe(OK);
+    expect(beforeCommit.allowedHidden).toBe(false);
+    expect(beforeCommit.allowedSource).toBe(`/emoji/${OK}.svg`);
+    expect(beforeCommit.hiddenSrc).toBeNull();
+    expect(beforeCommit.hiddenAlt).not.toBe(DOWN);
+    expect(beforeCommit.hiddenSource).toBeNull();
+    expect(beforeCommit.blobSrc).toBe('https://cdn.example/blob.png');
+    expect(beforeCommit.houseSrc).toBe('https://cdn.example/house.png');
+    expect(beforeCommit.bodySrc).toBeNull();
+    expect(beforeCommit.bodyAlt).toBe('[muted]');
+    expect(view.container.querySelector('.allowed-unicode img').getAttribute('src')).toBe(`/emoji/${OK}.svg`);
+    expect(view.container.querySelector('.allowed-unicode img').getAttribute('alt')).toBe(OK);
+    expect(view.container.querySelector('.hidden-unicode img').getAttribute('src')).toBeNull();
+    expect(view.container.querySelector('.hidden-unicode source').getAttribute('src')).toBeNull();
+    expect(view.container.querySelector('.body-ok').getAttribute('src')).toBeNull();
+    expect(view.getByLabelText('draft').value).toBe('draft stays');
+    expect(emojiMuteLiveDomProbe.scans).toBe(1);
+    expect(() => view.unmount()).not.toThrow();
+  });
+
+  it('keeps a reaction alt React committed during suppression and still restores its url', () => {
+    resetEmojiMuteLiveDomProbe();
+    const guard = createUnverifiedEmojiGuard();
+    const store = createStore(reducer);
+    const Glyph = ({ alt }) => (
+      <button type='button' className='reactions-bar__item' data-emoji-reaction-name={OK} data-emoji-native={OK}>
+        <img className='emojione' alt={alt} src={`/emoji/${OK}.svg`} />
+      </button>
+    );
+
+    store.subscribe(() => guard(store.getState()));
+
+    const view = render(
+      <Provider store={store}>
+        <div className='emoji-mutes-privacy-portal'>
+          <Glyph alt={OK} />
+          <input aria-label='draft' defaultValue='draft stays' />
+        </div>
+      </Provider>,
+    );
+
+    act(() => {
+      store.dispatch({ type: EMOJI_MUTES_REVISION, revision: '2' });
+    });
+
+    view.rerender(
+      <Provider store={store}>
+        <div className='emoji-mutes-privacy-portal'>
+          <Glyph alt='Updated' />
+          <input aria-label='draft' defaultValue='draft stays' />
+        </div>
+      </Provider>,
+    );
+
+    act(() => {
+      store.dispatch({
+        type: EMOJI_MUTES_APPLY,
+        revision: '3',
+        availability: 'enabled',
+        mutes: [{
+          id: 'm-ok',
+          revision: '3',
+          emoji: { kind: 'unicode', native: OK },
+          replacement: '[muted]',
+          effects: { replace_in_text: true, hide_reactions: false, hide_in_picker: false, reject_reactions_to_own_posts: false },
+        }],
+      });
+    });
+
+    expect(view.container.querySelector('img').getAttribute('alt')).toBe('Updated');
+    expect(view.container.querySelector('img').getAttribute('src')).toBe(`/emoji/${OK}.svg`);
+    expect(view.container.querySelector('img').hasAttribute('hidden')).toBe(false);
+    expect(view.getByLabelText('draft').value).toBe('draft stays');
+    expect(emojiMuteLiveDomProbe.scans).toBe(1);
+    expect(() => view.unmount()).not.toThrow();
+  });
 });

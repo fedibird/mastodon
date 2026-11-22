@@ -190,7 +190,7 @@ const reactionHostHidden = (records, host, rules) => {
   }, rules);
 };
 
-const writeRecordedAttribute = (record, index) => {
+const writeRecordedAttribute = (record, index, raw) => {
   const { element, name, had, value } = record;
 
   if (!element.isConnected || !attributeStillOwned(record)) {
@@ -202,7 +202,9 @@ const writeRecordedAttribute = (record, index) => {
     return;
   }
 
-  const readable = READABLE_ATTRIBUTES.indexOf(name) !== -1;
+  // Reaction glyphs follow hide_reactions. A replace_in_text rule must not
+  // rewrite the alt or label that this restore puts back.
+  const readable = !raw && READABLE_ATTRIBUTES.indexOf(name) !== -1;
   const next = readable ? presentEmojiMutePlain(value, index) : value;
 
   element.setAttribute(name, next === undefined || next === null ? value : next);
@@ -260,15 +262,19 @@ const releaseScrub = (records, state) => {
   grouped.forEach((bucket, element) => {
     const host = element.closest ? element.closest(REACTION_HOST_SELECTOR) : null;
     const chip = host === element;
+    const reactionImage = Boolean(host && host !== element);
 
-    if (chip || (host && host !== element)) {
-      if (reactionHostHidden(records, host, rules)) {
-        return;
-      }
+    if ((chip || reactionImage) && reactionHostHidden(records, host, rules)) {
+      return;
     }
 
-    if (chip) {
-      bucket.forEach(record => writeRecordedAttribute(record, index));
+    if (chip || reactionImage) {
+      bucket.forEach(record => writeRecordedAttribute(record, index, true));
+
+      if (reactionImage) {
+        keptImages.add(element);
+      }
+
       return;
     }
 
