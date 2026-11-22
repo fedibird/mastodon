@@ -999,6 +999,61 @@ describe('StatusContent unverified emoji suppression', () => {
     expect(hashtagMenuStoredName(restored)).toBe('party:blob:');
     view.unmount();
   });
+
+  it('keeps image ranges when the accessible label spelling does not line up', () => {
+    const custom = '<img class="emojione custom-emoji" alt=":blob:" src="https://cdn.example/blob.svg">';
+    const partyHref = 'https://remote.example/tags/party%3Ablob%3A';
+    const fileHref = `https://remote.example/tags/${encodeURIComponent('file:blob:')}`;
+    const ligature = '\uFB01le';
+    const placeholder = '\u25FB';
+    const party = `<a href="${partyHref}" class="mention hashtag" rel="tag" aria-label="See #party:blob:. typed :blob:">#<span>party${custom}</span></a>`;
+    const gardenFirst = `<a href="${partyHref}" class="mention hashtag" rel="tag" aria-label="See #garden #party:blob:.">#<span>party${custom}</span></a>`;
+    const folded = `<a href="${fileHref}" class="mention hashtag" rel="tag" title="#${ligature}:blob:.">#<span>${ligature}${custom}</span></a>`;
+    const suppressState = fromJS({
+      server: { translationLanguages: { items: { en: ['ja'] } } },
+      emojiMutes: {
+        revision: '1',
+        appliedRevision: '1',
+        phase: 'stale',
+        failure: null,
+        rules: [],
+        availability: 'enabled',
+        display: 'suppress',
+      },
+    });
+    const view = render(
+      <Provider store={createStore(reducer, suppressState)}>
+        <StatusContent
+          status={buildStatus({
+            contentHtml: `<p>${party} ${gardenFirst} ${folded}</p>`,
+            tags: [
+              { name: 'party:blob:', url: partyHref },
+              { name: 'file:blob:', url: fileHref },
+            ],
+          })}
+          onTranslate={jest.fn()}
+          onClick={jest.fn()}
+        />
+      </Provider>,
+    );
+    const button = view.container.querySelector('button');
+
+    if (button) {
+      fireEvent.click(button);
+    }
+
+    const [punctuated, unrelated, normalized] = view.container.querySelectorAll('a.mention.hashtag');
+
+    expect(punctuated.getAttribute('aria-label')).toBe(`See #party${placeholder}. typed :blob:`);
+    expect(punctuated.getAttribute('aria-label')).toContain(':blob:');
+    expect(hashtagMenuStoredName(punctuated)).toBe('party:blob:');
+    expect(unrelated.getAttribute('aria-label')).toBe(`See #garden #party${placeholder}.`);
+    expect(hashtagMenuStoredName(unrelated)).toBe('party:blob:');
+    expect(normalized.getAttribute('title')).toBe(`#${ligature}${placeholder}.`);
+    expect(normalized.getAttribute('title')).not.toContain(':blob:');
+    expect(hashtagMenuStoredName(normalized)).toBe('file:blob:');
+    view.unmount();
+  });
 });
 
 describe('inline emoji actions from a status body', () => {

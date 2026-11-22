@@ -864,9 +864,15 @@ class StatusContent extends React.PureComponent {
         return;
       }
 
-      const spelling = (base.match(/[#＃]\s*([^\s#＃]+)/) || [])[1] || '';
-      const ranges = spelling ? alignHashtagRanges(name, spelling, imageRanges || []) : (imageRanges || []);
-      const next = projectConcealedHashtagText(base, spelling || name, ranges || []);
+      const captured = (base.match(/[#＃]\s*([^\s#＃]+)/) || [])[1] || '';
+      // The first #token can include a sentence period, or be a different tag.
+      // A failed alignment keeps this link's own name and image ranges.
+      const spelling = captured.replace(/[.,!?;)\]。、…]+$/u, '');
+      const aligned = spelling ? alignHashtagRanges(name, spelling, imageRanges || []) : [];
+      const matched = aligned.length > 0;
+      const labelName = matched ? spelling : (name || spelling);
+      const ranges = matched ? aligned : (imageRanges || []);
+      const next = projectConcealedHashtagText(base, labelName, ranges);
 
       if (next !== current) {
         link.setAttribute(attr, next);
