@@ -104,23 +104,27 @@ class Reaction extends ImmutablePureComponent {
       glyph = <Emoji className='reaction' hovered={this.state.hovered} emoji={emojiReaction.get('name')} url={emojiReaction.get('url')} static_url={emojiReaction.get('static_url')} domain={emojiReaction.get('domain')} title={title} onClick={this.handleEmojiClick} />;
     }
 
+    // Identity is only for a glyph that is actually shown. A later open
+    // during suppress is not visited by the one-shot scrub.
     const name = emojiReaction.get('name') || '';
     const domain = emojiReaction.get('domain') || '';
     const customEmojiId = emojiReaction.get('custom_emoji_id') || '';
-    const identity = {
-      'data-emoji-reaction-name': name,
-    };
+    const identity = {};
 
-    if (domain) {
-      identity['data-emoji-reaction-domain'] = domain;
-    }
+    if (!suppressed && !hiddenByRule) {
+      identity['data-emoji-reaction-name'] = name;
 
-    if (customEmojiId) {
-      identity['data-emoji-custom-emoji-id'] = String(customEmojiId);
-    }
+      if (domain) {
+        identity['data-emoji-reaction-domain'] = domain;
+      }
 
-    if (!domain && !customEmojiId && name) {
-      identity['data-emoji-native'] = name;
+      if (customEmojiId) {
+        identity['data-emoji-custom-emoji-id'] = String(customEmojiId);
+      }
+
+      if (!domain && !customEmojiId && name) {
+        identity['data-emoji-native'] = name;
+      }
     }
 
     return (

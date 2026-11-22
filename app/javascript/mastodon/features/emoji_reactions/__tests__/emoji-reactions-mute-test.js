@@ -30,7 +30,7 @@ jest.mock('mastodon/components/scrollable_list', () => ({ children }) => <div>{c
 jest.mock('mastodon/components/icon', () => () => null);
 jest.mock('mastodon/features/reactioned/containers/header_container', () => () => null);
 
-import { EMOJI_MUTES_APPLY, EMOJI_MUTES_REVISION } from 'mastodon/actions/emoji_mutes';
+import { EMOJI_MUTES_APPLY, EMOJI_MUTES_DISABLE, EMOJI_MUTES_IGNORE, EMOJI_MUTES_REVISION } from 'mastodon/actions/emoji_mutes';
 import Emoji from 'mastodon/components/emoji';
 import { createUnverifiedEmojiGuard } from 'mastodon/features/emoji/emoji_mute_live_dom';
 import emojiMutes from 'mastodon/reducers/emoji_mutes';
@@ -105,12 +105,17 @@ describe('emoji reaction overview mute state', () => {
     expect(open.container.querySelector('img')).toBeNull();
     expect(open.container.querySelectorAll('.emoji-mute-unverified').length).toBeGreaterThan(0);
     expect(open.container.innerHTML).not.toContain('cdn.example');
+    expect(open.container.innerHTML).not.toContain('data-emoji-');
+    expect(open.container.innerHTML).not.toContain('blob');
+    expect(open.container.innerHTML).not.toContain('remote.example');
 
     open.unmount();
 
     const during = renderList(store);
     expect(during.container.querySelector('img')).toBeNull();
     expect(during.container.innerHTML).not.toContain('cdn.example');
+    expect(during.container.innerHTML).not.toContain('data-emoji-');
+    expect(during.container.outerHTML).not.toContain('blob');
     during.unmount();
 
     const again = renderList(store);
@@ -218,6 +223,125 @@ describe('emoji reaction overview mute state', () => {
     expect(blob.hasAttribute('hidden')).toBe(false);
     expect(blob.getAttribute('alt') || view.container.innerHTML).not.toContain('[blob]');
     view.unmount();
+  });
+
+  it('keeps raw reaction identity out of a list first mounted while suppressed', () => {
+    const native = '👌';
+    const items = [
+      { account: '1', name: 'blob', url: 'https://cdn.example/blob.svg', static_url: 'https://cdn.example/blob.png', domain: 'remote.example' },
+      { account: '2', name: 'house', url: 'https://cdn.example/house.svg', static_url: 'https://cdn.example/house.png', custom_emoji_id: '42' },
+      { account: '3', name: native },
+    ];
+    const hide = (on) => ({
+      replace_in_text: false,
+      hide_reactions: on,
+      hide_in_picker: false,
+      reject_reactions_to_own_posts: false,
+    });
+    const hiddenRules = [
+      mutedRule,
+      { id: 'm-local', revision: '4', emoji: { kind: 'custom', scope: 'local', custom_emoji_id: '42', shortcode: 'house' }, replacement: '[house]', effects: hide(true) },
+      { id: 'm-unicode', revision: '4', emoji: { kind: 'unicode', native }, replacement: '[up]', effects: hide(true) },
+    ];
+    const shownRules = hiddenRules.map(rule => ({ ...rule, effects: hide(false) }));
+    const concealed = (container) => {
+      const html = container.outerHTML;
+
+      expect(html).not.toContain('blob');
+      expect(html).not.toContain('remote.example');
+      expect(html).not.toContain('house');
+      expect(html).not.toContain('42');
+      expect(html).not.toContain(native);
+      expect(html).not.toContain('data-emoji-');
+      expect(html).not.toContain('cdn.example');
+      expect(container.querySelector('.account__emoji_reaction [title], .account__emoji_reaction [alt], .account__emoji_reaction [aria-label]')).toBeNull();
+      expect(container.textContent).toContain('\u25FB');
+    };
+
+    const store = createStore(reducer, initial
+      .setIn(['user_lists', 'emoji_reactioned_by', 's1', 'items'], fromJS(items))
+      .setIn(['emojiMutes', 'display'], 'suppress'));
+    const first = renderList(store);
+
+    concealed(first.container);
+    first.unmount();
+
+    const openedLater = renderList(store);
+
+    concealed(openedLater.container);
+
+    act(() => {
+      store.dispatch({
+        type: EMOJI_MUTES_APPLY,
+        revision: '4',
+        availability: 'enabled',
+        mutes: hiddenRules,
+      });
+    });
+
+    expect(openedLater.container.outerHTML).not.toContain('blob');
+    expect(openedLater.container.outerHTML).not.toContain('remote.example');
+    expect(openedLater.container.outerHTML).not.toContain('house');
+    expect(openedLater.container.outerHTML).not.toContain('42');
+    expect(openedLater.container.outerHTML).not.toContain(native);
+    expect(openedLater.container.outerHTML).not.toContain('data-emoji-');
+
+    act(() => {
+      store.dispatch({
+        type: EMOJI_MUTES_APPLY,
+        revision: '5',
+        availability: 'enabled',
+        mutes: shownRules,
+      });
+    });
+
+    expect(openedLater.container.querySelector('[data-emoji-reaction-domain="remote.example"]').getAttribute('data-emoji-reaction-name')).toBe('blob');
+    expect(openedLater.container.querySelector('[data-emoji-custom-emoji-id="42"]').getAttribute('data-emoji-reaction-name')).toBe('house');
+    expect(openedLater.container.querySelector(`[data-emoji-native="${native}"]`)).not.toBeNull();
+
+    act(() => {
+      store.dispatch({ type: EMOJI_MUTES_REVISION, revision: '6' });
+      store.dispatch({
+        type: EMOJI_MUTES_APPLY,
+        revision: '7',
+        availability: 'enabled',
+        mutes: hiddenRules,
+      });
+    });
+
+    expect(openedLater.container.outerHTML).not.toContain('data-emoji-');
+    expect(openedLater.container.outerHTML).not.toContain('remote.example');
+    expect(openedLater.container.outerHTML).not.toContain(native);
+
+    act(() => {
+      store.dispatch({ type: EMOJI_MUTES_IGNORE });
+    });
+
+    expect(openedLater.container.querySelector('[data-emoji-reaction-name="blob"] img')).not.toBeNull();
+    expect(openedLater.container.querySelector('[data-emoji-custom-emoji-id="42"]')).not.toBeNull();
+    expect(openedLater.container.querySelector(`[data-emoji-native="${native}"]`)).not.toBeNull();
+
+    act(() => {
+      store.dispatch({ type: EMOJI_MUTES_DISABLE });
+    });
+
+    expect(openedLater.container.querySelector('[data-emoji-reaction-name="blob"] img')).not.toBeNull();
+    expect(openedLater.container.querySelector('[data-emoji-native]')).not.toBeNull();
+
+    act(() => {
+      store.dispatch({ type: EMOJI_MUTES_REVISION, revision: '8' });
+      store.dispatch({
+        type: EMOJI_MUTES_APPLY,
+        revision: '9',
+        availability: 'enabled',
+        mutes: hiddenRules,
+      });
+    });
+
+    expect(openedLater.container.outerHTML).not.toContain('data-emoji-');
+    expect(openedLater.container.outerHTML).not.toContain('remote.example');
+    expect(openedLater.container.outerHTML).not.toContain(native);
+    openedLater.unmount();
   });
 
   it('restores a directly rendered emoji after unverified concealment', () => {
