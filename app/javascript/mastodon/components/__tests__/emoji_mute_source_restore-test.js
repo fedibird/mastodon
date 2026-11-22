@@ -12,7 +12,7 @@ jest.mock('mastodon/initial_state', () => ({
   disableReactions: false,
 }));
 
-import { EMOJI_MUTES_APPLY, EMOJI_MUTES_REVISION } from 'mastodon/actions/emoji_mutes';
+import { EMOJI_MUTES_APPLY, EMOJI_MUTES_DISABLE, EMOJI_MUTES_IGNORE, EMOJI_MUTES_REVISION } from 'mastodon/actions/emoji_mutes';
 import CustomEmojiText from 'mastodon/components/custom_emoji_text';
 import { createUnverifiedEmojiGuard, emojiMuteLiveDomProbe, resetEmojiMuteLiveDomProbe } from 'mastodon/features/emoji/emoji_mute_live_dom';
 import { bindEmojiMuteElementSource, bindEmojiMuteHtmlSources } from 'mastodon/features/emoji/emoji_mute_sources';
@@ -150,6 +150,152 @@ describe('emoji mute source restore', () => {
     expect(atRelease).not.toContain('[sparkles]');
     expect(view.container.textContent).not.toContain('[sparkles]');
     expect(emojiMuteLiveDomProbe.scans).toBe(1);
+    view.unmount();
+  });
+
+  it('restores a replaced custom emoji from its original HTML, not the shortcode', () => {
+    resetEmojiMuteLiveDomProbe();
+    const guard = createUnverifiedEmojiGuard();
+    const store = createStore(reducer);
+    const blob = fromJS([{
+      id: '10',
+      shortcode: 'blob',
+      url: 'https://cdn.example/blob.svg',
+      static_url: 'https://cdn.example/blob.png',
+      domain: null,
+    }]);
+    const rule = {
+      id: 'mb',
+      revision: '2',
+      emoji: { kind: 'custom', scope: 'local', custom_emoji_id: '10', shortcode: 'blob' },
+      replacement: SPARKLE,
+      effects: { replace_in_text: true, hide_reactions: false, hide_in_picker: false, reject_reactions_to_own_posts: false },
+    };
+    let atSuppress = null;
+    let atRelease = null;
+
+    store.subscribe(() => guard(store.getState()));
+    store.subscribe(() => {
+      const display = store.getState().getIn(['emojiMutes', 'display']);
+      const revision = store.getState().getIn(['emojiMutes', 'revision']);
+      const text = document.querySelector('.emoji-mutes-privacy-portal').textContent;
+
+      if (display === 'suppress' && revision === '3' && !atSuppress) {
+        atSuppress = text;
+      }
+
+      if (display === 'apply' && revision === '4') {
+        atRelease = text;
+      }
+    });
+
+    const view = render(
+      <Provider store={store}>
+        <div className='emoji-mutes-privacy-portal'>
+          <CustomEmojiText text='Hi :blob:' customEmojis={blob} />
+        </div>
+      </Provider>,
+    );
+
+    act(() => {
+      store.dispatch({
+        type: EMOJI_MUTES_APPLY,
+        revision: '2',
+        availability: 'enabled',
+        mutes: [rule],
+      });
+    });
+
+    const shown = view.container.querySelector('.emoji-mutes-privacy-portal span');
+
+    expect(shown.childNodes).toHaveLength(1);
+    expect(shown.firstChild.nodeType).toBe(Node.TEXT_NODE);
+    expect(shown.textContent).toBe(`Hi ${SPARKLE}`);
+    expect(shown.querySelector('img')).toBeNull();
+
+    act(() => {
+      store.dispatch({ type: EMOJI_MUTES_REVISION, revision: '3' });
+      store.dispatch({
+        type: EMOJI_MUTES_APPLY,
+        revision: '4',
+        availability: 'enabled',
+        mutes: [{ ...rule, revision: '4' }],
+      });
+    });
+
+    expect(atSuppress).toBe(`Hi ${'\u25FB'}`);
+    expect(atSuppress).not.toContain(':blob:');
+    expect(atRelease).toBe(`Hi ${SPARKLE}`);
+    expect(atRelease).not.toContain(':blob:');
+    expect(shown.textContent).toBe(`Hi ${SPARKLE}`);
+    expect(shown.querySelector('img')).toBeNull();
+    expect(emojiMuteLiveDomProbe.scans).toBe(1);
+
+    act(() => {
+      store.dispatch({ type: EMOJI_MUTES_IGNORE });
+    });
+
+    expect(shown.querySelector('img.custom-emoji')).not.toBeNull();
+    expect(Array.from(shown.childNodes).filter(node => node.nodeType === Node.TEXT_NODE).map(node => node.nodeValue).join('')).not.toContain(':blob:');
+
+    act(() => {
+      store.dispatch({
+        type: EMOJI_MUTES_APPLY,
+        revision: '5',
+        availability: 'enabled',
+        mutes: [{ ...rule, revision: '5' }],
+      });
+    });
+    act(() => {
+      store.dispatch({ type: EMOJI_MUTES_DISABLE });
+    });
+
+    expect(shown.querySelector('img.custom-emoji')).not.toBeNull();
+    expect(Array.from(shown.childNodes).filter(node => node.nodeType === Node.TEXT_NODE).map(node => node.nodeValue).join('')).not.toContain(':blob:');
+    view.unmount();
+  });
+
+  it('keeps a collapsed text-and-image source when they become one text node', () => {
+    resetEmojiMuteLiveDomProbe();
+    const guard = createUnverifiedEmojiGuard();
+    const store = createStore(reducer);
+    const rule = {
+      id: 'mb',
+      revision: '4',
+      emoji: { kind: 'custom', scope: 'local', custom_emoji_id: '10', shortcode: 'blob' },
+      replacement: SPARKLE,
+      effects: { replace_in_text: true, hide_reactions: false, hide_in_picker: false, reject_reactions_to_own_posts: false },
+    };
+
+    store.subscribe(() => guard(store.getState()));
+
+    const view = render(
+      <Provider store={store}>
+        <div className='emoji-mutes-privacy-portal'>
+          <div className='merged' />
+        </div>
+      </Provider>,
+    );
+    const merged = view.container.querySelector('.merged');
+    const image = '<img class="emojione custom-emoji" alt=":blob:" data-shortcode="blob" data-domain="" data-emoji-id="10" src="https://cdn.example/blob.svg">';
+
+    merged.innerHTML = `Hi ${SPARKLE}`;
+    bindEmojiMuteHtmlSources(merged, `Hi ${image}`);
+    expect(merged.childNodes).toHaveLength(1);
+
+    act(() => {
+      store.dispatch({ type: EMOJI_MUTES_REVISION, revision: '3' });
+      store.dispatch({
+        type: EMOJI_MUTES_APPLY,
+        revision: '4',
+        availability: 'enabled',
+        mutes: [rule],
+      });
+    });
+
+    expect(merged.textContent).toBe(`Hi ${SPARKLE}`);
+    expect(merged.textContent).not.toContain(':blob:');
+    expect(merged.querySelector('img')).toBeNull();
     view.unmount();
   });
 

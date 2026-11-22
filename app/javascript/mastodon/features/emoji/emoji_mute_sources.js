@@ -11,6 +11,16 @@ export function rememberEmojiMuteTextSource(node, source) {
   textSources.set(node, source);
 }
 
+// Original HTML whose images this text node replaced. Plain-text projection
+// cannot expand a custom shortcode, so release uses the display HTML instead.
+export function rememberEmojiMuteDisplayHtml(node, html) {
+  if (!node || typeof html !== 'string') {
+    return;
+  }
+
+  textSources.set(node, { displayHtml: html });
+}
+
 export function rememberEmojiMuteAttributeSource(element, name, source) {
   if (!element || typeof source !== 'string') {
     return;
@@ -99,32 +109,52 @@ const rememberElementSources = (original, live) => {
   });
 };
 
+const isTextOrEmojiImage = node => node && (
+  node.nodeType === Node.TEXT_NODE
+  || (node.nodeType === Node.ELEMENT_NODE && node.tagName === 'IMG')
+);
+
 // Walk both trees together. A paragraph that projects to nothing does not
-// drop the source of the paragraph after it, and an image replaced by text
-// keeps that text tied to the image alt.
+// drop the source of the paragraph after it. Text and emoji images that
+// collapsed into one live text node keep the original HTML, so release can
+// project the custom emoji instead of writing its shortcode back.
 const bindHtmlChildren = (original, live) => {
   const originalChildren = Array.from(original.childNodes || []);
   const liveChildren = Array.from(live.childNodes || []);
   let liveIndex = 0;
+  let originalIndex = 0;
 
-  originalChildren.forEach(child => {
-    if (child.nodeType === Node.TEXT_NODE) {
-      if (liveIndex < liveChildren.length && liveChildren[liveIndex].nodeType === Node.TEXT_NODE) {
-        rememberEmojiMuteTextSource(liveChildren[liveIndex], child.nodeValue || '');
-        liveIndex += 1;
+  while (originalIndex < originalChildren.length) {
+    const child = originalChildren[originalIndex];
+
+    if (isTextOrEmojiImage(child)) {
+      const liveNode = liveChildren[liveIndex];
+
+      if (!liveNode || liveNode.nodeType !== Node.TEXT_NODE) {
+        originalIndex += 1;
+        continue;
       }
 
-      return;
+      const fragment = child.ownerDocument.createElement('div');
+
+      while (originalIndex < originalChildren.length && isTextOrEmojiImage(originalChildren[originalIndex])) {
+        fragment.appendChild(originalChildren[originalIndex].cloneNode(true));
+        originalIndex += 1;
+      }
+
+      if (fragment.querySelector('img')) {
+        rememberEmojiMuteDisplayHtml(liveNode, fragment.innerHTML);
+      } else {
+        rememberEmojiMuteTextSource(liveNode, fragment.textContent || '');
+      }
+
+      liveIndex += 1;
+      continue;
     }
 
     if (child.nodeType !== Node.ELEMENT_NODE) {
-      return;
-    }
-
-    if (child.tagName === 'IMG' && liveIndex < liveChildren.length && liveChildren[liveIndex].nodeType === Node.TEXT_NODE) {
-      rememberEmojiMuteTextSource(liveChildren[liveIndex], child.getAttribute('alt') || '');
-      liveIndex += 1;
-      return;
+      originalIndex += 1;
+      continue;
     }
 
     while (liveIndex < liveChildren.length && liveChildren[liveIndex].nodeType === Node.TEXT_NODE) {
@@ -133,14 +163,14 @@ const bindHtmlChildren = (original, live) => {
 
     const next = liveChildren[liveIndex];
 
-    if (!next || next.nodeType !== Node.ELEMENT_NODE || next.tagName !== child.tagName) {
-      return;
+    if (next && next.nodeType === Node.ELEMENT_NODE && next.tagName === child.tagName) {
+      rememberElementSources(child, next);
+      bindHtmlChildren(child, next);
+      liveIndex += 1;
     }
 
-    rememberElementSources(child, next);
-    bindHtmlChildren(child, next);
-    liveIndex += 1;
-  });
+    originalIndex += 1;
+  }
 };
 
 // Pair a stored HTML fragment with the nodes React inserted from its projection.

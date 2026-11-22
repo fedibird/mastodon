@@ -735,6 +735,21 @@ export function replaceEmojiInDisplayHtml(html, index) {
   return next;
 }
 
+// The text a surface would show for stored HTML. Null means an emoji image
+// is still part of that display, so a text node must not be given its alt.
+export function displayTextForEmojiMuteHtml(html, index) {
+  const next = replaceEmojiInDisplayHtml(typeof html === 'string' ? html : '', index);
+  const template = document.createElement('template');
+
+  template.innerHTML = next || '';
+
+  if (Array.from(template.content.querySelectorAll('img')).some(isUserEmojiImage)) {
+    return null;
+  }
+
+  return template.content.textContent;
+}
+
 const visibleText = html => {
   const template = document.createElement('template');
   template.innerHTML = html;

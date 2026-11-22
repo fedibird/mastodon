@@ -5,11 +5,12 @@ import escapeTextContentForBrowser from 'escape-html';
 
 import emojify, { buildCustomEmojiMap } from 'mastodon/features/emoji/emoji';
 import { replaceEmojiInDisplayHtml } from 'mastodon/features/emoji/emoji_mute_text';
-import { bindEmojiMuteHtmlSources, rememberEmojiMuteTextSource } from 'mastodon/features/emoji/emoji_mute_sources';
+import { bindEmojiMuteHtmlSources, rememberEmojiMuteDisplayHtml, rememberEmojiMuteTextSource } from 'mastodon/features/emoji/emoji_mute_sources';
 import { withEmojiMuteTextIndex } from 'mastodon/components/emoji_muted_html';
 
-// The rendered text is one projection of the original prop. Release reads
-// that prop, so a replacement character is not projected a second time.
+// One live text node is the display of the original HTML, including a custom
+// emoji image that the renderer replaced. The raw prop is only the source
+// when that HTML has no image for the display renderer to project.
 class CustomEmojiText extends React.PureComponent {
 
   static propTypes = {
@@ -54,7 +55,14 @@ class CustomEmojiText extends React.PureComponent {
     }
 
     if (texts.length === 1) {
-      rememberEmojiMuteTextSource(texts[0], this.props.text || '');
+      const html = this.originalHtml();
+
+      if (html.indexOf('<img') !== -1) {
+        rememberEmojiMuteDisplayHtml(texts[0], html);
+      } else {
+        rememberEmojiMuteTextSource(texts[0], this.props.text || '');
+      }
+
       return;
     }
 

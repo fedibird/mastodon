@@ -1,7 +1,7 @@
 import { storedReactionHidden } from './emoji_mute_projection';
 import { hasEmojiMuteAttributeSource, logicalEmojiMuteAttribute, logicalEmojiMuteText } from './emoji_mute_sources';
 import { bindHashtagMenuName, concealOpenHashtagMenus, hashtagMenuStoredIdentity, projectConcealedHashtagText, projectHashtagLabel } from './hashtag_menu_names';
-import { emojiMuteTextIndexFromState, isUserEmojiImage, presentEmojiMutePlain, projectedEmojiImage, SUPPRESS_UNVERIFIED_INDEX, suppressUnicodeEmoji, UNVERIFIED_EMOJI_PLACEHOLDER } from './emoji_mute_text';
+import { displayTextForEmojiMuteHtml, emojiMuteTextIndexFromState, isUserEmojiImage, presentEmojiMutePlain, projectedEmojiImage, SUPPRESS_UNVERIFIED_INDEX, suppressUnicodeEmoji, UNVERIFIED_EMOJI_PLACEHOLDER } from './emoji_mute_text';
 
 // One selector for both the clear and the record. A host cleared here has to
 // be in the snapshot, or a same-batch success cannot put it back.
@@ -315,11 +315,25 @@ const releaseScrub = (records, state) => {
       }
 
       // The source can change while the placeholder stays the same.
-      // Project the current logical string once; the scrub snapshot is only
-      // the fallback for a node that never registered one.
+      // Project the current logical value once. Display HTML is projected
+      // by the same renderer as the surface. A remaining emoji image is not
+      // written into the text node as its alt or shortcode.
       const source = logicalEmojiMuteText(record.node, record.value || '');
-      const next = presentEmojiMutePlain(source, index);
-      record.node.nodeValue = next === undefined || next === null ? source : next;
+
+      if (source && typeof source === 'object' && typeof source.displayHtml === 'string') {
+        const displayed = displayTextForEmojiMuteHtml(source.displayHtml, index);
+
+        if (displayed === null) {
+          return;
+        }
+
+        record.node.nodeValue = displayed;
+        return;
+      }
+
+      const plain = typeof source === 'string' ? source : '';
+      const next = presentEmojiMutePlain(plain, index);
+      record.node.nodeValue = next === undefined || next === null ? plain : next;
       return;
     }
 
