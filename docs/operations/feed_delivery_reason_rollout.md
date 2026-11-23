@@ -20,6 +20,23 @@
 
 **注意:** off はfeature counterを発行しない。shadow の agree/disagree は判定条件が実際に評価されたときだけ増える。enforceのevidence/reuse件数だけでは配送結果の互換性は証明できない。PG/Sidekiq/Redisの全体統計には他機能の負荷も含まれる。
 
+## 一括観測（フラグ変更なし・単一ホスト）
+
+同じコマンドの繰り返しを避ける場合は `script/feed_delivery_reason_observe.sh` を利用する。指定unitの MainPID でモードを前後確認し、指定秒数を挟んでRedisスナップショット2枚と差分判定を生成する。`--pg` はread-only SQLを前後に実行するオプション。既存の監視によるSidekiq/p95等は別途収集する。
+
+```sh
+# 本番サービス名は現地に合わせて置換。実測開始前に別途設定承認が必要。
+bash script/feed_delivery_reason_observe.sh \
+  --phase off --seconds 900 \
+  --out-dir "$HOME/feed-delivery-710-off-$(date -u +%Y%m%dT%H%M%SZ)" \
+  --unit mastodon-web.service --unit mastodon-sidekiq.service --pg
+
+# shadow/enforceは切替済みかつ別承認がある場合だけ、--phaseを置換して実行。
+# ステージングでは必要に応じて RAILS_ENV を明示する。
+```
+
+出力ディレクトリは新規パス必須（0600/0700）、同じ名前を上書きしない。`--unit` を省略すると警告し、プロセスモードの保証はしない。複数ホストや複数Sidekiq unitはそれぞれ確認する。`--seconds` は30〜86400（既定600）。`BLOCKED`/`INSUFFICIENT` は非ゼロ終了コードになり、計測データは残る。**スクリプトはモード変更も再起動も行わない。**
+
 ## 0. 開発／ステージングのチェック
 
 ```sh
