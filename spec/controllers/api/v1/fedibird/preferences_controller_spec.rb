@@ -51,6 +51,9 @@ RSpec.describe Api::V1::Fedibird::PreferencesController, type: :controller do
         :'user.info_font_size',
         :'user.reduce_motion',
         :'user.emoji_picker_prefer_personal',
+        :'user.emoji_picker_disable_personal',
+        :'user.emoji_picker_disable_standard',
+        :'user.emoji_picker_disable_actions',
         :'user.emoji_picker_lazy_load_standard',
         :'user.emoji_reaction_fallback_policy'
       )
@@ -63,6 +66,22 @@ RSpec.describe Api::V1::Fedibird::PreferencesController, type: :controller do
       expect(privacy[:validation_errors]).to eq []
       policy = body[:preferences][:'user.emoji_reaction_fallback_policy']
       expect(policy).to include(state: 'absent', configured: nil, effective: 'allow', public_value: 'allow', public_valid: true)
+    end
+
+    it 'returns the standard emoji picker preference when unset and when explicitly enabled' do
+      authorize(user, 'read:preferences')
+      get :show
+
+      expect(body_as_json[:preferences][:'user.emoji_picker_disable_standard']).to include(
+        state: 'absent', configured: nil, effective: false, public_value: false, public_valid: true
+      )
+
+      store_setting(user, 'emoji_picker_disable_standard', true)
+      get :show
+
+      expect(body_as_json[:preferences][:'user.emoji_picker_disable_standard']).to include(
+        state: 'present', configured: true, effective: true, public_value: true, public_valid: true
+      )
     end
 
     it 'publishes a stored fallback policy and normalizes a value that is not allow, ask, or deny' do
@@ -291,6 +310,9 @@ RSpec.describe Api::V1::Fedibird::PreferencesController, type: :controller do
         :'user.info_font_size',
         :'user.reduce_motion',
         :'user.emoji_picker_prefer_personal',
+        :'user.emoji_picker_disable_personal',
+        :'user.emoji_picker_disable_standard',
+        :'user.emoji_picker_disable_actions',
         :'user.emoji_picker_lazy_load_standard',
         :'user.emoji_reaction_fallback_policy'
       )
@@ -330,7 +352,7 @@ RSpec.describe Api::V1::Fedibird::PreferencesController, type: :controller do
 
       expect(response).to have_http_status(200)
       expect(stored(user, 'default_sensitive').value).to be false
-      expect(body_as_json[:preferences].keys.size).to eq 13
+      expect(body_as_json[:preferences].keys.size).to eq 16
     end
 
     it 'updates policy and the translation bar together, and policy alone leaves the bar row' do
