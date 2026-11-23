@@ -6,8 +6,10 @@ describe Settings::Preferences::AppearanceController do
   render_views
 
   before do
-    allow_any_instance_of(Webpacker::Manifest).to receive(:lookup!) do |*_args, **kwargs|
-      kwargs[:with_integrity] ? ['/packs-test/dummy.js', nil] : '/packs-test/dummy.js'
+    allow_any_instance_of(Webpacker::Manifest).to receive(:lookup!) do |_manifest, name, **kwargs|
+      extension = kwargs[:type] == :stylesheet ? 'css' : 'js'
+      path = "/packs-test/#{name}.#{extension}"
+      kwargs[:with_integrity] ? [path, nil] : path
     end
   end
 
@@ -67,6 +69,43 @@ describe Settings::Preferences::AppearanceController do
       expect(body).not_to include('user_setting_auto_play_emoji')
       expect(body).not_to include(I18n.t('simple_form.labels.defaults.setting_card_reactions_single_line', locale: :ja))
       expect(body).to include(I18n.t('simple_form.labels.defaults.setting_card_collapse_long_text', locale: :ja))
+    end
+  end
+
+  describe 'PUT #update (theme preference)' do
+    let(:user) { Fabricate(:user, locale: 'en') }
+
+    before { sign_in user, scope: :user }
+
+    it 'restores the system theme and both conditional stylesheets after saving' do
+      put :update, params: { user: { setting_theme: 'system' } }
+
+      expect(response).to redirect_to(settings_preferences_appearance_path)
+      expect(user.reload.setting_theme).to eq 'system'
+
+      get :show
+
+      page = Nokogiri::HTML(response.body)
+      expect(page.at_css('#user_setting_theme option[selected]')['value']).to eq 'system'
+      expect(page.css('link[data-active-theme]').map { |link| [link['href'], link['media']] }).to eq [
+        ['/packs-test/default.css', 'not all and (prefers-color-scheme: light)'],
+        ['/packs-test/mastodon-light.css', '(prefers-color-scheme: light)'],
+      ]
+    end
+
+    it 'keeps a fixed theme as the only active stylesheet after saving' do
+      put :update, params: { user: { setting_theme: 'mastodon-light' } }
+
+      expect(response).to redirect_to(settings_preferences_appearance_path)
+      expect(user.reload.setting_theme).to eq 'mastodon-light'
+
+      get :show
+
+      page = Nokogiri::HTML(response.body)
+      expect(page.at_css('#user_setting_theme option[selected]')['value']).to eq 'mastodon-light'
+      expect(page.css('link[data-active-theme]').map { |link| [link['href'], link['media']] }).to eq [
+        ['/packs-test/mastodon-light.css', 'all'],
+      ]
     end
   end
 

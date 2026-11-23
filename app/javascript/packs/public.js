@@ -8,6 +8,7 @@ import 'cocoon-js-vanilla';
 import { initializeExternalServiceHelp } from '../mastodon/features/external_service_help/help';
 import { initializeFilterForms } from '../mastodon/features/filters/filter_form';
 import { initExternalServiceIconFallback } from '../mastodon/external_service_icon_fallback';
+import { createThemePreview } from '../mastodon/theme_preview';
 
 start();
 initExternalServiceIconFallback();
@@ -306,24 +307,9 @@ function main() {
     input.readonly = oldReadOnly;
   });
 
-  delegate(document, '#user_setting_theme, #form_admin_settings_theme', 'change', (evt) => {
-    const themeTags = document.querySelectorAll('link[data-theme-preview]');
-    let hasPreview = false;
-
-    for (const themeTag of themeTags) {
-      if (themeTag.getAttribute('data-theme-preview') === evt.target.value) {
-        themeTag.setAttribute('rel', 'stylesheet');
-        hasPreview = true;
-      } else {
-        themeTag.setAttribute('rel', 'preload');
-      }
-    }
-
-    if (hasPreview) {
-      for (const themeTag of document.querySelectorAll('link[data-active-theme]')) {
-        themeTag.disabled = true;
-      }
-    }
+  const previewTheme = createThemePreview(document);
+  delegate(document, '#user_setting_theme, #form_admin_settings_theme', 'change', ({ target }) => {
+    previewTheme(target.value);
   });
 
   delegate(document, '.sidebar__toggle__icon', 'click', () => {
