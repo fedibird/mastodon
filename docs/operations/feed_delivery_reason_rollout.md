@@ -13,7 +13,7 @@
 ## 提供ツール
 
 - `script/feed_delivery_reason_rollout.rb process-modes`: 指定 Linux PID / systemd unit の機能フラグだけを `/proc/<pid>/environ` から確認。その他の環境変数（秘密を含む）は出力しない。unit は MainPID のみなので他のunit/子プロセス/ホストも別途確認
-- `... snapshot`: アプリと同じRedis接続を使い、既知の時間別 `feed_delivery_reason:v1:YYYYMMDDHH` ハッシュを HGETALL pipeline で読み、JSON保存。既定48時間（最大72時間）。出力は0600、上書き禁止
+- `... snapshot`: アプリと同じRedis接続を使い、既知の時間別 `feed_delivery_reason:v1:YYYYMMDDHH` ハッシュを HGETALL pipeline で読み、JSON保存。既定48時間キー。`--hours` は1..73。72時間ちょうどの区間は始点のUTC時と72時間後のUTC時の両方に触れるため、キーは最大73個必要。出力は0600、上書き禁止
 - `... compare`: 同じフェーズの2枚からUTC時間境界をまたぐ差分を計算。`BLOCKED` / `INSUFFICIENT` / `REVIEW_REQUIRED` を表示、JSON出力可能。`--strict` はBLOCKED/INSUFFICIENT時に終了コード3を返す。**REVIEW_REQUIREDはGO判定ではない**
 - `script/feed_delivery_reason_pg_baseline.sql`: 読取専用のPostgreSQL累積統計スナップショット。統計リセット/EXPLAIN ANALYZEなし
 - 既存の `spec/lib/feed_delivery_cost_spec.rb`: 1 / 100 / 1000宛先のSQL・オブジェクト割当・Redis flushをテストDBで計測（本番DBに対しては実行禁止）
@@ -141,4 +141,4 @@ enforceでは `kw|...|result=evidence` と `list|result=reuse` が省略実施�
 
 コミットSHA・配備版、対象ホストと全unit、各モード反映時刻（JST/UTC）、サンプル開始/終了、トラフィック/キュー、DB統計のstats_reset、外部指標、各JSONレポート、配送/通知の代表テスト、未検証項目を保存する。個人ID、投稿本文、購読キーワード、資格情報を記録しない。実測していない削減率は主張しない。
 
-**例外:** 72時間を超える比較、Redis keyの失効（8日保持）、Redis再起動・カウンタ巻戻し、workerモード混在では差分の信頼性が落ちる。比較ツールは時間キー不足/負差分/フェーズ相違を拒否するが、稼働全プロセスのモード混在は自動検出できない。最後の判断は運営者のレビューで行う。
+**例外:** 経過が72時間を超える比較は拒否する。ちょうど72時間でもUTC時キーは73個になり、after側に始点の時キーが無いと比較できない（`--hours 72` では1個足りない）。Redis keyの失効（8日保持）、Redis再起動・カウンタ巻戻し、workerモード混在でも差分の信頼性が落ちる。比較ツールは時間キー不足/負差分/フェーズ相違を拒否するが、稼働全プロセスのモード混在は自動検出できない。最後の判断は運営者のレビューで行う。

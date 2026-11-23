@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-require 'spec_helper'
+require 'rails_helper'
 require 'tmpdir'
 require_relative '../../script/feed_delivery_reason_rollout'
 
@@ -75,6 +75,40 @@ RSpec.describe FeedDeliveryReasonRollout do
     after = snapshot(time: '2026-11-23T14:05:00Z', keys: { first_key => { 'job|reason=keyword' => 5 } })
 
     expect { described_class.compare(before, after) }.to raise_error(described_class::Error, /negative counter/)
+  end
+
+  it 'includes both endpoint hours when an interval lasts exactly 72 hours' do
+    start = Time.utc(2026, 11, 20, 0, 30, 0)
+    finish = start + (described_class::MAX_HOURS * 3600)
+    keys = described_class.hour_keys(start, finish)
+    before_keys = { keys.first => { 'job|reason=keyword' => 8 } }
+    after_keys = keys.to_h { |key| [key, {}] }
+    after_keys[keys.first] = { 'job|reason=keyword' => 11 }
+    after_keys[keys.last] = { 'job|reason=keyword' => 5 }
+
+    expect(keys.size).to eq described_class::MAX_SNAPSHOT_HOURS
+
+    result = described_class.compare(
+      snapshot(time: start.iso8601, keys: before_keys),
+      snapshot(time: finish.iso8601, keys: after_keys)
+    )
+
+    expect(result['summary']).to include('keyword_jobs' => 8)
+    overtime = snapshot(time: (finish + 1).iso8601, keys: after_keys)
+    expect { described_class.compare(snapshot(time: start.iso8601, keys: before_keys), overtime) }
+      .to raise_error(described_class::Error, /72 hours/)
+  end
+
+  it 'rejects a 72 hour interval whose later snapshot dropped the starting hour' do
+    start = Time.utc(2026, 11, 20, 0, 0, 0)
+    finish = start + (described_class::MAX_HOURS * 3600)
+    needed = described_class.hour_keys(start, finish)
+    covered = needed.drop(1)
+
+    expect(covered.size).to eq described_class::MAX_HOURS
+    before = snapshot(time: start.iso8601, keys: { needed.first => {} })
+    after = snapshot(time: finish.iso8601, keys: covered.to_h { |key| [key, {}] })
+    expect { described_class.compare(before, after) }.to raise_error(described_class::Error, /hour coverage/)
   end
 
   it 'never overwrites a snapshot file' do

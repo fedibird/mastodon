@@ -14,6 +14,9 @@ module FeedDeliveryReasonRollout
   MODE_ENV = 'FEED_DELIVERY_REASON_MODE'
   PHASES = %w(off shadow enforce).freeze
   MAX_HOURS = 72
+  # A 72 hour interval still touches 73 UTC hour keys: the starting hour and
+  # the hour 72 hours later. Snapshots must be able to read both.
+  MAX_SNAPSHOT_HOURS = MAX_HOURS + 1
 
   class Error < StandardError; end
 
@@ -43,7 +46,7 @@ module FeedDeliveryReasonRollout
     raise Error, 'unexpected arguments' unless argv.empty?
     raise Error, '--phase (off|shadow|enforce) is required' unless options[:phase]
     raise Error, '--out PATH is required' if options[:out].to_s.empty?
-    raise Error, "--hours must be 1..#{MAX_HOURS}" unless (1..MAX_HOURS).cover?(options[:hours])
+    raise Error, "--hours must be 1..#{MAX_SNAPSHOT_HOURS}" unless (1..MAX_SNAPSHOT_HOURS).cover?(options[:hours])
 
     require_relative '../config/environment'
     unless FeedDelivery::Metrics::KEY_PREFIX == PREFIX
