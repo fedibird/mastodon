@@ -280,21 +280,19 @@ describe('emoji mute load notice placement', () => {
     expect(container.querySelector('[data-testid="column-child"]')).not.toBeNull();
 
     const stylesheet = fs.readFileSync(path.join(__dirname, '../../../styles/mastodon/emoji_mute_load_notice.scss'), 'utf8');
+    const overlayRule = stylesheet.slice(
+      stylesheet.indexOf('.emoji-mute-load-notice-overlay {'),
+      stylesheet.indexOf('.compose-panel > .emoji-mute-load-notice'),
+    );
 
-    expect(stylesheet).toContain('.emoji-mute-load-notice-overlay');
-    expect(stylesheet).toContain('position: fixed');
-    expect(stylesheet).toContain('overflow-y: auto');
-    expect(stylesheet).toContain('max-height: calc(100vh - 20px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px))');
+    expect(overlayRule.startsWith('.emoji-mute-load-notice-overlay {')).toBe(true);
+    expect(overlayRule).toContain('position: fixed');
+    expect(overlayRule).toContain('overflow-y: auto');
+    expect(overlayRule).toContain('max-height: calc(100vh - 20px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px))');
+    expect(overlayRule).toContain('> .emoji-mute-load-notice');
     expect(stylesheet).not.toContain('.columns-area > .emoji-mute-load-notice-slot');
-
-    const shortOverlay = document.createElement('div');
-    shortOverlay.style.cssText = 'position:fixed;top:10px;left:10px;width:360px;max-height:120px;overflow-y:auto;';
-    shortOverlay.innerHTML = '<div style="height:480px"><button type="button">Turn the feature off</button></div>';
-    document.body.appendChild(shortOverlay);
-    const action = shortOverlay.querySelector('button');
-    shortOverlay.scrollTop = shortOverlay.scrollHeight;
-    expect(shortOverlay.scrollTop + shortOverlay.clientHeight).toBeGreaterThanOrEqual(action.offsetTop + action.offsetHeight);
-    shortOverlay.remove();
+    expect(overlay.querySelector('.emoji-mute-load-notice__disable')).not.toBeNull();
+    expect(overlay.querySelector('.emoji-mute-load-notice__action--primary')).not.toBeNull();
   });
 
   it('uses one visibility decision for the card, the drawer spacing, and the overlay', () => {
