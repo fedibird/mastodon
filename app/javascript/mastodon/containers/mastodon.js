@@ -65,19 +65,36 @@ const EMOJI_MUTE_NOTICE_FOCUS = [
   '.search__input',
   'a.column-link',
   'button.column-header__button:not([disabled])',
+  '.column-header > button:not([disabled])',
   'a.drawer__tab',
 ];
 
+const focusableAfterIgnoredNotice = element => {
+  if (!element || !element.isConnected || element.disabled || typeof element.focus !== 'function') {
+    return false;
+  }
+
+  if (element.closest('[hidden], [aria-hidden="true"]')) {
+    return false;
+  }
+
+  const style = window.getComputedStyle(element);
+
+  return style.display !== 'none' && style.visibility !== 'hidden';
+};
+
 const focusAfterIgnoredNotice = root => {
-  if (!root || typeof root.querySelector !== 'function') {
+  if (!root || typeof root.querySelectorAll !== 'function') {
     return null;
   }
 
   for (let index = 0; index < EMOJI_MUTE_NOTICE_FOCUS.length; index += 1) {
-    const target = root.querySelector(EMOJI_MUTE_NOTICE_FOCUS[index]);
+    const candidates = root.querySelectorAll(EMOJI_MUTE_NOTICE_FOCUS[index]);
 
-    if (target && typeof target.focus === 'function') {
-      return target;
+    for (let candidate = 0; candidate < candidates.length; candidate += 1) {
+      if (focusableAfterIgnoredNotice(candidates[candidate])) {
+        return candidates[candidate];
+      }
     }
   }
 

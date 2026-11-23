@@ -144,21 +144,42 @@ jest.mock('mastodon/features/ui', () => {
   return class MockUI extends ReactMock.Component {
 
     render() {
+      const surface = global.__emojiMuteFocusSurface;
+      let controls = (
+        <ReactMock.Fragment>
+          <textarea className='autosuggest-textarea__textarea' data-testid='composer' />
+          <input className='search__input' data-testid='search-field' />
+          <button type='button' data-testid='elsewhere'>Elsewhere</button>
+        </ReactMock.Fragment>
+      );
+
+      if (surface === 'columns') {
+        controls = (
+          <ReactMock.Fragment>
+            <a className='column-link' href='/timelines/home' data-testid='column-home'>Home</a>
+            <button type='button' data-testid='elsewhere'>Elsewhere</button>
+          </ReactMock.Fragment>
+        );
+      }
+
+      if (surface === 'timeline') {
+        controls = (
+          <ReactMock.Fragment>
+            <h1 className='column-header' hidden>
+              <button type='button' data-testid='hidden-heading'>Hidden</button>
+            </h1>
+            <h1 className='column-header'>
+              <button type='button' data-testid='column-heading'>Home</button>
+            </h1>
+            <button type='button' data-testid='elsewhere'>Elsewhere</button>
+          </ReactMock.Fragment>
+        );
+      }
+
       return (
         <div data-testid='webui'>
-          {global.__emojiMuteFocusSurface === 'columns' ? (
-            <ReactMock.Fragment>
-              <a className='column-link' href='/timelines/home' data-testid='column-home'>Home</a>
-              <button type='button' data-testid='elsewhere'>Elsewhere</button>
-            </ReactMock.Fragment>
-          ) : (
-            <ReactMock.Fragment>
-              <textarea className='autosuggest-textarea__textarea' data-testid='composer' />
-              <input className='search__input' data-testid='search-field' />
-              <button type='button' data-testid='elsewhere'>Elsewhere</button>
-            </ReactMock.Fragment>
-          )}
-          <Notice key={global.__emojiMuteNoticeMount || 'notice'} placement={global.__emojiMuteFocusSurface === 'columns' ? 'overlay' : 'compose-panel'} />
+          {controls}
+          <Notice key={global.__emojiMuteNoticeMount || 'notice'} placement={surface ? 'overlay' : 'compose-panel'} />
         </div>
       );
     }
@@ -564,6 +585,49 @@ describe('emoji mute failure notice during streaming resync', () => {
     expect(notice(again)).toBeNull();
     expect(document.activeElement).toBe(elsewhere);
     expect(mockHarness.getState().getIn(['emojiMutes', 'display'])).toBe('show');
+    again.unmount();
+  });
+
+  it('moves focus to the timeline heading when no composer, search, or column link exists', async () => {
+    global.__emojiMuteFocusSurface = 'timeline';
+    const view = render(<Mastodon locale='en' />);
+    await rejectGet(gets[gets.length - 1]);
+    await act(async () => {
+      fireEvent.click(view.getByText('Ignore this time'));
+      await flush();
+    });
+    const close = notice(view).querySelector('.emoji-mute-load-notice__close');
+    const heading = view.getByTestId('column-heading');
+
+    expect(view.queryByTestId('composer')).toBeNull();
+    expect(view.queryByTestId('search-field')).toBeNull();
+    expect(view.container.querySelector('a.column-link')).toBeNull();
+    expect(heading.className).toBe('');
+    close.focus();
+    fireEvent.keyDown(close, { key: 'Enter', code: 'Enter' });
+    fireEvent.click(close);
+
+    expect(notice(view)).toBeNull();
+    expect(document.activeElement).toBe(heading);
+    expect(document.activeElement).not.toBe(view.getByTestId('hidden-heading'));
+    expect(mockHarness.getState().getIn(['emojiMutes', 'availability'])).toBe('temporary_ignore');
+    expect(mockHarness.getState().getIn(['emojiMutes', 'display'])).toBe('show');
+    view.unmount();
+
+    global.__emojiMuteFocusSurface = 'timeline';
+    global.__emojiMuteNoticeMount = 'timeline-again';
+    const again = render(<Mastodon locale='en' />);
+    await rejectGet(gets[gets.length - 1]);
+    await act(async () => {
+      fireEvent.click(again.getByText('Ignore this time'));
+      await flush();
+    });
+    const elsewhere = again.getByTestId('elsewhere');
+    elsewhere.focus();
+    fireEvent.click(notice(again).querySelector('.emoji-mute-load-notice__close'));
+
+    expect(notice(again)).toBeNull();
+    expect(document.activeElement).toBe(elsewhere);
     again.unmount();
   });
 });
