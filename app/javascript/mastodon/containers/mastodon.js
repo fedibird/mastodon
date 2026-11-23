@@ -57,6 +57,50 @@ const signedIn = !!(initialState?.meta?.me || initialState?.meta?.access_token);
 // A failed network read can be repeated. Ignore clicks until this quiet
 // period has elapsed so a held button cannot queue a burst of GETs.
 const EMOJI_MUTE_RETRY_COOLDOWN_MS = 1000;
+// Composer and search are the usual next stop. Advanced columns often have
+// neither, so a visible column link or header control keeps Tab from restarting
+// at the top of the document.
+const EMOJI_MUTE_NOTICE_FOCUS = [
+  '.autosuggest-textarea__textarea',
+  '.search__input',
+  'a.column-link',
+  'button.column-header__button:not([disabled])',
+  '.column-header > button:not([disabled])',
+  'a.drawer__tab',
+];
+
+const focusableAfterIgnoredNotice = element => {
+  if (!element || !element.isConnected || element.disabled || typeof element.focus !== 'function') {
+    return false;
+  }
+
+  if (element.closest('[hidden], [aria-hidden="true"]')) {
+    return false;
+  }
+
+  const style = window.getComputedStyle(element);
+
+  return style.display !== 'none' && style.visibility !== 'hidden';
+};
+
+const focusAfterIgnoredNotice = root => {
+  if (!root || typeof root.querySelectorAll !== 'function') {
+    return null;
+  }
+
+  for (let index = 0; index < EMOJI_MUTE_NOTICE_FOCUS.length; index += 1) {
+    const candidates = root.querySelectorAll(EMOJI_MUTE_NOTICE_FOCUS[index]);
+
+    for (let candidate = 0; candidate < candidates.length; candidate += 1) {
+      if (focusableAfterIgnoredNotice(candidates[candidate])) {
+        return candidates[candidate];
+      }
+    }
+  }
+
+  return null;
+};
+
 const sessionMatches = state => {
   if (!state || typeof state.getIn !== 'function') {
     return true;
@@ -76,6 +120,8 @@ export default class Mastodon extends React.PureComponent {
   state = {
     emojiMuteBoot: 'ready',
     emojiMuteFailure: null,
+    emojiMuteRechecking: false,
+    ignoredNoticeClosed: false,
     preferenceError: false,
     preferenceSaving: false,
   };
@@ -221,7 +267,7 @@ export default class Mastodon extends React.PureComponent {
       this.sessionChanged = true;
       this.requestedBootPhase = 'session-changed';
       this.bootstrapGeneration = (this.bootstrapGeneration || 0) + 1;
-      this.setState({ emojiMuteBoot: 'session-changed' }, () => {
+      this.setState({ emojiMuteBoot: 'session-changed', ignoredNoticeClosed: false }, () => {
         if (this.disconnect) {
           this.disconnect();
           this.disconnect = null;
@@ -243,33 +289,59 @@ export default class Mastodon extends React.PureComponent {
     let next = this.requestedBootPhase;
 
     const syncing = emojiMuteSyncInFlight();
+    // A confirmed failure stays on the card through a later sync. The first
+    // fetch has no failure yet, so that one still waits without a card.
+    const confirmedError = this.requestedBootPhase === 'error' || this.state.emojiMuteBoot === 'error';
 
     if (availability === 'temporary_ignore') {
       next = 'ignored';
     } else if (phase === 'ready') {
       next = 'ready';
-    } else if (syncing || (phase === 'loading' && this.emojiMuteRequestInFlight)) {
-      // Hide the previous card only while the newest sync is still pending.
-      // An older request, and a finished failure left in loading, do not.
-      next = 'loading';
     } else if (phase === 'error') {
       next = 'error';
+    } else if (syncing || (phase === 'loading' && this.emojiMuteRequestInFlight)) {
+      next = confirmedError ? 'error' : 'loading';
     }
 
     if (next !== 'ready' && next !== 'error' && next !== 'ignored' && next !== 'loading') {
       return;
     }
 
-    const failure = next === 'error' ? (state.getIn(['emojiMutes', 'failure']) || 'unavailable') : null;
+    const reduxFailure = state.getIn(['emojiMutes', 'failure']);
+    const failure = next === 'error' ? (reduxFailure || this.state.emojiMuteFailure || 'unavailable') : null;
+    // Only the newest sync disables retry. An older click can still be
+    // unsettled after that sync finishes, and the next click clears it.
+    const rechecking = next === 'error' && syncing;
 
-    if (next !== this.requestedBootPhase || failure !== this.state.emojiMuteFailure) {
+    if (next !== this.requestedBootPhase || failure !== this.state.emojiMuteFailure || rechecking !== this.state.emojiMuteRechecking) {
       this.requestedBootPhase = next;
       this.setState({
         emojiMuteBoot: next,
         emojiMuteFailure: failure,
+        emojiMuteRechecking: rechecking,
         preferenceError: next === 'ready' ? false : this.state.preferenceError,
       });
     }
+  };
+
+  dismissIgnoredNotice = () => {
+    if (this.requestedBootPhase !== 'ignored' && this.state.emojiMuteBoot !== 'ignored') {
+      return;
+    }
+
+    this.setState({ ignoredNoticeClosed: true }, () => {
+      // The close control has left the document. Move only when nothing else
+      // still holds focus, and only onto the composer or search field.
+      if (!this.mounted || document.activeElement !== document.body) {
+        return;
+      }
+
+      const target = focusAfterIgnoredNotice(this.uiPortalRoot);
+
+      if (target) {
+        target.focus();
+      }
+    });
   };
 
   bootstrapEmojiMutes = () => {
@@ -319,23 +391,23 @@ export default class Mastodon extends React.PureComponent {
 
       if (availability === 'temporary_ignore') {
         this.requestedBootPhase = 'ignored';
-        this.setState({ emojiMuteBoot: 'ignored', emojiMuteFailure: null });
+        this.setState({ emojiMuteBoot: 'ignored', emojiMuteFailure: null, emojiMuteRechecking: false });
         return;
       }
 
       const phase = muteState.getIn(['emojiMutes', 'phase']);
       if (phase !== 'ready') {
-        const failure = muteState.getIn(['emojiMutes', 'failure']) || 'unavailable';
+        const failure = muteState.getIn(['emojiMutes', 'failure']) || this.state.emojiMuteFailure || 'unavailable';
         this.requestedBootPhase = 'error';
         if (failure === 'unavailable') {
           this.retryReadyAt = Date.now() + EMOJI_MUTE_RETRY_COOLDOWN_MS;
         }
-        this.setState({ emojiMuteBoot: 'error', emojiMuteFailure: failure });
+        this.setState({ emojiMuteBoot: 'error', emojiMuteFailure: failure, emojiMuteRechecking: false });
         return;
       }
 
       this.requestedBootPhase = 'ready';
-      this.setState({ emojiMuteBoot: 'ready', emojiMuteFailure: null });
+      this.setState({ emojiMuteBoot: 'ready', emojiMuteFailure: null, emojiMuteRechecking: false });
     }).catch(error => {
       if (generation !== this.bootstrapGeneration) {
         return;
@@ -366,7 +438,7 @@ export default class Mastodon extends React.PureComponent {
         this.retryReadyAt = Date.now() + EMOJI_MUTE_RETRY_COOLDOWN_MS;
       }
 
-      this.setState({ emojiMuteBoot: 'error', emojiMuteFailure: failure });
+      this.setState({ emojiMuteBoot: 'error', emojiMuteFailure: failure, emojiMuteRechecking: false });
     });
   };
 
@@ -426,10 +498,13 @@ export default class Mastodon extends React.PureComponent {
     const noticeValue = {
       boot,
       failure: this.state.emojiMuteFailure,
+      rechecking: this.state.emojiMuteRechecking,
+      ignoredNoticeClosed: this.state.ignoredNoticeClosed,
       preferenceSaving: this.state.preferenceSaving,
       preferenceError: this.state.preferenceError,
       onRetry: this.bootstrapEmojiMutes,
       onIgnore: this.ignoreEmojiMutes,
+      onDismissIgnored: this.dismissIgnoredNotice,
       onDisable: this.turnEmojiMutesOff,
       onReload: this.reloadPage,
     };

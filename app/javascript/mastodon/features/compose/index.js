@@ -19,7 +19,7 @@ import Icon from 'mastodon/components/icon';
 import { logOut } from 'mastodon/utils/log_out';
 import NotificationsCounterIcon from '../ui/components/notifications_counter_icon';
 import classNames from 'classnames';
-import EmojiMuteLoadNotice, { EmojiMuteNoticeContext } from 'mastodon/components/emoji_mute_load_notice';
+import EmojiMuteLoadNotice, { bindEmojiMuteNoticeOwner, emojiMuteNoticeVisible, EmojiMuteNoticeContext } from 'mastodon/components/emoji_mute_load_notice';
 
 const messages = defineMessages({
   short_start: { id: 'navigation_bar.short.getting_started', defaultMessage: 'Started' },
@@ -84,12 +84,33 @@ class Compose extends React.PureComponent {
   }
 
   noticeVisible () {
-    const boot = this.context && this.context.boot;
+    return emojiMuteNoticeVisible(this.context, 'drawer');
+  }
 
-    return boot === 'error' || boot === 'ignored';
+  syncNoticeOwner () {
+    if (this.ownsEmojiMuteNotice()) {
+      if (!this.releaseNoticeOwner) {
+        this.releaseNoticeOwner = bindEmojiMuteNoticeOwner(this);
+      }
+
+      return;
+    }
+
+    this.clearNoticeOwner();
+  }
+
+  clearNoticeOwner () {
+    if (!this.releaseNoticeOwner) {
+      return;
+    }
+
+    const release = this.releaseNoticeOwner;
+    this.releaseNoticeOwner = null;
+    release();
   }
 
   componentDidMount () {
+    this.syncNoticeOwner();
     const { isSearchPage } = this.props;
 
     if (!isSearchPage) {
@@ -97,7 +118,12 @@ class Compose extends React.PureComponent {
     }
   }
 
+  componentDidUpdate () {
+    this.syncNoticeOwner();
+  }
+
   componentWillUnmount () {
+    this.clearNoticeOwner();
     const { isSearchPage } = this.props;
 
     if (!isSearchPage) {

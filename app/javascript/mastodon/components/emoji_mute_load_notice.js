@@ -7,6 +7,70 @@ import { FormattedMessage } from 'react-intl';
 // that state. Session isolation stays outside the detached WebUI.
 export const EmojiMuteNoticeContext = React.createContext(null);
 
+// Compose registers only after it has mounted and owns the card. A configured
+// column or a route path is not enough: the chunk can still be loading or
+// have failed, and then this set stays empty so the overlay can show.
+const noticeOwners = new Set();
+const noticeOwnerListeners = new Set();
+
+const notifyNoticeOwners = () => {
+  noticeOwnerListeners.forEach(listener => listener());
+};
+
+export function bindEmojiMuteNoticeOwner(owner) {
+  if (!owner || noticeOwners.has(owner)) {
+    return () => {};
+  }
+
+  noticeOwners.add(owner);
+  notifyNoticeOwners();
+  let released = false;
+
+  return () => {
+    if (released || !noticeOwners.delete(owner)) {
+      return;
+    }
+
+    released = true;
+    notifyNoticeOwners();
+  };
+}
+
+export function emojiMuteNoticeOwnerActive() {
+  return noticeOwners.size > 0;
+}
+
+export function subscribeEmojiMuteNoticeOwners(listener) {
+  noticeOwnerListeners.add(listener);
+
+  return () => noticeOwnerListeners.delete(listener);
+}
+
+export function resetEmojiMuteNoticeOwnersForTests() {
+  noticeOwners.clear();
+  notifyNoticeOwners();
+}
+
+// One decision for the card and for the drawer spacing that exists only
+// while the card is in the drawer. Session isolation stays on its own placement.
+export function emojiMuteNoticeVisible(notice, placement) {
+  if (!notice) {
+    return false;
+  }
+
+  const boot = notice.boot;
+
+  if (placement === 'session') {
+    return boot === 'session-changed';
+  }
+
+  if (boot === 'session-changed') {
+    return false;
+  }
+
+  return boot === 'error' || (boot === 'ignored' && !notice.ignoredNoticeClosed);
+}
+
 let noticeSequence = 0;
 
 export default class EmojiMuteLoadNotice extends React.PureComponent {
@@ -14,12 +78,35 @@ export default class EmojiMuteLoadNotice extends React.PureComponent {
   static contextType = EmojiMuteNoticeContext;
 
   static propTypes = {
-    placement: PropTypes.oneOf(['compose-panel', 'drawer', 'columns', 'session']).isRequired,
+    placement: PropTypes.oneOf(['compose-panel', 'drawer', 'columns', 'overlay', 'session']).isRequired,
   };
 
   titleId = `emoji-mute-load-notice-title-${noticeSequence += 1}`;
 
   state = { spoken: false };
+
+  setNoticeNode = node => {
+    this.noticeNode = node;
+  };
+
+  closeNotice = () => {
+    this.dismissing = true;
+    const dismiss = this.context && this.context.onDismissIgnored;
+
+    if (dismiss) {
+      dismiss();
+    }
+  };
+
+  componentWillUnmount () {
+    const active = document.activeElement;
+
+    // The close control is leaving the document. Blur it so focus does not
+    // stay on a detached node. A focus target outside this card is left alone.
+    if (this.dismissing && this.noticeNode && active && this.noticeNode.contains(active) && typeof active.blur === 'function') {
+      active.blur();
+    }
+  }
 
   componentDidMount () {
     this.announce(this.context && this.context.boot);
@@ -50,24 +137,15 @@ export default class EmojiMuteLoadNotice extends React.PureComponent {
       return null;
     }
 
+    if (!emojiMuteNoticeVisible(notice, placement)) {
+      return null;
+    }
+
     const boot = notice.boot;
-    const visible = boot === 'error' || boot === 'ignored' || boot === 'session-changed';
-
-    if (!visible) {
-      return null;
-    }
-
-    if (placement === 'session') {
-      if (boot !== 'session-changed') {
-        return null;
-      }
-    } else if (boot === 'session-changed') {
-      return null;
-    }
+    const ignored = boot === 'ignored';
 
     const failure = notice.failure;
     const session = boot === 'session-changed';
-    const ignored = boot === 'ignored';
     const unauthorized = !session && !ignored && failure === 'unauthorized';
     const forbidden = !session && !ignored && failure === 'forbidden';
     const allowRetry = boot === 'error' && !unauthorized && !forbidden;
@@ -83,8 +161,8 @@ export default class EmojiMuteLoadNotice extends React.PureComponent {
       title = <FormattedMessage id='emoji_mutes.notice_session_title' defaultMessage='Reload to switch accounts safely' />;
       body = <FormattedMessage id='emoji_mutes.session_changed' defaultMessage='Your account changed. Reload to protect your emoji mute settings.' />;
     } else if (ignored) {
-      title = <FormattedMessage id='emoji_mutes.notice_ignored_title' defaultMessage='Emoji muting is ignored in this tab' />;
-      body = <FormattedMessage id='emoji_mutes.bootstrap_ignored' defaultMessage='Emoji muting is ignored in this tab for this account. Every emoji is visible, including ones you muted, until you reload or switch accounts.' />;
+      title = <FormattedMessage id='emoji_mutes.notice_ignored_title' defaultMessage='Emoji muting is temporarily ignored' />;
+      body = <FormattedMessage id='emoji_mutes.bootstrap_ignored' defaultMessage='Emoji muting is not applied. Muted emoji are visible too. Reloading fetches the settings again.' />;
     } else if (unauthorized) {
       title = <FormattedMessage id='emoji_mutes.notice_unauthorized_title' defaultMessage='Sign in again to check emoji mutes' />;
       body = <FormattedMessage id='emoji_mutes.bootstrap_unauthorized' defaultMessage='Your session expired. Reload and sign in again. Emoji stay hidden until mute settings can be verified.' />;
@@ -100,8 +178,18 @@ export default class EmojiMuteLoadNotice extends React.PureComponent {
     const showPrimary = allowRetry || allowSignIn || session;
     const singleAction = showPrimary && !allowIgnore;
 
+    const rechecking = boot === 'error' && notice.rechecking === true;
+
     return (
-      <div className='emoji-mute-load-notice' role={role} aria-live={live} aria-atomic='true' data-placement={placement} aria-labelledby={this.state.spoken ? this.titleId : undefined}>
+      <div ref={this.setNoticeNode} className={ignored ? 'emoji-mute-load-notice emoji-mute-load-notice--closable' : 'emoji-mute-load-notice'} role={role} aria-live={live} aria-atomic='true' aria-busy={rechecking ? 'true' : 'false'} data-placement={placement} data-rechecking={rechecking ? 'true' : 'false'} aria-labelledby={this.state.spoken ? this.titleId : undefined}>
+        {ignored && (
+          <button type='button' className='emoji-mute-load-notice__close' onClick={this.closeNotice}>
+            <span aria-hidden='true'>×</span>
+            <span className='emoji-mute-load-notice__close-label'>
+              <FormattedMessage id='emoji_mutes.notice_ignored_close' defaultMessage='Close this notice' />
+            </span>
+          </button>
+        )}
         <div className='emoji-mute-load-notice__title'>
           <span className='emoji-mute-load-notice__icon' aria-hidden='true'>!</span>
           <strong id={this.titleId}>{this.state.spoken ? title : null}</strong>
@@ -109,7 +197,7 @@ export default class EmojiMuteLoadNotice extends React.PureComponent {
         <p className='emoji-mute-load-notice__body'>{this.state.spoken ? body : null}</p>
         {showPrimary && (
           <div className={singleAction ? 'emoji-mute-load-notice__actions emoji-mute-load-notice__actions--single' : 'emoji-mute-load-notice__actions'}>
-            <button type='button' className='emoji-mute-load-notice__action emoji-mute-load-notice__action--primary' onClick={primaryAction}>
+            <button type='button' className='emoji-mute-load-notice__action emoji-mute-load-notice__action--primary' onClick={primaryAction} disabled={allowRetry && rechecking}>
               {session ? <FormattedMessage id='emoji_mutes.session_reload' defaultMessage='Reload the page' /> : primaryLabel}
             </button>
             {allowIgnore && (

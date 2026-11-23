@@ -276,7 +276,7 @@ describe('authenticated emoji mute bootstrap', () => {
 
     fireEvent.click(view.getByText('Ignore this time'));
     expect(ignoreEmojiMutesThisView).toHaveBeenCalledTimes(1);
-    await waitFor(() => expect(view.getByText(/ignored in this tab for this account/)).not.toBeNull());
+    await waitFor(() => expect(view.getByText(/Emoji muting is not applied/)).not.toBeNull());
     expect(view.queryByText('Try again')).toBeNull();
     expect(retryEmojiMuteLoad).toHaveBeenCalledTimes(fetchesBeforeIgnore);
     expect(view.getByTestId('webui')).toBe(ui);
@@ -303,7 +303,7 @@ describe('authenticated emoji mute bootstrap', () => {
     view.unmount();
   });
 
-  it('hides the error notice while a retry is loading and shows it again if the retry fails', async () => {
+  it('keeps the error notice while a retry is loading and if the retry fails', async () => {
     const view = render(<Mastodon locale='en' />);
 
     await rejectBootstrap(new Error('offline'));
@@ -318,7 +318,8 @@ describe('authenticated emoji mute bootstrap', () => {
       mockSubscribers.forEach(listener => listener());
     });
 
-    expect(view.container.querySelector('.emoji-mute-load-notice')).toBeNull();
+    expect(view.container.querySelector('.emoji-mute-load-notice')).not.toBeNull();
+    expect(view.container.querySelector('.emoji-mute-load-notice').textContent).toContain('Couldn\'t load emoji mutes');
 
     await act(async () => {
       mockPhase = 'error';

@@ -176,7 +176,8 @@ describe('obsolete emoji mute retry', () => {
       fireEvent.click(view.getByText('Try again'));
     });
 
-    expect(notice(view)).toBeNull();
+    expect(notice(view)).not.toBeNull();
+    expect(notice(view).textContent).toContain('Couldn\'t load emoji mutes');
     const older = gets[1];
     const newer = mockHarness.dispatch(syncEmojiMutes({ changed: { revision: '2' } }));
 
@@ -221,7 +222,8 @@ describe('obsolete emoji mute retry', () => {
       }
     });
 
-    expect(notice(view)).toBeNull();
+    expect(notice(view)).not.toBeNull();
+    expect(notice(view).textContent).toContain('Couldn\'t load emoji mutes');
     expect(mockHarness.getState().getIn(['emojiMutes', 'phase'])).not.toBe('error');
 
     await act(async () => {
@@ -245,7 +247,7 @@ describe('obsolete emoji mute retry', () => {
     }
   };
 
-  it('does not show an error or start the cooldown when an older success finishes during a newer sync', async () => {
+  it('keeps the previous card when an older success finishes during a newer sync, without marking that sync failed or ready', async () => {
     const view = render(<Mastodon locale='en' />);
     await failInitial(view);
 
@@ -262,7 +264,8 @@ describe('obsolete emoji mute retry', () => {
       await flush();
     });
 
-    expect(notice(view)).toBeNull();
+    expect(notice(view)).not.toBeNull();
+    expect(notice(view).textContent).toContain('Couldn\'t load emoji mutes');
     expect(mockHarness.getState().getIn(['emojiMutes', 'phase'])).not.toBe('error');
     expect(mockHarness.getState().getIn(['emojiMutes', 'phase'])).not.toBe('ready');
     expect(mockHarness.getState().getIn(['emojiMutes', 'failure'])).toBeNull();
@@ -293,7 +296,7 @@ describe('obsolete emoji mute retry', () => {
     view.unmount();
   });
 
-  it('hides the previous card during a sync that this component did not start, and shows it again only after that sync fails', async () => {
+  it('keeps the previous card during a sync that this component did not start, and keeps it when that sync fails', async () => {
     const view = render(<Mastodon locale='en' />);
     await failInitial(view);
     expect(notice(view)).not.toBeNull();
@@ -303,7 +306,8 @@ describe('obsolete emoji mute retry', () => {
       newer = mockHarness.dispatch(syncEmojiMutes());
     });
 
-    expect(notice(view)).toBeNull();
+    expect(notice(view)).not.toBeNull();
+    expect(notice(view).textContent).toContain('Couldn\'t load emoji mutes');
     expect(mockHarness.getState().getIn(['emojiMutes', 'phase'])).toBe('loading');
 
     await act(async () => {
@@ -392,7 +396,8 @@ describe('obsolete emoji mute retry', () => {
     });
 
     expect(gets.length).toBe(started + 1);
-    expect(notice(view)).toBeNull();
+    expect(notice(view)).not.toBeNull();
+    expect(notice(view).textContent).toContain('Couldn\'t load emoji mutes');
     const phaseWhileCurrent = mockHarness.getState().getIn(['emojiMutes', 'phase']);
     const failureWhileCurrent = mockHarness.getState().getIn(['emojiMutes', 'failure']);
 
@@ -402,7 +407,7 @@ describe('obsolete emoji mute retry', () => {
       await flush();
     });
 
-    expect(notice(view)).toBeNull();
+    expect(notice(view)).not.toBeNull();
     expect(mockHarness.getState().getIn(['emojiMutes', 'phase'])).toBe(phaseWhileCurrent);
     expect(mockHarness.getState().getIn(['emojiMutes', 'failure'])).toBe(failureWhileCurrent);
     expect(view.container.textContent).not.toContain('Reload and sign in');
@@ -461,7 +466,8 @@ describe('obsolete emoji mute retry', () => {
       newer = mockHarness.dispatch(syncEmojiMutes({ changed: { revision: '2' } }));
     });
 
-    expect(notice(view)).toBeNull();
+    expect(notice(view)).not.toBeNull();
+    expect(notice(view).textContent).toContain('Couldn\'t load emoji mutes');
 
     await act(async () => {
       gets[1].resolve(documentFor('1'));
