@@ -99,5 +99,46 @@ describe('advanced compose emoji mute notice', () => {
 
     expect(stylesheet).toContain('.drawer.drawer--emoji-mute-notice');
     expect(stylesheet).not.toContain('.drawer:has(> .emoji-mute-load-notice)');
+    expect(stylesheet).toContain('.emoji-mute-load-notice__close');
+    expect(stylesheet).toContain('min-width: 44px');
+    expect(stylesheet).toContain('min-height: 44px');
+  });
+
+  it('drops the compose spacing when the ignored notice is closed', () => {
+    const closed = render(
+      <Provider store={storeFor(fromJS([{ id: 'HOME', uuid: 'home' }]))}>
+        <IntlProvider locale='en'>
+          <MemoryRouter>
+            <EmojiMuteNoticeContext.Provider value={{ ...notice, boot: 'ignored', ignoredNoticeClosed: true }}>
+              <Compose multiColumn />
+            </EmojiMuteNoticeContext.Provider>
+          </MemoryRouter>
+        </IntlProvider>
+      </Provider>,
+    );
+    const drawer = closed.container.querySelector('.drawer');
+
+    expect(closed.container.querySelector('.emoji-mute-load-notice')).toBeNull();
+    expect(drawer.className).not.toContain('drawer--emoji-mute-notice');
+    expect(drawer.querySelector('[data-testid="search"]')).not.toBeNull();
+    expect(drawer.querySelector('[data-testid="compose-form"]')).not.toBeNull();
+    closed.unmount();
+
+    const open = render(
+      <Provider store={storeFor(fromJS([{ id: 'HOME', uuid: 'home' }]))}>
+        <IntlProvider locale='en'>
+          <MemoryRouter>
+            <EmojiMuteNoticeContext.Provider value={{ ...notice, boot: 'ignored', ignoredNoticeClosed: false, onDismissIgnored: jest.fn() }}>
+              <Compose multiColumn />
+            </EmojiMuteNoticeContext.Provider>
+          </MemoryRouter>
+        </IntlProvider>
+      </Provider>,
+    );
+
+    expect(open.container.querySelectorAll('.emoji-mute-load-notice')).toHaveLength(1);
+    expect(open.container.querySelector('.drawer').className).toContain('drawer--emoji-mute-notice');
+    expect(open.container.querySelector('.emoji-mute-load-notice__close')).not.toBeNull();
+    open.unmount();
   });
 });

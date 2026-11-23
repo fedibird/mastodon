@@ -47,7 +47,7 @@ import { supportsPassiveEvents } from 'detect-passive-events';
 import { scrollRight } from '../../../scroll';
 
 import classNames from 'classnames';
-import EmojiMuteLoadNotice from 'mastodon/components/emoji_mute_load_notice';
+import EmojiMuteLoadNotice, { EmojiMuteNoticeContext } from 'mastodon/components/emoji_mute_load_notice';
 
 const componentMap = {
   'COMPOSE': Compose,
@@ -79,6 +79,30 @@ const messages = defineMessages({
 });
 
 const shouldHideFAB = path => path.match(/^\/statuses\/|^\/search|^\/getting-started|^\/start/);
+
+// The pinned compose column and the /statuses/new route already render the
+// card. This is the only copy when neither of those drawers is mounted.
+class EmojiMuteColumnsFallback extends React.PureComponent {
+
+  static contextType = EmojiMuteNoticeContext;
+
+  render () {
+    const notice = this.context;
+    const boot = notice && notice.boot;
+    const visible = boot === 'error' || (boot === 'ignored' && !(notice && notice.ignoredNoticeClosed));
+
+    if (!visible) {
+      return null;
+    }
+
+    return (
+      <div className='emoji-mute-load-notice-slot'>
+        <EmojiMuteLoadNotice placement='columns' />
+      </div>
+    );
+  }
+
+}
 
 export default @(component => injectIntl(component, { withRef: true }))
 class ColumnsArea extends ImmutablePureComponent {
@@ -215,6 +239,18 @@ class ColumnsArea extends ImmutablePureComponent {
     }
   }
 
+  composeDrawerMounted () {
+    const columns = this.props.columns;
+
+    if (columns && columns.some(column => column.get('id') === 'COMPOSE')) {
+      return true;
+    }
+
+    const history = this.context.router && this.context.router.history;
+
+    return !!(history && history.location && history.location.pathname === '/statuses/new');
+  }
+
   handleWheel = () => {
     if (typeof this._interruptScrollAnimation !== 'function') {
       return;
@@ -295,6 +331,7 @@ class ColumnsArea extends ImmutablePureComponent {
 
     return (
       <div className={`columns-area ${ isModalOpen ? 'unscrollable' : '' }`} ref={this.setRef}>
+        {!this.composeDrawerMounted() && <EmojiMuteColumnsFallback />}
         {columns.map(column => {
           const params = column.get('params', null) === null ? null : column.get('params').toJS();
           const other  = params && params.other ? params.other : {};

@@ -63,6 +63,14 @@ jest.mock('mastodon/features/ui/components/tabs_bar', () => {
   };
 });
 jest.mock('mastodon/features/ui/components/navigation_panel', () => () => <div data-testid='navigation-panel' />);
+jest.mock('mastodon/features/ui/containers/bundle_container', () => {
+  const React = require('react');
+
+  return function BundleContainer({ children }) {
+    const Column = () => <div data-testid='bundled-column' />;
+    return children(Column);
+  };
+});
 
 import EmojiMuteLoadNotice, { EmojiMuteNoticeContext } from '../emoji_mute_load_notice';
 import ComposePanel from '../../features/ui/components/compose_panel';
@@ -91,6 +99,11 @@ class RouterProvider extends React.Component {
 
   static propTypes = {
     children: PropTypes.node,
+    pathname: PropTypes.string,
+  };
+
+  static defaultProps = {
+    pathname: '/timelines/home',
   };
 
   static childContextTypes = {
@@ -101,7 +114,7 @@ class RouterProvider extends React.Component {
     return {
       router: {
         history: {
-          location: { pathname: '/timelines/home' },
+          location: { pathname: this.props.pathname },
           push () {},
           listen () {
             return () => {};
@@ -128,10 +141,10 @@ const setViewport = matches => {
   }));
 };
 
-const renderNotice = (ui, boot = 'error') => render(
+const renderNotice = (ui, boot = 'error', pathname = '/timelines/home') => render(
   <Provider store={store}>
     <EmojiMuteNoticeContext.Provider value={notice(boot)}>
-      <RouterProvider>{ui}</RouterProvider>
+      <RouterProvider pathname={pathname}>{ui}</RouterProvider>
     </EmojiMuteNoticeContext.Provider>
   </Provider>,
 );
@@ -217,15 +230,47 @@ describe('emoji mute load notice placement', () => {
     expect(container.querySelector('.compose-panel .emoji-mute-load-notice')).not.toBeNull();
   });
 
-  it('does not render the card in the multi-column timeline area', () => {
+  it('shows one fallback card in multi-column when the compose drawer is not mounted', () => {
+    const ColumnChild = () => <div data-testid='column-child'>home</div>;
     const { container } = renderNotice(
       <ColumnsArea singleColumn={false} columns={ImmutableList()} isModalOpen={false} dispatch={jest.fn()} links={[]}>
-        <div data-testid='column-child'>home</div>
+        <ColumnChild />
+      </ColumnsArea>,
+    );
+    const area = container.querySelector('.columns-area');
+    const card = area.querySelector('.emoji-mute-load-notice');
+    const child = container.querySelector('[data-testid="column-child"]');
+
+    expect(card).not.toBeNull();
+    expect(card.getAttribute('data-placement')).toBe('columns');
+    expect(container.querySelectorAll('.emoji-mute-load-notice')).toHaveLength(1);
+    expect(card.compareDocumentPosition(child) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(child.getAttribute('data-testid')).toBe('column-child');
+  });
+
+  it('does not add a second card when the compose column or the compose route already owns the notice', () => {
+    const ColumnChild = () => <div data-testid='column-child'>home</div>;
+    const pinned = renderNotice(
+      <ColumnsArea singleColumn={false} columns={fromJS([{ id: 'COMPOSE', uuid: 'compose-column' }])} isModalOpen={false} dispatch={jest.fn()} links={[]}>
+        <ColumnChild />
       </ColumnsArea>,
     );
 
-    expect(container.querySelector('.emoji-mute-load-notice')).toBeNull();
-    expect(container.querySelector('[data-testid="column-child"]').getAttribute('data-testid')).toBe('column-child');
+    expect(pinned.container.querySelector('[data-testid="bundled-column"]')).not.toBeNull();
+    expect(pinned.container.querySelector('.emoji-mute-load-notice')).toBeNull();
+    pinned.unmount();
+
+    const route = renderNotice(
+      <ColumnsArea singleColumn={false} columns={ImmutableList()} isModalOpen={false} dispatch={jest.fn()} links={[]}>
+        <Compose multiColumn />
+      </ColumnsArea>,
+      'error',
+      '/statuses/new',
+    );
+
+    expect(route.container.querySelectorAll('.emoji-mute-load-notice')).toHaveLength(1);
+    expect(route.container.querySelector('.drawer .emoji-mute-load-notice')).not.toBeNull();
+    expect(route.container.querySelector('.emoji-mute-load-notice').getAttribute('data-placement')).toBe('drawer');
   });
 
   it('retries an ordinary failure and reloads a session change or a new sign-in', () => {

@@ -51,7 +51,8 @@ export default class EmojiMuteLoadNotice extends React.PureComponent {
     }
 
     const boot = notice.boot;
-    const visible = boot === 'error' || boot === 'ignored' || boot === 'session-changed';
+    const ignored = boot === 'ignored';
+    const visible = boot === 'error' || (ignored && !notice.ignoredNoticeClosed) || boot === 'session-changed';
 
     if (!visible) {
       return null;
@@ -67,7 +68,6 @@ export default class EmojiMuteLoadNotice extends React.PureComponent {
 
     const failure = notice.failure;
     const session = boot === 'session-changed';
-    const ignored = boot === 'ignored';
     const unauthorized = !session && !ignored && failure === 'unauthorized';
     const forbidden = !session && !ignored && failure === 'forbidden';
     const allowRetry = boot === 'error' && !unauthorized && !forbidden;
@@ -83,8 +83,8 @@ export default class EmojiMuteLoadNotice extends React.PureComponent {
       title = <FormattedMessage id='emoji_mutes.notice_session_title' defaultMessage='Reload to switch accounts safely' />;
       body = <FormattedMessage id='emoji_mutes.session_changed' defaultMessage='Your account changed. Reload to protect your emoji mute settings.' />;
     } else if (ignored) {
-      title = <FormattedMessage id='emoji_mutes.notice_ignored_title' defaultMessage='Emoji muting is ignored in this tab' />;
-      body = <FormattedMessage id='emoji_mutes.bootstrap_ignored' defaultMessage='Emoji muting is ignored in this tab for this account. Every emoji is visible, including ones you muted, until you reload or switch accounts.' />;
+      title = <FormattedMessage id='emoji_mutes.notice_ignored_title' defaultMessage='Emoji muting is temporarily ignored' />;
+      body = <FormattedMessage id='emoji_mutes.bootstrap_ignored' defaultMessage='Emoji muting is not applied. Muted emoji are visible too. Reloading fetches the settings again.' />;
     } else if (unauthorized) {
       title = <FormattedMessage id='emoji_mutes.notice_unauthorized_title' defaultMessage='Sign in again to check emoji mutes' />;
       body = <FormattedMessage id='emoji_mutes.bootstrap_unauthorized' defaultMessage='Your session expired. Reload and sign in again. Emoji stay hidden until mute settings can be verified.' />;
@@ -100,8 +100,18 @@ export default class EmojiMuteLoadNotice extends React.PureComponent {
     const showPrimary = allowRetry || allowSignIn || session;
     const singleAction = showPrimary && !allowIgnore;
 
+    const rechecking = boot === 'error' && notice.rechecking === true;
+
     return (
-      <div className='emoji-mute-load-notice' role={role} aria-live={live} aria-atomic='true' data-placement={placement} aria-labelledby={this.state.spoken ? this.titleId : undefined}>
+      <div className={ignored ? 'emoji-mute-load-notice emoji-mute-load-notice--closable' : 'emoji-mute-load-notice'} role={role} aria-live={live} aria-atomic='true' aria-busy={rechecking ? 'true' : 'false'} data-placement={placement} data-rechecking={rechecking ? 'true' : 'false'} aria-labelledby={this.state.spoken ? this.titleId : undefined}>
+        {ignored && (
+          <button type='button' className='emoji-mute-load-notice__close' onClick={notice.onDismissIgnored}>
+            <span aria-hidden='true'>×</span>
+            <span className='emoji-mute-load-notice__close-label'>
+              <FormattedMessage id='emoji_mutes.notice_ignored_close' defaultMessage='Close this notice' />
+            </span>
+          </button>
+        )}
         <div className='emoji-mute-load-notice__title'>
           <span className='emoji-mute-load-notice__icon' aria-hidden='true'>!</span>
           <strong id={this.titleId}>{this.state.spoken ? title : null}</strong>
@@ -109,7 +119,7 @@ export default class EmojiMuteLoadNotice extends React.PureComponent {
         <p className='emoji-mute-load-notice__body'>{this.state.spoken ? body : null}</p>
         {showPrimary && (
           <div className={singleAction ? 'emoji-mute-load-notice__actions emoji-mute-load-notice__actions--single' : 'emoji-mute-load-notice__actions'}>
-            <button type='button' className='emoji-mute-load-notice__action emoji-mute-load-notice__action--primary' onClick={primaryAction}>
+            <button type='button' className='emoji-mute-load-notice__action emoji-mute-load-notice__action--primary' onClick={primaryAction} disabled={allowRetry && rechecking}>
               {session ? <FormattedMessage id='emoji_mutes.session_reload' defaultMessage='Reload the page' /> : primaryLabel}
             </button>
             {allowIgnore && (

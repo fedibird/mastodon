@@ -84,9 +84,14 @@ class Compose extends React.PureComponent {
   }
 
   noticeVisible () {
-    const boot = this.context && this.context.boot;
+    const notice = this.context;
+    const boot = notice && notice.boot;
 
-    return boot === 'error' || boot === 'ignored';
+    if (boot === 'error') {
+      return true;
+    }
+
+    return boot === 'ignored' && !(notice && notice.ignoredNoticeClosed);
   }
 
   componentDidMount () {
