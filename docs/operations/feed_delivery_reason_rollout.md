@@ -14,8 +14,9 @@
 
 - `script/feed_delivery_reason_rollout.rb process-modes`: 指定 Linux PID / systemd unit の機能フラグだけを `/proc/<pid>/environ` から確認。その他の環境変数（秘密を含む）は出力しない。unit は MainPID のみなので他のunit/子プロセス/ホストも別途確認
 - `... snapshot`: アプリと同じRedis接続を使い、既知の時間別 `feed_delivery_reason:v1:YYYYMMDDHH` ハッシュを HGETALL pipeline で読み、JSON保存。既定48時間キー。`--hours` は1..73。72時間ちょうどの区間は始点のUTC時と72時間後のUTC時の両方に触れるため、キーは最大73個必要。出力は0600、上書き禁止
-- `... compare`: 同じフェーズの2枚からUTC時間境界をまたぐ差分を計算。`BLOCKED` / `INSUFFICIENT` / `REVIEW_REQUIRED` を表示、JSON出力可能。`--strict` はBLOCKED/INSUFFICIENT時に終了コード3を返す。**REVIEW_REQUIREDはGO判定ではない**
-- `script/feed_delivery_reason_pg_baseline.sql`: 読取専用のPostgreSQL累積統計スナップショット。統計リセット/EXPLAIN ANALYZEなし
+- `... compare`: 同じフェーズの2枚からUTC時間境界をまたぐ差分を計算。`BLOCKED` / `INSUFFICIENT` / `REVIEW_REQUIRED` を表示、JSON出力可能。`--min-coverage NAME=N` でシナリオ別の最小件数を指定する。未達は `INSUFFICIENT`。`--strict` はBLOCKED/INSUFFICIENT時に終了コード3を返す。要約には `reply_evidence` / `ignore_block_evidence` と fallback との比を出す。**REVIEW_REQUIREDはGO判定ではない**
+- `... pg-baseline`: Rails の接続で読取専用の PostgreSQL 累積統計を保存する。`current_database()` が Rails の database 名と一致しない、または database 名が空なら失敗する。接続URL・ユーザー・パスワードは出さない。統計リセット/EXPLAIN ANALYZEなし
+- `... check-pids`: 観測開始/終了に記録した unit の MainPID を比較する。変化があれば終了コード3
 - 既存の `spec/lib/feed_delivery_cost_spec.rb`: 1 / 100 / 1000宛先のSQL・オブジェクト割当・Redis flushをテストDBで計測（本番DBに対しては実行禁止）
 
 **注意:** off はfeature counterを発行しない。shadow の agree/disagree は判定条件が実際に評価されたときだけ増える。enforceのevidence/reuse件数だけでは配送結果の互換性は証明できない。PG/Sidekiq/Redisの全体統計には他機能の負荷も含まれる。
@@ -35,7 +36,7 @@ bash script/feed_delivery_reason_observe.sh \
 # ステージングでは必要に応じて RAILS_ENV を明示する。
 ```
 
-出力ディレクトリは新規パス必須（0600/0700）、同じ名前を上書きしない。`--unit` を省略すると警告し、プロセスモードの保証はしない。複数ホストや複数Sidekiq unitはそれぞれ確認する。`--seconds` は30〜86400（既定600）。`BLOCKED`/`INSUFFICIENT` は非ゼロ終了コードになり、計測データは残る。**スクリプトはモード変更も再起動も行わない。**
+出力ディレクトリは新規パス必須（0600/0700）、同じ名前を上書きしない。`--unit` を省略すると警告し、プロセスモードの保証はしない。複数ホストや複数Sidekiq unitはそれぞれ確認する。`--seconds` は30〜86400（既定600）。shadow は reply 比較に加え `ignore_block_compared` と `list_compared` が1件未満だと `INSUFFICIENT`。enforce は `reply_evidence` / `ignore_block_evidence` / `list_reuse` が1件未満だと `INSUFFICIENT`。`BLOCKED`/`INSUFFICIENT`/MainPID変化は非ゼロ終了コードになり、計測データは残る。カウンタは約5秒のflush遅れがあり、窓の端の数秒はexactではない。開始と終了の MainPID が同じでも、指定していないプロセスの途中再起動は見えない。serviceログで確認する。**スクリプトはモード変更も再起動も行わない。**
 
 ## 0. 開発／ステージングのチェック
 
@@ -47,6 +48,7 @@ RAILS_ENV=test bundle exec rspec \
   spec/workers/feed_insert_worker_delivery_reason_spec.rb \
   spec/services/fan_out_on_write_service_delivery_reason_spec.rb
 bundle exec rubocop script/feed_delivery_reason_rollout.rb \
+  script/feed_delivery_reason_rollout \
   spec/lib/feed_delivery_reason_rollout_spec.rb
 
 # 重い1/100/1000件ベンチ。fixtureを作成/削除するのでテストDBだけで実行。
@@ -74,17 +76,17 @@ umask 077
 RUN="$HOME/feed-delivery-710-$(date -u +%Y%m%dT%H%M%SZ)"
 mkdir -p "$RUN"
 
-# 連続サンプルの開始。利用中のpsql認証/接続方法を適用する。
+# 連続サンプルの開始。DBは Rails の接続先だけを使う。URLやパスワードは出さない。
 RAILS_ENV=production bundle exec ruby script/feed_delivery_reason_rollout.rb \
   snapshot --phase off --out "$RUN/off-start.json"
-psql -X -v ON_ERROR_STOP=1 -f script/feed_delivery_reason_pg_baseline.sql \
-  > "$RUN/off-pg-start.txt"
+RAILS_ENV=production bundle exec ruby script/feed_delivery_reason_rollout.rb \
+  pg-baseline --out "$RUN/off-pg-start.txt"
 
 # 同程度の通常トラフィック期間を置く。Sidekiq/SQL/Redisの既存監視も記録。
 RAILS_ENV=production bundle exec ruby script/feed_delivery_reason_rollout.rb \
   snapshot --phase off --out "$RUN/off-end.json"
-psql -X -v ON_ERROR_STOP=1 -f script/feed_delivery_reason_pg_baseline.sql \
-  > "$RUN/off-pg-end.txt"
+RAILS_ENV=production bundle exec ruby script/feed_delivery_reason_rollout.rb \
+  pg-baseline --out "$RUN/off-pg-end.txt"
 ruby script/feed_delivery_reason_rollout.rb compare \
   --before "$RUN/off-start.json" --after "$RUN/off-end.json" \
   --out "$RUN/off-report.json"
@@ -108,10 +110,11 @@ RAILS_ENV=production bundle exec ruby script/feed_delivery_reason_rollout.rb \
 ruby script/feed_delivery_reason_rollout.rb compare \
   --before "$RUN/shadow-start.json" --after "$RUN/shadow-end.json" \
   --min-jobs 100 --min-compared 10 --strict \
+  --min-coverage ignore_block_compared=1 --min-coverage list_compared=1 \
   --out "$RUN/shadow-report.json"
 ```
 
-ステージングでは少なくとも「replyの資格判定」「ignore_block」「list二重判定」が発生するよう代表ケースを実行する。shadowの最低ゲート: `reply_disagree=0`、`ignore_block_disagree=0`、`list_disagree=0`、`persist_failures=0`、`recovery_attempts=0`。有効な比較サンプルとキーワードジョブが不足すればINSUFFICIENT。fallbackは失効等で想定されうるため、割合と理由を見て判断。SQL/正規表現回数、Sidekiq p50/p95、Redis総負荷、配送・通知・update/unpushに回帰がないことも確認する。数値だけで自動昇格はしない。
+ステージングでは少なくとも「replyの資格判定」「ignore_block」「list二重判定」が発生するよう代表ケースを実行する。shadowの最低ゲート: `reply_disagree=0`、`ignore_block_disagree=0`、`list_disagree=0`、`persist_failures=0`、`recovery_attempts=0`。返信比較だけ揃って ignore_block か list が0件なら `INSUFFICIENT`（`--strict` は終了コード3）。件数の下限は `--min-coverage` でシナリオ別に変える。fallbackは失効等で想定されうるため、evidence との比と理由を見て判断。SQL/正規表現回数、Sidekiq p50/p95、Redis総負荷、配送・通知・update/unpushに回帰がないことも確認する。数値だけで自動昇格はしない。カウンタは約5秒のflush遅れがある。
 
 ## 3. enforce（shadow合格後、別途明示承認）
 
@@ -128,10 +131,13 @@ RAILS_ENV=production bundle exec ruby script/feed_delivery_reason_rollout.rb \
   snapshot --phase enforce --out "$RUN/enforce-end.json"
 ruby script/feed_delivery_reason_rollout.rb compare \
   --before "$RUN/enforce-start.json" --after "$RUN/enforce-end.json" \
-  --min-jobs 100 --strict --out "$RUN/enforce-report.json"
+  --min-jobs 100 --strict \
+  --min-coverage reply_evidence=1 --min-coverage ignore_block_evidence=1 \
+  --min-coverage list_reuse=1 \
+  --out "$RUN/enforce-report.json"
 ```
 
-enforceでは `kw|...|result=evidence` と `list|result=reuse` が省略実施回数。`fallback` は証跡が使えず旧評価に戻った回数。**enforce自身はshadowの一致比較を出さない**。必ず従来との配送・通知・Block/Mute/DomainBlock安全性とSQL/Redis/Sidekiq実測を確認し、節約がない、過負荷、配送異常なら中止。
+enforceでは `kw|...|result=evidence` と `list|result=reuse` が省略実施回数。CLI要約の `reply_evidence` / `ignore_block_evidence` と `*_evidence_share`（evidence/(evidence+fallback)）を見る。`fallback` は証跡が使えず旧評価に戻った回数。それらが0件なら `INSUFFICIENT`。**enforce自身はshadowの一致比較を出さない**。必ず従来との配送・通知・Block/Mute/DomainBlock安全性とSQL/Redis/Sidekiq実測を確認し、節約がない、過負荷、配送異常なら中止。
 
 ## 4. 停止・ロールバック
 
@@ -141,4 +147,4 @@ enforceでは `kw|...|result=evidence` と `list|result=reuse` が省略実施�
 
 コミットSHA・配備版、対象ホストと全unit、各モード反映時刻（JST/UTC）、サンプル開始/終了、トラフィック/キュー、DB統計のstats_reset、外部指標、各JSONレポート、配送/通知の代表テスト、未検証項目を保存する。個人ID、投稿本文、購読キーワード、資格情報を記録しない。実測していない削減率は主張しない。
 
-**例外:** 経過が72時間を超える比較は拒否する。ちょうど72時間でもUTC時キーは73個になり、after側に始点の時キーが無いと比較できない（`--hours 72` では1個足りない）。Redis keyの失効（8日保持）、Redis再起動・カウンタ巻戻し、workerモード混在でも差分の信頼性が落ちる。比較ツールは時間キー不足/負差分/フェーズ相違を拒否するが、稼働全プロセスのモード混在は自動検出できない。最後の判断は運営者のレビューで行う。
+**例外:** 経過が72時間を超える比較は拒否する。ちょうど72時間でもUTC時キーは73個になり、after側に始点の時キーが無いと比較できない（`--hours 72` では1個足りない）。Redis keyの失効（8日保持）、Redis再起動・カウンタ巻戻し、workerモード混在、約5秒のmetrics flushによる窓端のずれでも差分の信頼性が落ちる。比較ツールは時間キー不足/負差分/フェーズ相違を拒否する。`check-pids` は記録した MainPID の変化だけを見る。指定外プロセスや観測の途中だけの再起動は検出できないので、serviceログを別に確認する。最後の判断は運営者のレビューで行う。

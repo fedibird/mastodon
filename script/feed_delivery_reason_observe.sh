@@ -9,6 +9,8 @@ Usage: script/feed_delivery_reason_observe.sh --phase off|shadow|enforce \
 
 Checks listed units' MainPID environment, snapshots Redis counters, samples for
 N seconds, and compares. Without --unit, the user MUST verify all workers.
+--pg reads pg_stat through the Rails connection for RAILS_ENV and refuses a
+different database. It does not print the connection URL or credentials.
 Requires RAILS_ENV (defaults to production) and an existing application setup.
 Does not restart services, change modes, or delete any Redis/DB data.
 EOF
@@ -70,9 +72,9 @@ snapshot() {
 pg_snapshot() {
   local name="$1"
   if [[ "$pg" == true ]]; then
-    psql -X -v ON_ERROR_STOP=1 \
-      -f script/feed_delivery_reason_pg_baseline.sql \
-      > "$out_dir/$phase-pg-$name.txt"
+    RAILS_ENV="${RAILS_ENV:-production}" bundle exec ruby \
+      script/feed_delivery_reason_rollout.rb pg-baseline \
+      --out "$out_dir/$phase-pg-$name.txt"
   fi
 }
 
@@ -85,11 +87,37 @@ snapshot end
 pg_snapshot end
 check_modes | tee "$out_dir/$phase-modes-end.txt"
 
+incomplete=0
+if ! "${runner[@]}" check-pids \
+  --start "$out_dir/$phase-modes-start.txt" \
+  --end "$out_dir/$phase-modes-end.txt"
+then
+  incomplete=1
+fi
+
 compare_args=(--before "$out_dir/$phase-start.json" \
               --after "$out_dir/$phase-end.json" \
               --out "$out_dir/$phase-report.json" --strict --min-jobs 100)
 if [[ "$phase" == shadow ]]; then
-  compare_args+=(--min-compared 10)
+  compare_args+=(--min-compared 10 \
+    --min-coverage ignore_block_compared=1 \
+    --min-coverage list_compared=1)
+elif [[ "$phase" == enforce ]]; then
+  compare_args+=(--min-coverage reply_evidence=1 \
+    --min-coverage ignore_block_evidence=1 \
+    --min-coverage list_reuse=1)
 fi
+set +e
 "${runner[@]}" compare "${compare_args[@]}" | tee "$out_dir/$phase-summary.txt"
+statuses=("${PIPESTATUS[@]}")
+set -e
+[[ "${statuses[1]}" -eq 0 ]]
+compare_status="${statuses[0]}"
+echo "NOTE: Redis metric flush is about 5 seconds, so counts at the window edges can move by one flush."
+echo "NOTE: Only listed unit MainPIDs are compared. Another process can restart during the window unnoticed; check service logs."
+if ((incomplete)); then
+  echo "INCOMPLETE: a listed unit MainPID changed. Do not treat this run as a clean gate." >&2
+  exit 3
+fi
 echo "Observation saved under $out_dir. REVIEW_REQUIRED does not authorize promotion."
+exit "$compare_status"

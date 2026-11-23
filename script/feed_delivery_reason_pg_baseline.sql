@@ -1,5 +1,8 @@
 -- PR #710 / Issue #707: read-only PostgreSQL baseline (no EXPLAIN ANALYZE).
--- Run with: psql -X -v ON_ERROR_STOP=1 -f script/feed_delivery_reason_pg_baseline.sql
+-- Run with the Rails connection, which checks current_database() and does not
+-- print the URL or credentials:
+--   RAILS_ENV=production bundle exec ruby script/feed_delivery_reason_rollout.rb pg-baseline --out PATH
+-- Do not aim a bare psql at another database: a successful SELECT there is the wrong baseline.
 -- Values are instance-wide/cumulative; compare with matching workload and stats_reset.
 BEGIN TRANSACTION READ ONLY;
 
