@@ -281,7 +281,7 @@ RSpec.describe Api::V1::Fedibird::PreferencesController, type: :controller do
       Account.where(id: record.account_id).delete_all
     end
 
-    it 'saves the nine keys and returns the same document as GET' do
+    it 'saves posting, translation, and motion keys and returns the full preference document' do
       patch_json(preferences: {
         'user.default_privacy' => 'private',
         'user.default_sensitive' => false,
@@ -505,7 +505,7 @@ RSpec.describe Api::V1::Fedibird::PreferencesController, type: :controller do
       expect { patch_json(preferences: { 'user.reduce_motion' => true }) }.to raise_error(RuntimeError, 'boom')
     end
 
-    it 'rejects a fallback policy update or a mixed update and leaves the nine keys unchanged' do
+    it 'rejects a fallback policy update or a mixed update without writing the other key' do
       store_setting(user, 'emoji_reaction_fallback_policy', 'deny')
       patch_json(preferences: { 'user.emoji_reaction_fallback_policy' => 'allow', 'user.reduce_motion' => true })
 
