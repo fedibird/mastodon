@@ -160,8 +160,9 @@ jest.mock('mastodon/features/embedded_rails_settings/navigation', () => ({
 }));
 
 import api from 'mastodon/api';
+import { applyRemoteEmojiMutePreference, emojiMuteSyncInFlight } from 'mastodon/actions/emoji_mutes';
 import { emojiMuteTextIndexFromState, replaceEmojiInDisplayHtml } from 'mastodon/features/emoji/emoji_mute_text';
-import { resetEmojiMuteStoreForTests } from 'mastodon/features/emoji/emoji_mute_store';
+import { beginEmojiMutePreferenceRead, emojiMutePreferenceGeneration, resetEmojiMuteStoreForTests } from 'mastodon/features/emoji/emoji_mute_store';
 
 const Mastodon = require('../mastodon').default;
 
@@ -386,5 +387,86 @@ describe('emoji mute failure notice during streaming resync', () => {
     expect(notice(reloaded).textContent).toContain('Couldn\'t load emoji mutes');
     expect(notice(reloaded).querySelector('.emoji-mute-load-notice__close')).toBeNull();
     reloaded.unmount();
+  });
+
+  it('reenables retry when the newest sync ends on a stale preference snapshot', async () => {
+    const view = render(<Mastodon locale='en' />);
+    await rejectGet(gets[0]);
+    const retry = () => notice(view).querySelector('.emoji-mute-load-notice__action--primary');
+
+    expect(retry().disabled).toBe(false);
+
+    act(() => {
+      userStream().onConnect();
+    });
+
+    expect(gets).toHaveLength(2);
+    expect(notice(view).getAttribute('data-rechecking')).toBe('true');
+    expect(retry().disabled).toBe(true);
+    expect(mockHarness.getState().getIn(['emojiMutes', 'display'])).toBe('suppress');
+
+    const older = gets[1];
+    act(() => {
+      userStream().onDisconnect();
+      userStream().onConnect();
+    });
+
+    expect(gets).toHaveLength(3);
+    expect(retry().disabled).toBe(true);
+    const generationBeforePreference = emojiMutePreferenceGeneration();
+
+    let preferenceRead;
+    await act(async () => {
+      preferenceRead = mockHarness.dispatch(applyRemoteEmojiMutePreference());
+      await flush();
+    });
+
+    expect(emojiMutePreferenceGeneration()).toBeGreaterThan(generationBeforePreference);
+    expect(retry().disabled).toBe(true);
+    expect(emojiMuteSyncInFlight()).toBe(true);
+
+    await act(async () => {
+      older.resolve({
+        data: { revision: '1', enabled: false, explicit: true, emoji_mutes: [] },
+      });
+      await older.promise;
+      await flush();
+    });
+
+    expect(notice(view)).not.toBeNull();
+    expect(notice(view).textContent).toContain('Couldn\'t load emoji mutes');
+    expect(retry().disabled).toBe(true);
+    expect(emojiMuteSyncInFlight()).toBe(true);
+    expect(mockHarness.getState().getIn(['emojiMutes', 'phase'])).not.toBe('ready');
+    expect(mockHarness.getState().getIn(['emojiMutes', 'availability'])).not.toBe('disabled');
+    expect(mockHarness.getState().getIn(['emojiMutes', 'display'])).toBe('suppress');
+    expect(projectedEmoji()).not.toContain('👍');
+
+    await act(async () => {
+      gets[2].resolve({
+        data: { revision: '1', enabled: false, explicit: true, emoji_mutes: [] },
+      });
+      await flush();
+      await preferenceRead;
+    });
+
+    expect(notice(view)).not.toBeNull();
+    expect(notice(view).textContent).toContain('Couldn\'t load emoji mutes');
+    expect(notice(view).getAttribute('data-rechecking')).toBe('false');
+    expect(retry().disabled).toBe(false);
+    expect(emojiMuteSyncInFlight()).toBe(false);
+    expect(mockHarness.getState().getIn(['emojiMutes', 'phase'])).not.toBe('ready');
+    expect(mockHarness.getState().getIn(['emojiMutes', 'availability'])).not.toBe('disabled');
+    expect(mockHarness.getState().getIn(['emojiMutes', 'display'])).toBe('suppress');
+    expect(projectedEmoji()).not.toContain('👍');
+    expect(projectedEmoji()).toContain('aria-label="◻"');
+
+    beginEmojiMutePreferenceRead();
+    clock.now += 1000;
+    const started = gets.length;
+    fireEvent.click(retry());
+    expect(gets.length).toBe(started + 1);
+    expect(retry().disabled).toBe(true);
+    view.unmount();
   });
 });

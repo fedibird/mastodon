@@ -52,6 +52,9 @@ export const EMOJI_MUTES_DISABLE = 'EMOJI_MUTES_DISABLE';
 export const EMOJI_MUTES_ENABLE = 'EMOJI_MUTES_ENABLE';
 export const EMOJI_MUTES_IGNORE = 'EMOJI_MUTES_IGNORE';
 export const EMOJI_MUTES_CONFIRM = 'EMOJI_MUTES_CONFIRM';
+// The newest sync finished without a new document. Subscribers can release
+// the retry control. This must not mark the rules ready or reveal emoji.
+export const EMOJI_MUTES_SYNC_SETTLED = 'EMOJI_MUTES_SYNC_SETTLED';
 
 export function enableEmojiMuteLoading() {
   return dispatch => {
@@ -864,6 +867,8 @@ export function syncEmojiMutes(options = {}) {
       // endless loading spinner. The WebUI stays mounted and emoji stay hidden.
       if (!emojiMuteDocumentReady()) {
         if (preferenceGeneration !== emojiMutePreferenceGeneration()) {
+          // A newer preference read owns the outcome. Do not adopt this
+          // snapshot and do not replace the confirmed failure with ready.
           return null;
         }
 
@@ -944,7 +949,17 @@ export function syncEmojiMutes(options = {}) {
 
       throw error;
     });
-    const settled = syncPromise.finally(releaseSync);
+    const settled = syncPromise.finally(() => {
+      // Release before notifying. A quiet completion, such as a list that
+      // lost to a newer preference read, otherwise leaves retry disabled.
+      // An older generation must not announce settlement over a newer sync.
+      const stillNewest = generation === documentSyncGeneration;
+      releaseSync();
+
+      if (stillNewest) {
+        dispatch({ type: EMOJI_MUTES_SYNC_SETTLED });
+      }
+    });
 
     if (options.bootstrap === true && !options.changed && options.verify !== true && !options.reconnect) {
       let tracked;

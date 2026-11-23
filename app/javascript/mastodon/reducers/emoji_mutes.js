@@ -1,5 +1,5 @@
 import { Map as ImmutableMap, List as ImmutableList, fromJS } from 'immutable';
-import { EMOJI_MUTES_APPLY, EMOJI_MUTES_IMPORT, EMOJI_MUTES_REVISION, EMOJI_MUTES_LOAD, EMOJI_MUTES_FAIL, EMOJI_MUTES_RESET, EMOJI_MUTES_DISABLE, EMOJI_MUTES_ENABLE, EMOJI_MUTES_IGNORE, EMOJI_MUTES_CONFIRM } from '../actions/emoji_mutes';
+import { EMOJI_MUTES_APPLY, EMOJI_MUTES_IMPORT, EMOJI_MUTES_REVISION, EMOJI_MUTES_LOAD, EMOJI_MUTES_FAIL, EMOJI_MUTES_RESET, EMOJI_MUTES_DISABLE, EMOJI_MUTES_ENABLE, EMOJI_MUTES_IGNORE, EMOJI_MUTES_CONFIRM, EMOJI_MUTES_SYNC_SETTLED } from '../actions/emoji_mutes';
 import { currentEmojiMuteBoot } from '../features/emoji/emoji_mute_availability';
 
 // revision is the newest *observed* revision; appliedRevision is the version
@@ -124,6 +124,8 @@ export default function emojiMutes(state = initialState, action) {
 
     return withDisplay(next.set('failure', null));
   }
+  case EMOJI_MUTES_SYNC_SETTLED:
+    return state;
   case EMOJI_MUTES_FAIL: {
     const incoming = action.failure === 'unauthorized' || action.failure === 'forbidden' ? action.failure : 'unavailable';
     const current = state.get('failure');
