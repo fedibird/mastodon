@@ -47,7 +47,7 @@ import { supportsPassiveEvents } from 'detect-passive-events';
 import { scrollRight } from '../../../scroll';
 
 import classNames from 'classnames';
-import EmojiMuteLoadNotice, { EmojiMuteNoticeContext } from 'mastodon/components/emoji_mute_load_notice';
+import EmojiMuteLoadNotice, { emojiMuteNoticeOwnerActive, EmojiMuteNoticeContext, subscribeEmojiMuteNoticeOwners } from 'mastodon/components/emoji_mute_load_notice';
 
 const componentMap = {
   'COMPOSE': Compose,
@@ -80,13 +80,32 @@ const messages = defineMessages({
 
 const shouldHideFAB = path => path.match(/^\/statuses\/|^\/search|^\/getting-started|^\/start/);
 
-// The pinned compose column and the /statuses/new route already render the
-// card. This is the only copy when neither of those drawers is mounted.
+// Outside the horizontal scroller. A mounted Compose drawer is the owner and
+// keeps the card in its existing place; this overlay is only the copy that
+// shows while that drawer is absent, still loading, or failed to load.
 class EmojiMuteColumnsFallback extends React.PureComponent {
 
   static contextType = EmojiMuteNoticeContext;
 
+  componentDidMount () {
+    this.unsubscribe = subscribeEmojiMuteNoticeOwners(() => this.forceUpdate());
+
+    if (emojiMuteNoticeOwnerActive()) {
+      this.forceUpdate();
+    }
+  }
+
+  componentWillUnmount () {
+    if (this.unsubscribe) {
+      this.unsubscribe();
+    }
+  }
+
   render () {
+    if (emojiMuteNoticeOwnerActive()) {
+      return null;
+    }
+
     const notice = this.context;
     const boot = notice && notice.boot;
     const visible = boot === 'error' || (boot === 'ignored' && !(notice && notice.ignoredNoticeClosed));
@@ -96,8 +115,8 @@ class EmojiMuteColumnsFallback extends React.PureComponent {
     }
 
     return (
-      <div className='emoji-mute-load-notice-slot'>
-        <EmojiMuteLoadNotice placement='columns' />
+      <div className='emoji-mute-load-notice-overlay'>
+        <EmojiMuteLoadNotice placement='overlay' />
       </div>
     );
   }
@@ -239,18 +258,6 @@ class ColumnsArea extends ImmutablePureComponent {
     }
   }
 
-  composeDrawerMounted () {
-    const columns = this.props.columns;
-
-    if (columns && columns.some(column => column.get('id') === 'COMPOSE')) {
-      return true;
-    }
-
-    const history = this.context.router && this.context.router.history;
-
-    return !!(history && history.location && history.location.pathname === '/statuses/new');
-  }
-
   handleWheel = () => {
     if (typeof this._interruptScrollAnimation !== 'function') {
       return;
@@ -330,26 +337,28 @@ class ColumnsArea extends ImmutablePureComponent {
     }
 
     return (
-      <div className={`columns-area ${ isModalOpen ? 'unscrollable' : '' }`} ref={this.setRef}>
-        {!this.composeDrawerMounted() && <EmojiMuteColumnsFallback />}
-        {columns.map(column => {
-          const params = column.get('params', null) === null ? null : column.get('params').toJS();
-          const other  = params && params.other ? params.other : {};
+      <React.Fragment>
+        <div className={`columns-area ${ isModalOpen ? 'unscrollable' : '' }`} ref={this.setRef}>
+          {columns.map(column => {
+            const params = column.get('params', null) === null ? null : column.get('params').toJS();
+            const other  = params && params.other ? params.other : {};
 
-          return (
-            <BundleContainer key={column.get('uuid')} fetchComponent={componentMap[column.get('id')]} loading={this.renderLoading(column.get('id'))} error={this.renderError}>
-              {SpecificComponent => <SpecificComponent columnId={column.get('uuid')} params={params} multiColumn {...other} />}
-            </BundleContainer>
-          );
-        })}
+            return (
+              <BundleContainer key={column.get('uuid')} fetchComponent={componentMap[column.get('id')]} loading={this.renderLoading(column.get('id'))} error={this.renderError}>
+                {SpecificComponent => <SpecificComponent columnId={column.get('uuid')} params={params} multiColumn {...other} />}
+              </BundleContainer>
+            );
+          })}
 
-        {React.Children.map(children, child => React.cloneElement(child, { multiColumn: true }))}
-        {show_navigation_panel && <div className='columns-area__panels__pane columns-area__panels__pane--start columns-area__panels__pane--navigational'>
-          <div className='columns-area__panels__pane__inner'>
-            <NavigationPanel />
-          </div>
-        </div>}
-      </div>
+          {React.Children.map(children, child => React.cloneElement(child, { multiColumn: true }))}
+          {show_navigation_panel && <div className='columns-area__panels__pane columns-area__panels__pane--start columns-area__panels__pane--navigational'>
+            <div className='columns-area__panels__pane__inner'>
+              <NavigationPanel />
+            </div>
+          </div>}
+        </div>
+        <EmojiMuteColumnsFallback />
+      </React.Fragment>
     );
   }
 

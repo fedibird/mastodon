@@ -1,7 +1,9 @@
 /* eslint-disable react/prop-types */
 
 import { fireEvent, render } from '@testing-library/react';
+import fs from 'fs';
 import { fromJS, List as ImmutableList } from 'immutable';
+import path from 'path';
 import PropTypes from 'prop-types';
 import React from 'react';
 import { Provider } from 'react-redux';
@@ -66,13 +68,31 @@ jest.mock('mastodon/features/ui/components/navigation_panel', () => () => <div d
 jest.mock('mastodon/features/ui/containers/bundle_container', () => {
   const React = require('react');
 
-  return function BundleContainer({ children }) {
+  return function BundleContainer({ children, fetchComponent, loading: Loading, error: ErrorComponent }) {
+    const harness = global.__emojiMuteBundleHarness || { mode: 'column' };
+    const composeColumn = fetchComponent && fetchComponent.name === 'Compose';
+
+    if (composeColumn && harness.mode === 'loading') {
+      return Loading ? <Loading /> : <div data-testid='bundle-loading' />;
+    }
+
+    if (composeColumn && harness.mode === 'error') {
+      return ErrorComponent
+        ? <ErrorComponent onRetry={harness.onRetry || (() => {})} />
+        : <div data-testid='bundle-error' />;
+    }
+
+    if (composeColumn && harness.mode === 'compose') {
+      const ComposeColumn = require('mastodon/features/compose').default;
+      return children(ComposeColumn);
+    }
+
     const Column = () => <div data-testid='bundled-column' />;
     return children(Column);
   };
 });
 
-import EmojiMuteLoadNotice, { EmojiMuteNoticeContext } from '../emoji_mute_load_notice';
+import EmojiMuteLoadNotice, { EmojiMuteNoticeContext, resetEmojiMuteNoticeOwnersForTests } from '../emoji_mute_load_notice';
 import ComposePanel from '../../features/ui/components/compose_panel';
 import ColumnsArea from '../../features/ui/components/columns_area';
 import Compose from '../../features/compose';
@@ -141,17 +161,26 @@ const setViewport = matches => {
   }));
 };
 
-const renderNotice = (ui, boot = 'error', pathname = '/timelines/home') => render(
+const noticeTree = (ui, boot = 'error', pathname = '/timelines/home') => (
   <Provider store={store}>
     <EmojiMuteNoticeContext.Provider value={notice(boot)}>
       <RouterProvider pathname={pathname}>{ui}</RouterProvider>
     </EmojiMuteNoticeContext.Provider>
-  </Provider>,
+  </Provider>
 );
+
+const renderNotice = (ui, boot = 'error', pathname = '/timelines/home') => render(noticeTree(ui, boot, pathname));
 
 describe('emoji mute load notice placement', () => {
   beforeEach(() => {
     setViewport(false);
+    global.__emojiMuteBundleHarness = { mode: 'column' };
+    resetEmojiMuteNoticeOwnersForTests();
+  });
+
+  afterEach(() => {
+    delete global.__emojiMuteBundleHarness;
+    resetEmojiMuteNoticeOwnersForTests();
   });
 
   it('puts one card before search in the wide single-column compose panel', () => {
@@ -230,7 +259,7 @@ describe('emoji mute load notice placement', () => {
     expect(container.querySelector('.compose-panel .emoji-mute-load-notice')).not.toBeNull();
   });
 
-  it('shows one fallback card in multi-column when the compose drawer is not mounted', () => {
+  it('pins the multi-column fallback over the viewport instead of adding a scrolled column', () => {
     const ColumnChild = () => <div data-testid='column-child'>home</div>;
     const { container } = renderNotice(
       <ColumnsArea singleColumn={false} columns={ImmutableList()} isModalOpen={false} dispatch={jest.fn()} links={[]}>
@@ -238,27 +267,84 @@ describe('emoji mute load notice placement', () => {
       </ColumnsArea>,
     );
     const area = container.querySelector('.columns-area');
-    const card = area.querySelector('.emoji-mute-load-notice');
-    const child = container.querySelector('[data-testid="column-child"]');
+    const overlay = container.querySelector('.emoji-mute-load-notice-overlay');
+    const card = overlay.querySelector('.emoji-mute-load-notice');
+
+    area.scrollLeft = 480;
 
     expect(card).not.toBeNull();
-    expect(card.getAttribute('data-placement')).toBe('columns');
+    expect(card.getAttribute('data-placement')).toBe('overlay');
+    expect(area.contains(card)).toBe(false);
+    expect(area.scrollLeft).toBe(480);
     expect(container.querySelectorAll('.emoji-mute-load-notice')).toHaveLength(1);
-    expect(card.compareDocumentPosition(child) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(child.getAttribute('data-testid')).toBe('column-child');
+    expect(container.querySelector('[data-testid="column-child"]')).not.toBeNull();
+
+    const stylesheet = fs.readFileSync(path.join(__dirname, '../../../styles/mastodon/emoji_mute_load_notice.scss'), 'utf8');
+
+    expect(stylesheet).toContain('.emoji-mute-load-notice-overlay');
+    expect(stylesheet).toContain('position: fixed');
+    expect(stylesheet).not.toContain('.columns-area > .emoji-mute-load-notice-slot');
   });
 
-  it('does not add a second card when the compose column or the compose route already owns the notice', () => {
-    const ColumnChild = () => <div data-testid='column-child'>home</div>;
-    const pinned = renderNotice(
-      <ColumnsArea singleColumn={false} columns={fromJS([{ id: 'COMPOSE', uuid: 'compose-column' }])} isModalOpen={false} dispatch={jest.fn()} links={[]}>
-        <ColumnChild />
-      </ColumnsArea>,
+  it('shows the fallback while compose is loading or failed, and removes it once the drawer owns the card', () => {
+    const columns = fromJS([{ id: 'COMPOSE', uuid: 'compose-column' }, { id: 'HOME', uuid: 'home' }]);
+    global.__emojiMuteBundleHarness = { mode: 'loading' };
+    const view = renderNotice(
+      <ColumnsArea singleColumn={false} columns={columns} isModalOpen={false} dispatch={jest.fn()} links={[]} />,
     );
 
-    expect(pinned.container.querySelector('[data-testid="bundled-column"]')).not.toBeNull();
-    expect(pinned.container.querySelector('.emoji-mute-load-notice')).toBeNull();
-    pinned.unmount();
+    expect(view.container.querySelector('.drawer__pager')).not.toBeNull();
+    expect(view.container.querySelector('.drawer .emoji-mute-load-notice')).toBeNull();
+    expect(view.container.querySelector('.emoji-mute-load-notice-overlay .emoji-mute-load-notice')).not.toBeNull();
+    expect(view.container.querySelectorAll('.emoji-mute-load-notice')).toHaveLength(1);
+    const area = view.container.querySelector('.columns-area');
+    area.scrollLeft = 360;
+
+    global.__emojiMuteBundleHarness = { mode: 'error' };
+    view.rerender(noticeTree(
+      <ColumnsArea singleColumn={false} columns={columns} isModalOpen={false} dispatch={jest.fn()} links={[]} />,
+    ));
+
+    expect(view.container.querySelector('.error-column')).not.toBeNull();
+    expect(view.container.querySelector('.drawer .emoji-mute-load-notice')).toBeNull();
+    expect(view.container.querySelector('.emoji-mute-load-notice-overlay .emoji-mute-load-notice')).not.toBeNull();
+    expect(view.container.querySelector('.columns-area').scrollLeft).toBe(360);
+
+    global.__emojiMuteBundleHarness = { mode: 'compose' };
+    view.rerender(noticeTree(
+      <ColumnsArea singleColumn={false} columns={columns} isModalOpen={false} dispatch={jest.fn()} links={[]} />,
+    ));
+
+    expect(view.container.querySelectorAll('.emoji-mute-load-notice')).toHaveLength(1);
+    expect(view.container.querySelector('.drawer .emoji-mute-load-notice')).not.toBeNull();
+    expect(view.container.querySelector('.emoji-mute-load-notice-overlay')).toBeNull();
+    expect(view.container.querySelector('.columns-area').scrollLeft).toBe(360);
+
+    global.__emojiMuteBundleHarness = { mode: 'error' };
+    view.rerender(noticeTree(
+      <ColumnsArea singleColumn={false} columns={columns} isModalOpen={false} dispatch={jest.fn()} links={[]} />,
+    ));
+
+    expect(view.container.querySelector('.drawer .emoji-mute-load-notice')).toBeNull();
+    expect(view.container.querySelector('.emoji-mute-load-notice-overlay .emoji-mute-load-notice')).not.toBeNull();
+    expect(view.container.querySelector('.columns-area').scrollLeft).toBe(360);
+    view.unmount();
+  });
+
+  it('keeps one drawer card when that compose route is mounted, and the overlay when the route is not', () => {
+    const RouteLoading = () => <div data-testid='route-loading'>loading</div>;
+    const pending = renderNotice(
+      <ColumnsArea singleColumn={false} columns={ImmutableList()} isModalOpen={false} dispatch={jest.fn()} links={[]}>
+        <RouteLoading />
+      </ColumnsArea>,
+      'error',
+      '/statuses/new',
+    );
+
+    expect(pending.container.querySelector('.emoji-mute-load-notice-overlay .emoji-mute-load-notice')).not.toBeNull();
+    expect(pending.container.querySelector('.drawer .emoji-mute-load-notice')).toBeNull();
+    expect(pending.container.querySelectorAll('.emoji-mute-load-notice')).toHaveLength(1);
+    pending.unmount();
 
     const route = renderNotice(
       <ColumnsArea singleColumn={false} columns={ImmutableList()} isModalOpen={false} dispatch={jest.fn()} links={[]}>
@@ -271,6 +357,7 @@ describe('emoji mute load notice placement', () => {
     expect(route.container.querySelectorAll('.emoji-mute-load-notice')).toHaveLength(1);
     expect(route.container.querySelector('.drawer .emoji-mute-load-notice')).not.toBeNull();
     expect(route.container.querySelector('.emoji-mute-load-notice').getAttribute('data-placement')).toBe('drawer');
+    expect(route.container.querySelector('.emoji-mute-load-notice-overlay')).toBeNull();
   });
 
   it('retries an ordinary failure and reloads a session change or a new sign-in', () => {

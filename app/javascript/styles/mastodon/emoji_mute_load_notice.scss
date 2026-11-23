@@ -230,17 +230,19 @@
   margin: 10px 10px 0;
 }
 
-.columns-area > .emoji-mute-load-notice-slot {
-  flex: 0 0 auto;
-  align-self: flex-start;
-  width: auto;
-  max-width: none;
-  margin: 0;
+// Not a flex child of the horizontal scroller. Fixed to the viewport so a
+// scrolled columns-area keeps its scrollLeft and the card stays readable.
+.emoji-mute-load-notice-overlay {
+  position: fixed;
+  z-index: 4;
+  top: calc(10px + env(safe-area-inset-top, 0px));
+  inset-inline-start: 10px;
+  width: min(360px, calc(100vw - 20px));
+  pointer-events: auto;
 
   > .emoji-mute-load-notice {
-    width: 285px;
-    max-width: calc(100vw - 20px);
-    margin: 10px;
+    width: 100%;
+    margin: 0;
   }
 }
 

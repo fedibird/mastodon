@@ -7,6 +7,50 @@ import { FormattedMessage } from 'react-intl';
 // that state. Session isolation stays outside the detached WebUI.
 export const EmojiMuteNoticeContext = React.createContext(null);
 
+// Compose registers only after it has mounted and owns the card. A configured
+// column or a route path is not enough: the chunk can still be loading or
+// have failed, and then this set stays empty so the overlay can show.
+const noticeOwners = new Set();
+const noticeOwnerListeners = new Set();
+
+const notifyNoticeOwners = () => {
+  noticeOwnerListeners.forEach(listener => listener());
+};
+
+export function bindEmojiMuteNoticeOwner(owner) {
+  if (!owner || noticeOwners.has(owner)) {
+    return () => {};
+  }
+
+  noticeOwners.add(owner);
+  notifyNoticeOwners();
+  let released = false;
+
+  return () => {
+    if (released || !noticeOwners.delete(owner)) {
+      return;
+    }
+
+    released = true;
+    notifyNoticeOwners();
+  };
+}
+
+export function emojiMuteNoticeOwnerActive() {
+  return noticeOwners.size > 0;
+}
+
+export function subscribeEmojiMuteNoticeOwners(listener) {
+  noticeOwnerListeners.add(listener);
+
+  return () => noticeOwnerListeners.delete(listener);
+}
+
+export function resetEmojiMuteNoticeOwnersForTests() {
+  noticeOwners.clear();
+  notifyNoticeOwners();
+}
+
 let noticeSequence = 0;
 
 export default class EmojiMuteLoadNotice extends React.PureComponent {
@@ -14,7 +58,7 @@ export default class EmojiMuteLoadNotice extends React.PureComponent {
   static contextType = EmojiMuteNoticeContext;
 
   static propTypes = {
-    placement: PropTypes.oneOf(['compose-panel', 'drawer', 'columns', 'session']).isRequired,
+    placement: PropTypes.oneOf(['compose-panel', 'drawer', 'columns', 'overlay', 'session']).isRequired,
   };
 
   titleId = `emoji-mute-load-notice-title-${noticeSequence += 1}`;
