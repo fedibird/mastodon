@@ -745,6 +745,9 @@ function initialDocumentStillCurrent() {
 // would leave stale surface work live in the previous viewer's Redux tree.
 export function invalidateEmojiMuteAsyncWork() {
   documentSyncGeneration += 1;
+  // The invalidated sync no longer owns the notice. Its later release must
+  // not clear a fetch the next shell has started.
+  emojiMuteCurrentSyncPending = false;
   initialDocumentSync = null;
   initialDocumentRequestVersion = null;
   resetEmojiMuteSurfaces();

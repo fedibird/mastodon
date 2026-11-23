@@ -115,7 +115,7 @@ jest.mock('mastodon/features/embedded_rails_settings/navigation', () => ({
 }));
 
 import api from 'mastodon/api';
-import { syncEmojiMutes } from 'mastodon/actions/emoji_mutes';
+import { emojiMuteSyncInFlight, syncEmojiMutes } from 'mastodon/actions/emoji_mutes';
 import { resetEmojiMuteStoreForTests } from 'mastodon/features/emoji/emoji_mute_store';
 
 const Mastodon = require('../mastodon').default;
@@ -476,5 +476,50 @@ describe('obsolete emoji mute retry', () => {
     expect(mockHarness.getState().getIn(['emojiMutes', 'display'])).toBe('suppress');
     expect(mockHarness.getState().getIn(['emojiMutes', 'appliedRevision'])).toBeNull();
     view.unmount();
+  });
+
+  const mountWhilePreviousIsOpen = async (older, finish) => {
+    const view = render(<Mastodon locale='en' />);
+    const started = gets.length;
+    expect(started).toBeGreaterThan(0);
+    expect(emojiMuteSyncInFlight()).toBe(true);
+    const phase = mockHarness.getState().getIn(['emojiMutes', 'phase']);
+    const failure = mockHarness.getState().getIn(['emojiMutes', 'failure']);
+
+    await act(async () => {
+      finish(older);
+      try {
+        await older.promise;
+      } catch (error) {
+        // The unmounted shell owns this rejection.
+      }
+      await flush();
+    });
+
+    expect(gets).toHaveLength(started);
+    expect(emojiMuteSyncInFlight()).toBe(true);
+    expect(notice(view)).toBeNull();
+    expect(mockHarness.getState().getIn(['emojiMutes', 'phase'])).toBe(phase);
+    expect(mockHarness.getState().getIn(['emojiMutes', 'failure'])).toBe(failure);
+    return view;
+  };
+
+  it('starts a new fetch after unmount, and the invalidated request does not change it', async () => {
+    const first = render(<Mastodon locale='en' />);
+    expect(gets).toHaveLength(1);
+    expect(emojiMuteSyncInFlight()).toBe(true);
+    const olderSuccess = gets[0];
+    first.unmount();
+    expect(emojiMuteSyncInFlight()).toBe(false);
+
+    const duringSuccess = await mountWhilePreviousIsOpen(olderSuccess, pending => pending.resolve(documentFor('1')));
+    expect(gets).toHaveLength(2);
+    const olderFailure = gets[1];
+    duringSuccess.unmount();
+    expect(emojiMuteSyncInFlight()).toBe(false);
+
+    const duringFailure = await mountWhilePreviousIsOpen(olderFailure, pending => pending.reject(new Error('offline')));
+    expect(gets).toHaveLength(3);
+    duringFailure.unmount();
   });
 });
