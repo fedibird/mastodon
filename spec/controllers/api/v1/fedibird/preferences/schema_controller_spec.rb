@@ -33,6 +33,9 @@ RSpec.describe Api::V1::Fedibird::Preferences::SchemaController, type: :controll
         user.info_font_size
         user.reduce_motion
         user.emoji_picker_prefer_personal
+        user.emoji_picker_disable_personal
+        user.emoji_picker_disable_standard
+        user.emoji_picker_disable_actions
         user.emoji_picker_lazy_load_standard
         user.emoji_reaction_fallback_policy
         user.preferred_posting_language
@@ -59,6 +62,7 @@ RSpec.describe Api::V1::Fedibird::Preferences::SchemaController, type: :controll
       expect(body[:schema].find { |item| item[:key] == 'user.info_font_size' }[:apply_hint]).to eq 'live'
       expect(body[:schema].find { |item| item[:key] == 'user.reduce_motion' }[:apply_hint]).to eq 'live'
       expect(body[:schema].find { |item| item[:key] == 'user.emoji_picker_prefer_personal' }[:apply_hint]).to eq 'reload'
+      expect(body[:schema].find { |item| item[:key] == 'user.emoji_picker_disable_standard' }[:apply_hint]).to eq 'reload'
       expect(body[:schema].find { |item| item[:key] == 'user.emoji_picker_lazy_load_standard' }[:apply_hint]).to eq 'reload'
       expect(response.body).not_to include('source_refs')
       expect(response.body).not_to include('app/models')
