@@ -142,8 +142,7 @@ it('reconnects the existing article observer to a changed document/column root w
   observers[1].callback([{ target: rows[0] }]);
   expect(callback).toHaveBeenCalledTimes(1);
   wrapper.unobserve('1', rows[0]); wrapper.disconnect();
-  expect(wrapper.nodes).toEqual({});
-  expect(wrapper.callbacks).toEqual({});
+  expect(wrapper.registrations.size).toBe(0);
 });
 
 it('reads logarithmically many rects even with 2000 retained rows', () => {
