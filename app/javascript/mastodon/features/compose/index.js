@@ -19,7 +19,7 @@ import Icon from 'mastodon/components/icon';
 import { logOut } from 'mastodon/utils/log_out';
 import NotificationsCounterIcon from '../ui/components/notifications_counter_icon';
 import classNames from 'classnames';
-import EmojiMuteLoadNotice, { bindEmojiMuteNoticeOwner, EmojiMuteNoticeContext } from 'mastodon/components/emoji_mute_load_notice';
+import EmojiMuteLoadNotice, { bindEmojiMuteNoticeOwner, emojiMuteNoticeVisible, EmojiMuteNoticeContext } from 'mastodon/components/emoji_mute_load_notice';
 
 const messages = defineMessages({
   short_start: { id: 'navigation_bar.short.getting_started', defaultMessage: 'Started' },
@@ -84,14 +84,7 @@ class Compose extends React.PureComponent {
   }
 
   noticeVisible () {
-    const notice = this.context;
-    const boot = notice && notice.boot;
-
-    if (boot === 'error') {
-      return true;
-    }
-
-    return boot === 'ignored' && !(notice && notice.ignoredNoticeClosed);
+    return emojiMuteNoticeVisible(this.context, 'drawer');
   }
 
   syncNoticeOwner () {

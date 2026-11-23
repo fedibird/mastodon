@@ -92,7 +92,7 @@ jest.mock('mastodon/features/ui/containers/bundle_container', () => {
   };
 });
 
-import EmojiMuteLoadNotice, { EmojiMuteNoticeContext, resetEmojiMuteNoticeOwnersForTests } from '../emoji_mute_load_notice';
+import EmojiMuteLoadNotice, { emojiMuteNoticeVisible, EmojiMuteNoticeContext, resetEmojiMuteNoticeOwnersForTests } from '../emoji_mute_load_notice';
 import ComposePanel from '../../features/ui/components/compose_panel';
 import ColumnsArea from '../../features/ui/components/columns_area';
 import Compose from '../../features/compose';
@@ -283,7 +283,35 @@ describe('emoji mute load notice placement', () => {
 
     expect(stylesheet).toContain('.emoji-mute-load-notice-overlay');
     expect(stylesheet).toContain('position: fixed');
+    expect(stylesheet).toContain('overflow-y: auto');
+    expect(stylesheet).toContain('max-height: calc(100vh - 20px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px))');
     expect(stylesheet).not.toContain('.columns-area > .emoji-mute-load-notice-slot');
+
+    const shortOverlay = document.createElement('div');
+    shortOverlay.style.cssText = 'position:fixed;top:10px;left:10px;width:360px;max-height:120px;overflow-y:auto;';
+    shortOverlay.innerHTML = '<div style="height:480px"><button type="button">Turn the feature off</button></div>';
+    document.body.appendChild(shortOverlay);
+    const action = shortOverlay.querySelector('button');
+    shortOverlay.scrollTop = shortOverlay.scrollHeight;
+    expect(shortOverlay.scrollTop + shortOverlay.clientHeight).toBeGreaterThanOrEqual(action.offsetTop + action.offsetHeight);
+    shortOverlay.remove();
+  });
+
+  it('uses one visibility decision for the card, the drawer spacing, and the overlay', () => {
+    const error = { boot: 'error', ignoredNoticeClosed: false };
+    const ignored = { boot: 'ignored', ignoredNoticeClosed: false };
+    const closed = { boot: 'ignored', ignoredNoticeClosed: true };
+    const session = { boot: 'session-changed' };
+
+    expect(emojiMuteNoticeVisible(error, 'drawer')).toBe(true);
+    expect(emojiMuteNoticeVisible(error, 'overlay')).toBe(true);
+    expect(emojiMuteNoticeVisible(ignored, 'drawer')).toBe(true);
+    expect(emojiMuteNoticeVisible(closed, 'drawer')).toBe(false);
+    expect(emojiMuteNoticeVisible(closed, 'overlay')).toBe(false);
+    expect(emojiMuteNoticeVisible(session, 'drawer')).toBe(false);
+    expect(emojiMuteNoticeVisible(session, 'overlay')).toBe(false);
+    expect(emojiMuteNoticeVisible(session, 'session')).toBe(true);
+    expect(emojiMuteNoticeVisible(null, 'drawer')).toBe(false);
   });
 
   it('shows the fallback while compose is loading or failed, and removes it once the drawer owns the card', () => {

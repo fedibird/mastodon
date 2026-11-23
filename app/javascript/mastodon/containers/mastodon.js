@@ -285,7 +285,19 @@ export default class Mastodon extends React.PureComponent {
       return;
     }
 
-    this.setState({ ignoredNoticeClosed: true });
+    this.setState({ ignoredNoticeClosed: true }, () => {
+      // The close control has left the document. Move only when nothing else
+      // still holds focus, and only onto the composer or search field.
+      if (!this.mounted || document.activeElement !== document.body) {
+        return;
+      }
+
+      const target = this.uiPortalRoot && this.uiPortalRoot.querySelector('.autosuggest-textarea__textarea, .search__input');
+
+      if (target && typeof target.focus === 'function') {
+        target.focus();
+      }
+    });
   };
 
   bootstrapEmojiMutes = () => {

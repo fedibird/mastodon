@@ -146,6 +146,9 @@ jest.mock('mastodon/features/ui', () => {
     render() {
       return (
         <div data-testid='webui'>
+          <textarea className='autosuggest-textarea__textarea' data-testid='composer' />
+          <input className='search__input' data-testid='search-field' />
+          <button type='button' data-testid='elsewhere'>Elsewhere</button>
           <Notice key={global.__emojiMuteNoticeMount || 'notice'} placement='compose-panel' />
         </div>
       );
@@ -468,5 +471,47 @@ describe('emoji mute failure notice during streaming resync', () => {
     expect(gets.length).toBe(started + 1);
     expect(retry().disabled).toBe(true);
     view.unmount();
+  });
+
+  const ignoredNotice = async () => {
+    const view = render(<Mastodon locale='en' />);
+    await rejectGet(gets[gets.length - 1]);
+    await act(async () => {
+      fireEvent.click(view.getByText('Ignore this time'));
+      await flush();
+    });
+    return view;
+  };
+
+  it('moves focus to the composer after a focused close, and leaves another control focused', async () => {
+    const view = render(<Mastodon locale='en' />);
+    expect(gets).toHaveLength(1);
+    await rejectGet(gets[0]);
+    expect(notice(view)).not.toBeNull();
+    await act(async () => {
+      fireEvent.click(view.getByText('Ignore this time'));
+      await flush();
+    });
+    const close = notice(view).querySelector('.emoji-mute-load-notice__close');
+    const composer = view.getByTestId('composer');
+
+    close.focus();
+    expect(document.activeElement).toBe(close);
+    fireEvent.keyDown(close, { key: 'Enter', code: 'Enter' });
+    fireEvent.click(close);
+
+    expect(notice(view)).toBeNull();
+    expect(document.activeElement).toBe(composer);
+    expect(mockHarness.getState().getIn(['emojiMutes', 'availability'])).toBe('temporary_ignore');
+    view.unmount();
+
+    const again = await ignoredNotice();
+    const elsewhere = again.getByTestId('elsewhere');
+    elsewhere.focus();
+    fireEvent.click(notice(again).querySelector('.emoji-mute-load-notice__close'));
+
+    expect(notice(again)).toBeNull();
+    expect(document.activeElement).toBe(elsewhere);
+    again.unmount();
   });
 });

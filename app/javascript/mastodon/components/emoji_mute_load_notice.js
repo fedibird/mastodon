@@ -51,6 +51,26 @@ export function resetEmojiMuteNoticeOwnersForTests() {
   notifyNoticeOwners();
 }
 
+// One decision for the card and for the drawer spacing that exists only
+// while the card is in the drawer. Session isolation stays on its own placement.
+export function emojiMuteNoticeVisible(notice, placement) {
+  if (!notice) {
+    return false;
+  }
+
+  const boot = notice.boot;
+
+  if (placement === 'session') {
+    return boot === 'session-changed';
+  }
+
+  if (boot === 'session-changed') {
+    return false;
+  }
+
+  return boot === 'error' || (boot === 'ignored' && !notice.ignoredNoticeClosed);
+}
+
 let noticeSequence = 0;
 
 export default class EmojiMuteLoadNotice extends React.PureComponent {
@@ -64,6 +84,29 @@ export default class EmojiMuteLoadNotice extends React.PureComponent {
   titleId = `emoji-mute-load-notice-title-${noticeSequence += 1}`;
 
   state = { spoken: false };
+
+  setNoticeNode = node => {
+    this.noticeNode = node;
+  };
+
+  closeNotice = () => {
+    this.dismissing = true;
+    const dismiss = this.context && this.context.onDismissIgnored;
+
+    if (dismiss) {
+      dismiss();
+    }
+  };
+
+  componentWillUnmount () {
+    const active = document.activeElement;
+
+    // The close control is leaving the document. Blur it so focus does not
+    // stay on a detached node. A focus target outside this card is left alone.
+    if (this.dismissing && this.noticeNode && active && this.noticeNode.contains(active) && typeof active.blur === 'function') {
+      active.blur();
+    }
+  }
 
   componentDidMount () {
     this.announce(this.context && this.context.boot);
@@ -94,21 +137,12 @@ export default class EmojiMuteLoadNotice extends React.PureComponent {
       return null;
     }
 
+    if (!emojiMuteNoticeVisible(notice, placement)) {
+      return null;
+    }
+
     const boot = notice.boot;
     const ignored = boot === 'ignored';
-    const visible = boot === 'error' || (ignored && !notice.ignoredNoticeClosed) || boot === 'session-changed';
-
-    if (!visible) {
-      return null;
-    }
-
-    if (placement === 'session') {
-      if (boot !== 'session-changed') {
-        return null;
-      }
-    } else if (boot === 'session-changed') {
-      return null;
-    }
 
     const failure = notice.failure;
     const session = boot === 'session-changed';
@@ -147,9 +181,9 @@ export default class EmojiMuteLoadNotice extends React.PureComponent {
     const rechecking = boot === 'error' && notice.rechecking === true;
 
     return (
-      <div className={ignored ? 'emoji-mute-load-notice emoji-mute-load-notice--closable' : 'emoji-mute-load-notice'} role={role} aria-live={live} aria-atomic='true' aria-busy={rechecking ? 'true' : 'false'} data-placement={placement} data-rechecking={rechecking ? 'true' : 'false'} aria-labelledby={this.state.spoken ? this.titleId : undefined}>
+      <div ref={this.setNoticeNode} className={ignored ? 'emoji-mute-load-notice emoji-mute-load-notice--closable' : 'emoji-mute-load-notice'} role={role} aria-live={live} aria-atomic='true' aria-busy={rechecking ? 'true' : 'false'} data-placement={placement} data-rechecking={rechecking ? 'true' : 'false'} aria-labelledby={this.state.spoken ? this.titleId : undefined}>
         {ignored && (
-          <button type='button' className='emoji-mute-load-notice__close' onClick={notice.onDismissIgnored}>
+          <button type='button' className='emoji-mute-load-notice__close' onClick={this.closeNotice}>
             <span aria-hidden='true'>×</span>
             <span className='emoji-mute-load-notice__close-label'>
               <FormattedMessage id='emoji_mutes.notice_ignored_close' defaultMessage='Close this notice' />

@@ -47,7 +47,7 @@ import { supportsPassiveEvents } from 'detect-passive-events';
 import { scrollRight } from '../../../scroll';
 
 import classNames from 'classnames';
-import EmojiMuteLoadNotice, { emojiMuteNoticeOwnerActive, EmojiMuteNoticeContext, subscribeEmojiMuteNoticeOwners } from 'mastodon/components/emoji_mute_load_notice';
+import EmojiMuteLoadNotice, { emojiMuteNoticeOwnerActive, emojiMuteNoticeVisible, EmojiMuteNoticeContext, subscribeEmojiMuteNoticeOwners } from 'mastodon/components/emoji_mute_load_notice';
 
 const componentMap = {
   'COMPOSE': Compose,
@@ -106,11 +106,7 @@ class EmojiMuteColumnsFallback extends React.PureComponent {
       return null;
     }
 
-    const notice = this.context;
-    const boot = notice && notice.boot;
-    const visible = boot === 'error' || (boot === 'ignored' && !(notice && notice.ignoredNoticeClosed));
-
-    if (!visible) {
+    if (!emojiMuteNoticeVisible(this.context, 'overlay')) {
       return null;
     }
 
