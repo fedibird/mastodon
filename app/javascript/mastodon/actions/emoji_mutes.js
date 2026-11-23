@@ -719,6 +719,17 @@ export function restoreVisibleEmojiMuteStatus(id) {
 
 let documentSyncGeneration = 0;
 let initialDocumentSync = null;
+// Only the newest sync owns the notice. An older request can still be on
+// the network, and that must not keep a newer failure hidden.
+let emojiMuteCurrentSyncPending = false;
+
+export function emojiMuteSyncInFlight() {
+  return emojiMuteCurrentSyncPending;
+}
+
+export function emojiMuteSyncGeneration() {
+  return documentSyncGeneration;
+}
 let initialDocumentRequestVersion = null;
 
 function plainInitialFollowUp(options) {
@@ -734,6 +745,9 @@ function initialDocumentStillCurrent() {
 // would leave stale surface work live in the previous viewer's Redux tree.
 export function invalidateEmojiMuteAsyncWork() {
   documentSyncGeneration += 1;
+  // The invalidated sync no longer owns the notice. Its later release must
+  // not clear a fetch the next shell has started.
+  emojiMuteCurrentSyncPending = false;
   initialDocumentSync = null;
   initialDocumentRequestVersion = null;
   resetEmojiMuteSurfaces();
@@ -794,6 +808,19 @@ export function syncEmojiMutes(options = {}) {
     }
 
     const generation = ++documentSyncGeneration;
+    emojiMuteCurrentSyncPending = true;
+    let syncReleased = false;
+    const releaseSync = () => {
+      if (syncReleased) {
+        return;
+      }
+
+      syncReleased = true;
+
+      if (generation === documentSyncGeneration) {
+        emojiMuteCurrentSyncPending = false;
+      }
+    };
     const preferenceGeneration = emojiMutePreferenceGeneration();
     const previousRevision = appliedEmojiMuteRevision();
     const previousSignature = hideReactionSignature(currentEmojiMutes());
@@ -810,7 +837,8 @@ export function syncEmojiMutes(options = {}) {
 
     const syncPromise = pending.then(mutes => {
       if (generation !== documentSyncGeneration) {
-        return null;
+        // An older success must not be read as "this sync failed".
+        return { superseded: true };
       }
 
       if (currentEmojiMuteBoot().availability === 'disabled') {
@@ -839,6 +867,10 @@ export function syncEmojiMutes(options = {}) {
           return null;
         }
 
+        // A fulfilled GET can still be a failure, for example an older
+        // revision. Clear this sync before the failure dispatch, or the
+        // observer still treats it as in flight and the card stays hidden.
+        releaseSync();
         dispatch({
           type: EMOJI_MUTES_FAIL,
           failure: emojiMuteAuthorizationFailure() || 'unavailable',
@@ -882,6 +914,9 @@ export function syncEmojiMutes(options = {}) {
       })(dispatch, getState);
     }).catch(error => {
       if (generation !== documentSyncGeneration) {
+        // The component that started this request has its own counter. Mark
+        // the rejection so a newer sync can own the notice.
+        error.superseded = true;
         throw error;
       }
 
@@ -902,15 +937,18 @@ export function syncEmojiMutes(options = {}) {
       const blocked = emojiMuteAuthorizationFailure();
 
       if (blocked || sessionRejected || options.verify === true || !emojiMuteDocumentReady()) {
+        // The failure dispatch is this request's outcome, not another in-flight sync.
+        releaseSync();
         dispatch({ type: EMOJI_MUTES_FAIL, failure: blocked || failure });
       }
 
       throw error;
     });
+    const settled = syncPromise.finally(releaseSync);
 
     if (options.bootstrap === true && !options.changed && options.verify !== true && !options.reconnect) {
       let tracked;
-      tracked = syncPromise.finally(() => {
+      tracked = settled.finally(() => {
         if (initialDocumentSync === tracked) {
           initialDocumentSync = null;
           initialDocumentRequestVersion = null;
@@ -921,6 +959,6 @@ export function syncEmojiMutes(options = {}) {
       return tracked;
     }
 
-    return syncPromise;
+    return settled;
   };
 }

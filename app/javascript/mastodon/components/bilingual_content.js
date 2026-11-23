@@ -20,7 +20,7 @@ export default class BilingualContent extends React.PureComponent {
     return (
       <div className={className} tabIndex={tabIndex}>
         {pairs.map((pair, index) => (
-          <div className='status-translation-pair' key={index}>
+          <div className='status-translation-pair' data-block-index={index} key={index}>
             <div
               className='status-translation-pair__source'
               dangerouslySetInnerHTML={{ __html: pair.sourceHtml }}

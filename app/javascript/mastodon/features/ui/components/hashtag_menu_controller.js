@@ -11,6 +11,10 @@ import { me } from 'mastodon/initial_state';
 import { copyText } from 'mastodon/utils/clipboard';
 import { accountUrlForHashtag } from 'mastodon/utils/account_tag_url';
 import { collectCopyHashtags } from 'mastodon/utils/status_hashtags';
+import { hashtagMenuBoundImages, hashtagMenuStoredIdentity, projectHashtagLabel, registerHashtagMenuBinding, registerHashtagMenuConcealer, replaceHashtagSlot } from 'mastodon/features/emoji/hashtag_menu_names';
+import { recordEmojiMuteText } from 'mastodon/features/emoji/emoji_mute_live_dom';
+import { rememberEmojiMuteHashtagSlot } from 'mastodon/features/emoji/emoji_mute_sources';
+import { emojiMuteTextIndexFromState, SUPPRESS_UNVERIFIED_INDEX, suppressUnicodeEmoji, UNVERIFIED_EMOJI_PLACEHOLDER } from 'mastodon/features/emoji/emoji_mute_text';
 
 const messages = defineMessages({
   browse: { id: 'hashtag.browse', defaultMessage: 'View posts with #{hashtag}' },
@@ -38,11 +42,14 @@ class HashtagMenuController extends React.PureComponent {
     signedIn: PropTypes.bool,
     onAddFavourite: PropTypes.func.isRequired,
     onMuteHashtag: PropTypes.func.isRequired,
+    emojiMuteTextIndex: PropTypes.object,
   };
 
   state = {
     element: null,
     hashtag: '',
+    imageRanges: [],
+    hashtagImages: [],
     hashtagUrl: '',
     accountId: '',
     statusId: '',
@@ -51,10 +58,140 @@ class HashtagMenuController extends React.PureComponent {
 
   componentDidMount () {
     document.addEventListener('click', this.handleDocumentClick, true);
+    this.unregisterMenuConcealer = registerHashtagMenuConcealer(this.concealForSuppress);
+    this.unregisterMenuBinding = registerHashtagMenuBinding(this.syncBinding);
   }
 
   componentWillUnmount () {
     document.removeEventListener('click', this.handleDocumentClick, true);
+
+    if (this.unregisterMenuConcealer) {
+      this.unregisterMenuConcealer();
+    }
+
+    if (this.unregisterMenuBinding) {
+      this.unregisterMenuBinding();
+    }
+  }
+
+  actionRanges () {
+    const link = this.state.element;
+
+    if (link && link.isConnected) {
+      const identity = hashtagMenuStoredIdentity(link);
+
+      if (identity && identity.name === this.state.hashtag) {
+        return identity.imageRanges || [];
+      }
+    }
+
+    return this.state.imageRanges || [];
+  }
+
+  syncBinding = link => {
+    if (!link || this.state.element !== link) {
+      return;
+    }
+
+    if (!link.isConnected) {
+      this.handleClose();
+      return;
+    }
+
+    const identity = hashtagMenuStoredIdentity(link);
+
+    if (!identity.name || identity.name !== this.state.hashtag) {
+      this.handleClose();
+      return;
+    }
+
+    const next = this.actionRanges();
+    const prev = this.state.imageRanges || [];
+    const same = next.length === prev.length && next.every((range, index) => range[0] === prev[index][0] && range[1] === prev[index][1]);
+    const nextImages = this.actionImages();
+    const prevImages = this.state.hashtagImages || [];
+    const sameImages = nextImages.length === prevImages.length && nextImages.every((image, index) => {
+      const previous = prevImages[index] || {};
+
+      return image.start === previous.start
+        && image.end === previous.end
+        && (image.id || '') === (previous.id || '')
+        && (image.shortcode || '') === (previous.shortcode || '')
+        && (image.domain || '') === (previous.domain || '');
+    });
+
+    if (!same || !sameImages) {
+      this.setState({ imageRanges: next, hashtagImages: nextImages });
+    }
+  }
+
+  setMenuNode = node => {
+    this.menuNode = node;
+  }
+
+  // Only the menu this controller opened. Post and profile menus use the
+  // same dropdown class and can still be in the document.
+  concealForSuppress = sink => {
+    const menu = this.menuNode;
+
+    if (!menu || !menu.isConnected || !this.state.element || !this.state.hashtag) {
+      return;
+    }
+
+    const ranges = this.actionRanges();
+    const images = this.actionImages();
+    const raw = this.state.hashtag;
+    const rendered = projectHashtagLabel(raw, ranges, this.props.emojiMuteTextIndex, images);
+    const shown = projectHashtagLabel(raw, ranges, SUPPRESS_UNVERIFIED_INDEX, images);
+    const label = shown !== '' ? shown : UNVERIFIED_EMOJI_PLACEHOLDER;
+    const forms = [rendered, raw, suppressUnicodeEmoji(rendered), suppressUnicodeEmoji(raw)].filter((value, index, list) => value && list.indexOf(value) === index);
+
+    const owner = menu.ownerDocument || document;
+    const walker = owner.createTreeWalker(menu, NodeFilter.SHOW_TEXT, null);
+    let node = walker.nextNode();
+
+    while (node) {
+      const value = node.nodeValue || '';
+      let next = value;
+      let logical = value;
+
+      forms.forEach(form => {
+        next = replaceHashtagSlot(next, form, label);
+        logical = replaceHashtagSlot(logical, form, raw);
+      });
+
+      if (next !== value) {
+        const noted = sink && sink.find(record => record.kind === 'text' && record.node === node);
+
+        rememberEmojiMuteHashtagSlot(node, { text: logical, name: raw, ranges, images });
+
+        if (noted) {
+          noted.value = logical;
+        } else {
+          recordEmojiMuteText(sink, node);
+        }
+
+        node.nodeValue = next;
+      }
+
+      node = walker.nextNode();
+    }
+  }
+
+  actionImages () {
+    const link = this.state.element;
+
+    if (link && link.isConnected) {
+      const identity = hashtagMenuStoredIdentity(link);
+
+      const bound = hashtagMenuBoundImages(link);
+
+      if (bound && identity.name === this.state.hashtag) {
+        return bound;
+      }
+    }
+
+    return this.state.hashtagImages || [];
   }
 
   isSignedIn () {
@@ -69,6 +206,8 @@ class HashtagMenuController extends React.PureComponent {
     this.setState({
       element: null,
       hashtag: '',
+      imageRanges: [],
+      hashtagImages: [],
       hashtagUrl: '',
       accountId: '',
       statusId: '',
@@ -94,7 +233,8 @@ class HashtagMenuController extends React.PureComponent {
       return;
     }
 
-    const hashtag = link.getAttribute('data-menu-hashtag') || '';
+    const identity = hashtagMenuStoredIdentity(link);
+    const hashtag = identity.name;
 
     if (!hashtag) {
       return;
@@ -111,6 +251,8 @@ class HashtagMenuController extends React.PureComponent {
     this.setState({
       element: link,
       hashtag,
+      imageRanges: identity.imageRanges,
+      hashtagImages: identity.images || [],
       hashtagUrl: link.href || '',
       accountId: link.getAttribute('data-account-id') || '',
       statusId: link.getAttribute('data-status-id') || '',
@@ -207,19 +349,27 @@ class HashtagMenuController extends React.PureComponent {
     }
   }
 
+  visibleHashtag () {
+    const shown = projectHashtagLabel(this.state.hashtag, this.actionRanges(), this.props.emojiMuteTextIndex, this.actionImages());
+
+    // An empty replacement is a real projection. The action value stays original.
+    return shown !== '' ? shown : UNVERIFIED_EMOJI_PLACEHOLDER;
+  }
+
   menuItems () {
     const { intl } = this.props;
     const hashtag = this.state.hashtag;
+    const label = this.visibleHashtag();
     const tagPath = `/timelines/tag/${encodeURIComponent(hashtag)}`;
     const accountPath = `/accounts/${this.state.accountId}/posts/${encodeURIComponent(hashtag)}`;
     const items = [
       {
-        text: intl.formatMessage(messages.browse, { hashtag }),
+        text: intl.formatMessage(messages.browse, { hashtag: label }),
         href: this.tagHref(),
         to: tagPath,
       },
       {
-        text: intl.formatMessage(messages.browseAccount, { hashtag, name: this.accountLabel() }),
+        text: intl.formatMessage(messages.browseAccount, { hashtag: label, name: this.accountLabel() }),
         href: this.accountTagHref(),
         to: accountPath,
       },
@@ -246,10 +396,10 @@ class HashtagMenuController extends React.PureComponent {
 
     if (this.isSignedIn()) {
       items.push(null, {
-        text: intl.formatMessage(messages.mute, { hashtag }),
+        text: intl.formatMessage(messages.mute, { hashtag: label }),
         href: null,
         target: null,
-        action: () => this.props.onMuteHashtag(hashtag),
+        action: () => this.props.onMuteHashtag(hashtag, this.actionRanges(), this.actionImages()),
         dangerous: true,
       });
     }
@@ -296,7 +446,7 @@ class HashtagMenuController extends React.PureComponent {
       <Overlay show offset={[5, 5]} placement='bottom' flip target={this.findTarget} popperConfig={popperConfig}>
         {({ props, arrowProps, placement }) => (
           <div {...props}>
-            <div className={`dropdown-animation dropdown-menu ${placement}`}>
+            <div className={`dropdown-animation dropdown-menu ${placement}`} ref={this.setMenuNode}>
               <div className={`dropdown-menu__arrow ${placement}`} {...arrowProps} />
               <DropdownMenu
                 items={this.menuItems()}
@@ -315,6 +465,7 @@ class HashtagMenuController extends React.PureComponent {
 const mapStateToProps = state => ({
   accounts: state.get('accounts'),
   statuses: state.get('statuses'),
+  emojiMuteTextIndex: emojiMuteTextIndexFromState(state),
 });
 
 const mapDispatchToProps = dispatch => ({
@@ -322,8 +473,8 @@ const mapDispatchToProps = dispatch => ({
     dispatch(createFavouriteTag(name));
   },
 
-  onMuteHashtag(hashtag) {
-    dispatch(openModal('HASHTAG_MUTE', { hashtag }));
+  onMuteHashtag(hashtag, imageRanges, hashtagImages) {
+    dispatch(openModal('HASHTAG_MUTE', { hashtag, imageRanges: imageRanges || [], hashtagImages: hashtagImages || [] }));
   },
 });
 

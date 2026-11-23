@@ -3,21 +3,78 @@ import PropTypes from 'prop-types';
 import { connect } from 'react-redux';
 import ImmutablePropTypes from 'react-immutable-proptypes';
 import ImmutablePureComponent from 'react-immutable-pure-component';
-import { List as ImmutableList } from 'immutable';
+import { List as ImmutableList, fromJS } from 'immutable';
+import { barVisibleReaction } from 'mastodon/features/emoji/emoji_mute_projection';
 import { emojiReactionsForStatus, emojiReactionAccountIds } from '../utils/emoji_reactions';
+
+const accountIdList = ids => {
+  if (!ids) {
+    return [];
+  }
+
+  const list = typeof ids.toArray === 'function' ? ids.toArray() : ids;
+
+  return Array.isArray(list) ? list.map(String) : [];
+};
+
+const viewerOwnsReactionName = reaction => {
+  if (!reaction || me === null || me === undefined || me === '') {
+    return false;
+  }
+
+  const mine = String(me);
+  const parts = reaction.get ? reaction.get('parts') : reaction.parts;
+
+  if (parts && typeof parts.some === 'function' && parts.size !== 0) {
+    return parts.some(part => accountIdList(part.get ? part.get('account_ids') : part.account_ids).includes(mine));
+  }
+
+  return emojiReactionAccountIds(reaction).map(String).includes(mine);
+};
+
+const shownReaction = (reaction, rules) => {
+  const marked = reaction && reaction.get && (reaction.get('viewer_owns_name') === true || reaction.get('viewer_owns_name') === false);
+  const owns = marked ? reaction.get('viewer_owns_name') : viewerOwnsReactionName(reaction);
+  const next = barVisibleReaction(reaction, rules);
+
+  if (!next) {
+    return null;
+  }
+
+  const map = next.get && typeof next.get === 'function' ? next : fromJS(next);
+
+  return map.set ? map.set('viewer_owns_name', owns) : map;
+};
 import TransitionMotion from 'react-motion/lib/TransitionMotion';
 import { reduceMotion, me, hideReactionCounter, hideListOfEmojiReactionsToPosts } from 'mastodon/initial_state';
 import { reduceMotionNow, watchReduceMotion } from 'mastodon/utils/appearance_preferences';
 import spring from 'react-motion/lib/spring';
 import EmojiReaction from './emoji_reactions';
 
-const mapStateToProps = (state, { status }) => ({
-  emojiReactions: state.getIn(['emojiMutes', 'display']) === 'suppress' ? ImmutableList() : emojiReactionsForStatus(status),
-});
+const mapStateToProps = (state, { status }) => {
+  const display = state.getIn(['emojiMutes', 'display']);
+  const reactions = emojiReactionsForStatus(status);
 
-const mergeProps = ({ emojiReactions }, dispatchProps, ownProps) => ({
+  if (display === 'suppress') {
+    return { emojiReactions: ImmutableList() };
+  }
+
+  if (display === 'show') {
+    return { emojiReactions: reactions };
+  }
+
+  const rules = state.getIn(['emojiMutes', 'rules']);
+
+  return {
+    emojiReactions: reactions.map(reaction => shownReaction(reaction, rules)).filter(reaction => reaction && reaction.get('count') > 0),
+    reactionRules: rules,
+  };
+};
+
+const mergeProps = ({ emojiReactions, reactionRules }, dispatchProps, ownProps) => ({
   ...ownProps,
   ...dispatchProps,
+  reactionRules: reactionRules || null,
   visibleReactions: emojiReactions.filter(x => x && typeof x.get === 'function' && x.get('count') > 0),
 });
 
@@ -28,6 +85,7 @@ class EmojiReactionsBar extends ImmutablePureComponent {
     addEmojiReaction: PropTypes.func.isRequired,
     removeEmojiReaction: PropTypes.func.isRequired,
     visibleReactions: ImmutablePropTypes.list.isRequired,
+    reactionRules: PropTypes.oneOfType([PropTypes.array, PropTypes.object]),
     reactionLimitReached: PropTypes.bool,
   };
 
@@ -50,17 +108,15 @@ class EmojiReactionsBar extends ImmutablePureComponent {
   }
 
   render () {
-    const { status, addEmojiReaction, removeEmojiReaction, visibleReactions, reactionLimitReached } = this.props;
+    const { status, addEmojiReaction, removeEmojiReaction, visibleReactions, reactionLimitReached, reactionRules } = this.props;
 
     if (visibleReactions.isEmpty() ) {
       return <Fragment />;
     }
 
     const styles = visibleReactions.map(emojiReaction => {
-      const domain = emojiReaction.get('domain', '');
-
       return {
-        key: `${emojiReaction.get('name')}${domain ? `@${domain}` : ''}`,
+        key: `${emojiReaction.get('name')}`,
         data: {
           emojiReaction: emojiReaction,
           myReaction: emojiReactionAccountIds(emojiReaction).includes(me),
@@ -73,20 +129,28 @@ class EmojiReactionsBar extends ImmutablePureComponent {
       <TransitionMotion styles={styles} willEnter={this.willEnter} willLeave={this.willLeave}>
         {items => (
           <div className='reactions-bar emoji-reactions-bar'>
-            {items.map(({ key, data, style }) => (
-              <EmojiReaction
-                key={key}
-                emojiReaction={data.emojiReaction}
-                myReaction={data.myReaction}
-                style={{ transform: `scale(${style.scale})`, position: style.scale < 0.5 ? 'absolute' : 'static' }}
-                status={status}
-                addEmojiReaction={addEmojiReaction}
-                removeEmojiReaction={removeEmojiReaction}
-                reactionLimitReached={reactionLimitReached}
-                hideCount={hideReactionCounter}
-                hideAccountList={hideListOfEmojiReactionsToPosts}
-              />
-            ))}
+            {items.map(({ key, data, style }) => {
+              const emojiReaction = shownReaction(data.emojiReaction, reactionRules);
+
+              if (!emojiReaction) {
+                return null;
+              }
+
+              return (
+                <EmojiReaction
+                  key={key}
+                  emojiReaction={emojiReaction}
+                  myReaction={!!(emojiReaction.get('viewer_owns_name') || emojiReactionAccountIds(emojiReaction).includes(me))}
+                  style={{ transform: `scale(${style.scale})`, position: style.scale < 0.5 ? 'absolute' : 'static' }}
+                  status={status}
+                  addEmojiReaction={addEmojiReaction}
+                  removeEmojiReaction={removeEmojiReaction}
+                  reactionLimitReached={reactionLimitReached}
+                  hideCount={hideReactionCounter}
+                  hideAccountList={hideListOfEmojiReactionsToPosts}
+                />
+              );
+            })}
           </div>
         )}
       </TransitionMotion>

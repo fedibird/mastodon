@@ -19,6 +19,7 @@ import Icon from 'mastodon/components/icon';
 import { logOut } from 'mastodon/utils/log_out';
 import NotificationsCounterIcon from '../ui/components/notifications_counter_icon';
 import classNames from 'classnames';
+import EmojiMuteLoadNotice, { EmojiMuteNoticeContext } from 'mastodon/components/emoji_mute_load_notice';
 
 const messages = defineMessages({
   short_start: { id: 'navigation_bar.short.getting_started', defaultMessage: 'Started' },
@@ -53,14 +54,40 @@ export default @connect(mapStateToProps)
 @injectIntl
 class Compose extends React.PureComponent {
 
+  static contextType = EmojiMuteNoticeContext;
+
   static propTypes = {
     dispatch: PropTypes.func.isRequired,
     columns: ImmutablePropTypes.list.isRequired,
     multiColumn: PropTypes.bool,
+    columnId: PropTypes.string,
     showSearch: PropTypes.bool,
     isSearchPage: PropTypes.bool,
     intl: PropTypes.object.isRequired,
   };
+
+  // The pinned column and the /statuses/new route both mount this drawer.
+  // The column owns the notice when it is pinned. The route owns it otherwise.
+  ownsEmojiMuteNotice () {
+    if (!this.props.multiColumn) {
+      return false;
+    }
+
+    const columns = this.props.columns;
+    const pinned = !!(columns && columns.some(column => column.get('id') === 'COMPOSE'));
+
+    if (this.props.columnId) {
+      return true;
+    }
+
+    return !pinned;
+  }
+
+  noticeVisible () {
+    const boot = this.context && this.context.boot;
+
+    return boot === 'error' || boot === 'ignored';
+  }
 
   componentDidMount () {
     const { isSearchPage } = this.props;
@@ -118,7 +145,7 @@ class Compose extends React.PureComponent {
         'SIGN_OUT':      { to: '/auth/sign_out',          title: formatMessage(messages.logout),           label: formatMessage(messages.short_logout),           icon_id: 'sign-out', type: 'logout' },
       };
 
-      const { href, to, title, label, icon_id, method, type } = tabParams[id];
+      const { to, title, label, icon_id, type } = tabParams[id];
 
       const icon = (id === 'NOTIFICATIONS') ? <NotificationsCounterIcon /> : <Icon id={icon_id} fixedWidth />;
 
@@ -139,10 +166,13 @@ class Compose extends React.PureComponent {
         return null;
       }
     }
+
+    return null;
   }
 
   render () {
     const { multiColumn, showSearch, isSearchPage, intl } = this.props;
+    const showNotice = this.ownsEmojiMuteNotice() && this.noticeVisible();
 
     let header = '';
 
@@ -171,8 +201,9 @@ class Compose extends React.PureComponent {
     }
 
     return (
-      <div className='drawer' role='region' aria-label={intl.formatMessage(messages.compose)}>
+      <div className={classNames('drawer', { 'drawer--emoji-mute-notice': showNotice })} role='region' aria-label={intl.formatMessage(messages.compose)}>
         {header}
+        {showNotice && <EmojiMuteLoadNotice placement='drawer' />}
 
         {(multiColumn || isSearchPage) && <SearchContainer /> }
 

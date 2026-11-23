@@ -28,7 +28,9 @@ export default class Permalink extends React.PureComponent {
   }
 
   render () {
-    const { href, children, className, onInterceptClick, ...other } = this.props;
+    // `to` is the in-app route. React 16 would otherwise write it onto the
+    // anchor, which keeps a raw emoji in the DOM while the label is hidden.
+    const { href, children, className, onInterceptClick, to, ...other } = this.props;
 
     return (
       <a target='_blank' href={href} onClick={this.handleClick} {...other} className={`permalink${className ? ' ' + className : ''}`}>
