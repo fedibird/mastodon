@@ -57,6 +57,33 @@ const signedIn = !!(initialState?.meta?.me || initialState?.meta?.access_token);
 // A failed network read can be repeated. Ignore clicks until this quiet
 // period has elapsed so a held button cannot queue a burst of GETs.
 const EMOJI_MUTE_RETRY_COOLDOWN_MS = 1000;
+// Composer and search are the usual next stop. Advanced columns often have
+// neither, so a visible column link or header control keeps Tab from restarting
+// at the top of the document.
+const EMOJI_MUTE_NOTICE_FOCUS = [
+  '.autosuggest-textarea__textarea',
+  '.search__input',
+  'a.column-link',
+  'button.column-header__button:not([disabled])',
+  'a.drawer__tab',
+];
+
+const focusAfterIgnoredNotice = root => {
+  if (!root || typeof root.querySelector !== 'function') {
+    return null;
+  }
+
+  for (let index = 0; index < EMOJI_MUTE_NOTICE_FOCUS.length; index += 1) {
+    const target = root.querySelector(EMOJI_MUTE_NOTICE_FOCUS[index]);
+
+    if (target && typeof target.focus === 'function') {
+      return target;
+    }
+  }
+
+  return null;
+};
+
 const sessionMatches = state => {
   if (!state || typeof state.getIn !== 'function') {
     return true;
@@ -292,9 +319,9 @@ export default class Mastodon extends React.PureComponent {
         return;
       }
 
-      const target = this.uiPortalRoot && this.uiPortalRoot.querySelector('.autosuggest-textarea__textarea, .search__input');
+      const target = focusAfterIgnoredNotice(this.uiPortalRoot);
 
-      if (target && typeof target.focus === 'function') {
+      if (target) {
         target.focus();
       }
     });

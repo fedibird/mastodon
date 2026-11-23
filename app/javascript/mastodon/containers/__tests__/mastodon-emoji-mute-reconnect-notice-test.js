@@ -146,10 +146,19 @@ jest.mock('mastodon/features/ui', () => {
     render() {
       return (
         <div data-testid='webui'>
-          <textarea className='autosuggest-textarea__textarea' data-testid='composer' />
-          <input className='search__input' data-testid='search-field' />
-          <button type='button' data-testid='elsewhere'>Elsewhere</button>
-          <Notice key={global.__emojiMuteNoticeMount || 'notice'} placement='compose-panel' />
+          {global.__emojiMuteFocusSurface === 'columns' ? (
+            <ReactMock.Fragment>
+              <a className='column-link' href='/timelines/home' data-testid='column-home'>Home</a>
+              <button type='button' data-testid='elsewhere'>Elsewhere</button>
+            </ReactMock.Fragment>
+          ) : (
+            <ReactMock.Fragment>
+              <textarea className='autosuggest-textarea__textarea' data-testid='composer' />
+              <input className='search__input' data-testid='search-field' />
+              <button type='button' data-testid='elsewhere'>Elsewhere</button>
+            </ReactMock.Fragment>
+          )}
+          <Notice key={global.__emojiMuteNoticeMount || 'notice'} placement={global.__emojiMuteFocusSurface === 'columns' ? 'overlay' : 'compose-panel'} />
         </div>
       );
     }
@@ -204,6 +213,7 @@ describe('emoji mute failure notice during streaming resync', () => {
   afterEach(() => {
     Date.now.mockRestore();
     delete global.__emojiMuteNoticeMount;
+    delete global.__emojiMuteFocusSurface;
   });
 
   const rejectGet = async pending => {
@@ -512,6 +522,48 @@ describe('emoji mute failure notice during streaming resync', () => {
 
     expect(notice(again)).toBeNull();
     expect(document.activeElement).toBe(elsewhere);
+    again.unmount();
+  });
+
+  it('moves focus to a column link when the fallback has no composer or search', async () => {
+    global.__emojiMuteFocusSurface = 'columns';
+    const view = render(<Mastodon locale='en' />);
+    await rejectGet(gets[gets.length - 1]);
+    await act(async () => {
+      fireEvent.click(view.getByText('Ignore this time'));
+      await flush();
+    });
+    const close = notice(view).querySelector('.emoji-mute-load-notice__close');
+    const home = view.getByTestId('column-home');
+
+    expect(notice(view).getAttribute('data-placement')).toBe('overlay');
+    expect(view.queryByTestId('composer')).toBeNull();
+    expect(view.queryByTestId('search-field')).toBeNull();
+    close.focus();
+    fireEvent.keyDown(close, { key: 'Enter', code: 'Enter' });
+    fireEvent.click(close);
+
+    expect(notice(view)).toBeNull();
+    expect(document.activeElement).toBe(home);
+    expect(mockHarness.getState().getIn(['emojiMutes', 'availability'])).toBe('temporary_ignore');
+    expect(mockHarness.getState().getIn(['emojiMutes', 'display'])).toBe('show');
+    view.unmount();
+
+    global.__emojiMuteFocusSurface = 'columns';
+    global.__emojiMuteNoticeMount = 'columns-again';
+    const again = render(<Mastodon locale='en' />);
+    await rejectGet(gets[gets.length - 1]);
+    await act(async () => {
+      fireEvent.click(again.getByText('Ignore this time'));
+      await flush();
+    });
+    const elsewhere = again.getByTestId('elsewhere');
+    elsewhere.focus();
+    fireEvent.click(notice(again).querySelector('.emoji-mute-load-notice__close'));
+
+    expect(notice(again)).toBeNull();
+    expect(document.activeElement).toBe(elsewhere);
+    expect(mockHarness.getState().getIn(['emojiMutes', 'display'])).toBe('show');
     again.unmount();
   });
 });
