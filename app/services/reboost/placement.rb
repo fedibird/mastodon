@@ -126,9 +126,7 @@ class Reboost::Placement
     end
     ensure_visibility!(visibility)
     audience = inherited_audience(existing)
-    if audience.blank? && inherit_saved_audience? && saved_audience.present?
-      audience = saved_audience
-    end
+    audience = saved_audience if audience.blank? && saved_audience.present?
 
     creating_new = existing.nil? || options[:reboost]
     if creating_new && cooling_down?
@@ -162,7 +160,7 @@ class Reboost::Placement
       raise_pending!(discarded, visibility, inherited_audience(discarded)) unless finish_removal!(discarded)
     elsif existing
       begin
-        retire!(existing)
+        retire!(existing, visibility, audience)
       rescue Mastodon::RaceConditionError
         raise_pending!(existing, visibility, audience)
       end
@@ -248,13 +246,13 @@ class Reboost::Placement
     raise Mastodon::ReboostPendingError, operation
   end
 
-  def retire!(existing)
+  def retire!(existing, visibility = nil, audience = nil)
     return if existing.nil?
 
     started = Time.current
     suppress_late_announce!(existing)
     snapshot_undo!(existing)
-    persist_recovery!(existing) if existing.local?
+    persist_recovery!(existing, visibility, audience) if existing.local?
     if existing.reported?
       RemoveStatusService.new.call(existing, skip_remote: true, preserve: true)
       decrement_retained_once!(existing)
@@ -278,7 +276,7 @@ class Reboost::Placement
 
   def create_reblog!(visibility, audience)
     reblog = nil
-    circle = @resolved_circle
+    circle = options[:resumed_operation_id].present? && saved_audience.present? ? nil : @resolved_circle
     ApplicationRecord.transaction do
       reblog = account.statuses.create!(reblog: original, text: '', visibility: visibility, rate_limit: options[:with_rate_limit])
       reblog.capability_tokens.create! if reblog.limited_visibility?
@@ -359,29 +357,19 @@ class Reboost::Placement
     operation
   end
 
-  def persist_recovery!(existing)
-    operation = resumed_operation
-    attributes = {
-      old_status_id: existing.id,
-      state: 'pending',
-      reboost: true,
+  def persist_recovery!(existing, visibility, audience)
+    @recovery = Reboost::RecoveryRecord.save!(
+      existing: existing,
+      operation: resumed_operation,
+      account: account,
+      original: original,
+      visibility: visibility,
+      circle: @resolved_circle,
+      audience: audience,
+      options: options,
       undo_payload: @undo_payload,
-      undo_inboxes: @undo_inboxes || [],
-      removal_started_at: Time.current,
-    }
-    if operation && !operation.terminal?
-      operation.update!(attributes)
-      @recovery = operation
-    else
-      @recovery = ReboostOperation.create!(
-        attributes.merge(
-          account: account,
-          reblog_of_id: original.id,
-          idempotency_key: options[:idempotency],
-          options: {}
-        )
-      )
-    end
+      undo_inboxes: @undo_inboxes || []
+    )
   end
 
   def recover_failed_create!(existing, error)
@@ -404,10 +392,6 @@ class Reboost::Placement
 
   def ordered_undo?
     @undo_payload.present? || resumed_operation&.undo_payload.present?
-  end
-
-  def inherit_saved_audience?
-    !options[:visibility_explicit] && !options[:circle_explicit]
   end
 
   def saved_audience

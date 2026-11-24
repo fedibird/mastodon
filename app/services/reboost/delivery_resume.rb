@@ -47,9 +47,11 @@ class Reboost::DeliveryResume
     resume_stranded_pending!
   end
 
+  # The same resume worker used after a 202 applies the disabled, cooldown,
+  # and cancel transitions. One row's error does not stop the later rows.
   def resume_stranded_pending!
     ReboostOperation.where(state: 'pending').where('updated_at < ?', 30.seconds.ago).find_each(batch_size: 100) do |operation|
-      Reboost::Placement.resume!(operation)
+      Reboost::ResumeWorker.new.perform(operation.id)
     rescue StandardError
       next
     end

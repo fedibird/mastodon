@@ -309,6 +309,127 @@ RSpec.describe ReblogService do
       end
     end
 
+    it 'keeps a private boost private when recovery runs after the wrapper is gone' do
+      user.settings['default_privacy'] = 'public'
+      user.save!
+      stop_after_removing!(first)
+
+      travel 301.seconds do
+        expect { described_class.new.call(account, original, reboost: true) }.to raise_error(RuntimeError, 'stopped after removal')
+        operation = ReboostOperation.find_by!(account: account, reblog_of: original)
+        expect(operation.visibility).to eq 'private'
+        expect(Status.find_by(id: first.id)).to be_nil
+        operation.update_column(:updated_at, 31.seconds.ago)
+
+        Scheduler::ReboostDeliveryScheduler.new.perform
+
+        replacement = account.statuses.find_by!(reblog_of_id: original.id)
+        expect(replacement.visibility).to eq 'private'
+        expect(replacement.id).not_to eq first.id
+      end
+    end
+
+    it 'keeps a limited audience when recovery runs after the wrapper is gone' do
+      user.settings['default_privacy'] = 'public'
+      user.save!
+      member = Fabricate(:account)
+      member.follow!(account)
+      circle = Fabricate(:circle, account: account, title: 'Family')
+      circle.accounts << member
+      limited_original = Fabricate(:status, account: account)
+      limited = described_class.new.call(account, limited_original, visibility: 'limited', circle: circle)
+      expect(limited.mentions.where(account: member, silent: true)).to exist
+      stop_after_removing!(limited)
+
+      travel 301.seconds do
+        expect { described_class.new.call(account, limited_original, reboost: true) }.to raise_error(RuntimeError, 'stopped after removal')
+        operation = ReboostOperation.find_by!(account: account, reblog_of: limited_original)
+        expect(operation.options['audience']).to include([member.id, true])
+        operation.update_column(:updated_at, 31.seconds.ago)
+
+        Scheduler::ReboostDeliveryScheduler.new.perform
+
+        replacement = account.statuses.find_by!(reblog_of_id: limited_original.id)
+        expect(replacement.visibility).to eq 'limited'
+        expect(replacement.mentions.where(account_id: member.id, silent: true)).to exist
+      end
+    end
+
+    it 'keeps an explicit circle when recovery runs after the wrapper is gone' do
+      user.settings['default_privacy'] = 'public'
+      user.save!
+      member = Fabricate(:account)
+      member.follow!(account)
+      circle = Fabricate(:circle, account: account, title: 'Explicit')
+      circle.accounts << member
+      explicit_original = Fabricate(:status, account: account, visibility: 'public')
+      public_boost = described_class.new.call(account, explicit_original)
+      expect(public_boost.visibility).to eq 'public'
+      stop_after_removing!(public_boost)
+
+      travel 301.seconds do
+        expect do
+          described_class.new.call(
+            account,
+            explicit_original,
+            reboost: true,
+            visibility: 'limited',
+            circle: circle,
+            visibility_explicit: true,
+            circle_explicit: true
+          )
+        end.to raise_error(RuntimeError, 'stopped after removal')
+        operation = ReboostOperation.find_by!(account: account, reblog_of: explicit_original)
+        expect(operation).to have_attributes(visibility: 'limited', circle_id: circle.id)
+        expect(operation.options['visibility_explicit']).to be true
+        expect(operation.options['audience']).to include([member.id, true])
+        operation.update_column(:updated_at, 31.seconds.ago)
+
+        Scheduler::ReboostDeliveryScheduler.new.perform
+
+        replacement = account.statuses.find_by!(reblog_of_id: explicit_original.id)
+        expect(replacement.visibility).to eq 'limited'
+        expect(replacement.mentions.pluck(:account_id)).to contain_exactly(member.id)
+      end
+    end
+
+    it 'cancels a stranded pending reboost when the feature is turned off' do
+      allow(ActivityPub::DeliveryWorker).to receive(:push_bulk)
+      operation = stranded_operation
+      user.settings.enable_reboost = false
+      user.save!
+
+      Scheduler::ReboostDeliveryScheduler.new.perform
+
+      expect(operation.reload).to have_attributes(state: 'cancelled', error_code: 'reboost_disabled')
+      expect(Status.find_by(id: first.id)).to be_present
+      expect(ActivityPub::DeliveryWorker).to have_received(:push_bulk).with(['https://remote.example/inbox'])
+    end
+
+    it 'fails a stranded pending reboost that is still inside the cooldown' do
+      allow(ActivityPub::DeliveryWorker).to receive(:push_bulk)
+      operation = stranded_operation
+
+      Scheduler::ReboostDeliveryScheduler.new.perform
+
+      expect(operation.reload).to have_attributes(state: 'failed', error_code: 'cooldown')
+      expect(Status.find_by(id: first.id)).to be_present
+    end
+
+    it 'does not finish a stranded reboost that was cancelled while resuming' do
+      allow(ActivityPub::DeliveryWorker).to receive(:push_bulk)
+      operation = stranded_operation
+      allow(Reboost::Placement).to receive(:resume!).and_wrap_original do |method, resuming|
+        Reboost::Placement.cancel_pending!(resuming.account, resuming.reblog_of_id)
+        method.call(resuming)
+      end
+
+      Scheduler::ReboostDeliveryScheduler.new.perform
+
+      expect(operation.reload).to have_attributes(state: 'cancelled', error_code: 'unreblogged')
+      expect(account.statuses.where(reblog_of_id: original.id).pluck(:id)).to eq [first.id]
+    end
+
     it 'retries a notification enqueue that failed after the wrapper was saved' do
       calls = 0
       allow(LocalNotificationWorker).to receive(:perform_async) do
@@ -507,6 +628,34 @@ RSpec.describe ReblogService do
       expect(operation.new_status_id).to be_nil
       expect(Reboost::FederationWorker).to have_received(:perform_async).with(operation.id)
       expect(Status.find_by(id: first.id)).to be_nil
+    end
+
+    def stop_after_removing!(status)
+      removed = false
+      allow_any_instance_of(RemoveStatusService).to receive(:call).and_wrap_original do |method, *args, **kwargs|
+        result = method.call(*args, **kwargs)
+        if !removed && args.first.id == status.id
+          removed = true
+          raise 'stopped after removal'
+        end
+        result
+      end
+    end
+
+    def stranded_operation
+      operation = ReboostOperation.create!(
+        account: account,
+        reblog_of_id: original.id,
+        old_status_id: first.id,
+        state: 'pending',
+        reboost: true,
+        visibility: 'private',
+        undo_payload: '{"type":"Undo"}',
+        undo_inboxes: ['https://remote.example/inbox'],
+        options: { 'audience' => [] }
+      )
+      operation.update_column(:updated_at, 31.seconds.ago)
+      operation
     end
   end
 
