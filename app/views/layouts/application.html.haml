@@ -30,7 +30,7 @@
     %title= content_for?(:page_title) ? safe_join([yield(:page_title).chomp.html_safe, title], ' - ') : title
 
     = stylesheet_pack_tag 'common', media: 'all', crossorigin: 'anonymous'
-    = stylesheet_pack_tag current_theme, media: 'all', crossorigin: 'anonymous'
+    = theme_stylesheet_tags current_theme
     = javascript_pack_tag 'common', crossorigin: 'anonymous'
     = javascript_pack_tag "locale_#{I18n.locale}", crossorigin: 'anonymous'
     = csrf_meta_tags
