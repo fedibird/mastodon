@@ -79,6 +79,44 @@ describe 'post drafts during account deletion' do
       expect(PostDraft.where("payload #>> '{input,text}' = ?", secret)).to be_empty
     end
 
+    it 'finishes the worker for a recent public status and still removes that account draft' do
+      user = Fabricate(:user, confirmed_at: Time.zone.now, approved: true)
+      username = user.account.username
+      public_status = Fabricate(:status, account: user.account, visibility: :public, text: 'recent public')
+      expect(public_status.id).to be > Mastodon::Snowflake.id_at(2.weeks.ago)
+      reported = Fabricate(:status, account: user.account, visibility: :public, text: 'reported public')
+      reported_media = Fabricate(:media_attachment, account: user.account, status: reported)
+      reported_path = reported_media.file.path
+      Fabricate(:report, account: Fabricate(:account), target_account: user.account, status_ids: [reported.id], action_taken_at: nil)
+      secret = "private draft beside a public post"
+      media = Fabricate(:media_attachment, account: user.account)
+      path = media.file.path
+      draft = save_draft!(user, media, secret, uuid: 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeee1')
+      other = Fabricate(:user, confirmed_at: Time.zone.now, approved: true)
+      other_media = Fabricate(:media_attachment, account: other.account)
+      other_path = other_media.file.path
+      other_draft = save_draft!(other, other_media, 'other private draft', uuid: 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeee2')
+
+      AccountDeletionWorker.new.perform(user.account_id)
+
+      expect(Account.find(user.account_id).username).to eq username
+      expect(user.account.reload).to be_suspended
+      expect(User.exists?(user.id)).to be false
+      expect(Status.exists?(public_status.id)).to be false
+      expect(PostDraft.exists?(draft.id)).to be false
+      expect(PostDraft.where("payload #>> '{input,text}' = ?", secret)).to be_empty
+      expect(PostDraftMediaAttachment.where(post_draft_id: draft.id)).to be_empty
+      expect(MediaAttachment.exists?(media.id)).to be false
+      expect(File.exist?(path)).to be false
+      expect(Status.exists?(reported.id)).to be true
+      expect(MediaAttachment.exists?(reported_media.id)).to be true
+      expect(File.exist?(reported_path)).to be true
+      expect(PostDraft.exists?(other_draft.id)).to be true
+      expect(other_draft.reload.payload.dig('input', 'text')).to eq 'other private draft'
+      expect(PostDraftMediaAttachment.exists?(media_attachment_id: other_media.id)).to be true
+      expect(File.exist?(other_path)).to be true
+    end
+
     it 'keeps an unresolved report target and still blocks cleanup of a live draft' do
       user = Fabricate(:user, confirmed_at: Time.zone.now, approved: true)
       reporter = Fabricate(:user)
