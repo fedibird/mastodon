@@ -8,23 +8,44 @@ class ActivityPub::Activity::Announce < ActivityPub::Activity
     @original_status = status_from_object
     return reject_payload! if @original_status.nil? || !announceable?(@original_status)
 
-    with_redis_lock(Reboost::AnnounceLock.key(@account.id, @original_status.id)) do
+    # The apply worker already holds this lock. The lock is not reentrant.
+    run = proc do
       return reject_payload! if ReboostAnnounceState.superseded?(@account.id, @json['id'])
 
       @status = Status.find_by(account: @account, reblog: @original_status)
       return if held_for_pending_removal?
 
       if @status.nil?
-        accept_new_announce!
+        accept_or_hold_new_announce!
       else
         receive_another_announce!
       end
+    end
+
+    if @options[:applying_hold]
+      run.call
+    else
+      with_redis_lock(Reboost::AnnounceLock.key(@account.id, @original_status.id), &run)
     end
 
     @status
   end
 
   private
+
+  # Undo removes the wrapper and leaves the cooldown. A new id during that
+  # window is held, the same as a second id while the first wrapper remains.
+  def accept_or_hold_new_announce!
+    return accept_new_announce! if @options[:applying_hold]
+
+    remaining = ReboostCooldown.remaining_seconds(@account.id, @original_status.id)
+    if remaining.positive?
+      hold_newer_announce!(parsed_published)
+      return
+    end
+
+    accept_new_announce!
+  end
 
   def accept_new_announce!
     process_status
