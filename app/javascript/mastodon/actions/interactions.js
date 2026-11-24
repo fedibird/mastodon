@@ -97,11 +97,16 @@ export function reblog(status, visibility) {
   return function (dispatch, getState) {
     dispatch(reblogRequest(status));
 
-    api(getState).post(`/api/v1/statuses/${status.get('id')}/reblog`, { visibility }).then(function (response) {
+    return api(getState).post(`/api/v1/statuses/${status.get('id')}/reblog`, { visibility }).then(function (response) {
+      if (response.status === 202) {
+        return acceptReboostResponse(dispatch, getState, status, response);
+      }
+
       // The reblog API method returns a new status wrapped around the original. In this case we are only
       // interested in how the original is modified, hence passing it skipping the wrapper
       dispatch(importFetchedStatus(response.data.reblog));
       dispatch(reblogSuccess(status));
+      return null;
     }).catch(function (error) {
       dispatch(reblogFail(status, error));
     });
@@ -159,10 +164,7 @@ export function reboost(status) {
       headers: { 'Idempotency-Key': idempotencyKey },
     }).then((response) => {
       if (response.status === 202) {
-        const operationId = response.data?.operation_id;
-        dispatch(setReboostOperation(statusId, { id: operationId, state: response.data?.state || 'pending' }));
-        dispatch(showAlert(reboostMessages.pendingTitle, reboostMessages.pending));
-        return settleReboost(dispatch, getState, status, operationId);
+        return acceptReboostResponse(dispatch, getState, status, response);
       }
 
       reboostIdempotencyKeys.delete(statusId);
@@ -195,6 +197,33 @@ export function reboost(status) {
   };
 }
 
+function acceptReboostResponse(dispatch, getState, status, response) {
+  const operationId = response.data?.operation_id;
+
+  dispatch(setReboostOperation(status.get('id'), { id: operationId, state: response.data?.state || 'pending' }));
+  dispatch(showAlert(reboostMessages.pendingTitle, reboostMessages.pending));
+  return settleReboost(dispatch, getState, status, operationId);
+}
+
+export function checkReboostOperation(status) {
+  return (dispatch, getState) => {
+    const statusId = status.get('id');
+    const operationId = getState().getIn(['statuses', statusId, 'reboost_operation', 'id']);
+
+    if (!operationId) {
+      return Promise.resolve();
+    }
+
+    return api(getState).get(`/api/v1/statuses/${statusId}/reboost_operation`, {
+      params: { operation_id: operationId },
+    }).then((response) => applyReboostResult(dispatch, getState, status, operationId, response.data)).catch(() => {
+      dispatch(showAlert(reboostMessages.stillPendingTitle, reboostMessages.stillPending));
+      dispatch(setReboostOperation(statusId, { id: operationId, state: 'pending' }));
+      return null;
+    });
+  };
+}
+
 function settleReboost(dispatch, getState, status, operationId) {
   const statusId = status.get('id');
 
@@ -203,47 +232,51 @@ function settleReboost(dispatch, getState, status, operationId) {
     statusId,
     operationId,
     onUpdate: (operation) => dispatch(setReboostOperation(statusId, { id: operation.id, state: operation.state })),
-  }).then((operation) => {
-    if (!operation) {
-      dispatch(showAlert(reboostMessages.stillPendingTitle, reboostMessages.stillPending));
-      dispatch(setReboostOperation(statusId, { id: operationId, state: 'pending' }));
-      return null;
-    }
+  }).then((operation) => applyReboostResult(dispatch, getState, status, operationId, operation)).catch(() => {
+    dispatch(showAlert(reboostMessages.stillPendingTitle, reboostMessages.stillPending));
+    dispatch(setReboostOperation(statusId, { id: operationId, state: 'pending' }));
+    return null;
+  });
+}
 
-    if (operation.state === 'completed' && operation.new_status_id) {
-      return api(getState).get(`/api/v1/statuses/${operation.new_status_id}`).then((response) => {
-        dispatch(importFetchedStatus(response.data));
-        dispatch(reblogSuccess(status));
-        reboostIdempotencyKeys.delete(statusId);
-        dispatch(setReboostOperation(statusId, null));
-        return null;
-      }).catch((error) => {
-        reboostIdempotencyKeys.delete(statusId);
-        dispatch(setReboostOperation(statusId, null));
-        dispatch(showAlertForError(error));
-        return null;
-      });
-    }
+function applyReboostResult(dispatch, getState, status, operationId, operation) {
+  const statusId = status.get('id');
 
-    dispatch(showAlert(
-      operation.state === 'cancelled' ? reboostMessages.cancelledTitle : reboostMessages.failedTitle,
-      operation.state === 'cancelled' ? reboostMessages.cancelled : reboostMessages.failed,
-    ));
+  if (!operation) {
+    dispatch(showAlert(reboostMessages.stillPendingTitle, reboostMessages.stillPending));
+    dispatch(setReboostOperation(statusId, { id: operationId, state: 'pending' }));
+    return null;
+  }
 
-    return api(getState).get(`/api/v1/statuses/${statusId}`).then((response) => {
+  if (operation.state === 'completed' && operation.new_status_id) {
+    return api(getState).get(`/api/v1/statuses/${operation.new_status_id}`).then((response) => {
       dispatch(importFetchedStatus(response.data));
-      return null;
-    }).catch((error) => {
-      dispatch(showAlertForError(error));
-      return null;
-    }).then(() => {
+      dispatch(reblogSuccess(status));
       reboostIdempotencyKeys.delete(statusId);
       dispatch(setReboostOperation(statusId, null));
       return null;
+    }).catch((error) => {
+      reboostIdempotencyKeys.delete(statusId);
+      dispatch(setReboostOperation(statusId, null));
+      dispatch(showAlertForError(error));
+      return null;
     });
-  }).catch(() => {
-    dispatch(showAlert(reboostMessages.stillPendingTitle, reboostMessages.stillPending));
-    dispatch(setReboostOperation(statusId, { id: operationId, state: 'pending' }));
+  }
+
+  dispatch(showAlert(
+    operation.state === 'cancelled' ? reboostMessages.cancelledTitle : reboostMessages.failedTitle,
+    operation.state === 'cancelled' ? reboostMessages.cancelled : reboostMessages.failed,
+  ));
+
+  return api(getState).get(`/api/v1/statuses/${statusId}`).then((response) => {
+    dispatch(importFetchedStatus(response.data));
+    return null;
+  }).catch((error) => {
+    dispatch(showAlertForError(error));
+    return null;
+  }).then(() => {
+    reboostIdempotencyKeys.delete(statusId);
+    dispatch(setReboostOperation(statusId, null));
     return null;
   });
 }

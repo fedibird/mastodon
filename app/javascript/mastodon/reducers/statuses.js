@@ -64,6 +64,14 @@ const importStatus = (state, status) => {
     next = next.set('reboost_operation', operation);
   }
 
+  if (Object.prototype.hasOwnProperty.call(status, 'reboost_retry_after')) {
+    const seconds = Number(status.reboost_retry_after);
+
+    next = Number.isFinite(seconds) && seconds > 0 ? next.set('reboost_retry_until', Date.now() + (seconds * 1000)) : next.delete('reboost_retry_until');
+  } else if (previous && previous.get('reboost_retry_until')) {
+    next = next.set('reboost_retry_until', previous.get('reboost_retry_until'));
+  }
+
   return state.set(status.id, next);
 };
 

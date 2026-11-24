@@ -18,7 +18,7 @@ import { translationPairStatus } from '../../../utils/translation_languages';
 import { selectAcceptedTranslationPreferences } from '../../../selectors/user_preferences';
 import { translationBarEffectivelyVisible, viewerTranslationPair } from '../../../utils/translation_view';
 import { emojiReactionsForStatus } from '../../../utils/emoji_reactions';
-import { reboostMenuItems, reboostWaitMinutes } from '../../reboost/menu';
+import { armReboostClock, reboostMenuItems, reboostRemainingSeconds, reboostWaitMinutes } from '../../reboost/menu';
 
 const messages = defineMessages({
   edit: { id: 'status.edit', defaultMessage: 'Edit' },
@@ -35,6 +35,7 @@ const messages = defineMessages({
   reboost: { id: 'status.reboost', defaultMessage: 'Reboost' },
   reboost_menu: { id: 'status.reboost_menu', defaultMessage: 'Boost actions' },
   reboost_wait: { id: 'status.reboost_wait', defaultMessage: 'Reboost (about {minutes} min left)' },
+  reboost_check: { id: 'status.reboost_check', defaultMessage: 'Check status' },
   reboost_hint: { id: 'status.reboost_hint', defaultMessage: 'Turn on Group boosts in settings if you do not want to see the same post repeatedly.' },
   reblog_private: { id: 'status.reblog_private', defaultMessage: 'Boost with original visibility' },
   cancel_reblog_private: { id: 'status.cancel_reblog_private', defaultMessage: 'Unboost' },
@@ -141,6 +142,7 @@ class ActionBar extends React.PureComponent {
     onReply: PropTypes.func.isRequired,
     onReblog: PropTypes.func.isRequired,
     onReboost: PropTypes.func,
+    onCheckReboost: PropTypes.func,
     onUnreblog: PropTypes.func,
     reboosting: PropTypes.bool,
     onQuote: PropTypes.func.isRequired,
@@ -212,6 +214,19 @@ class ActionBar extends React.PureComponent {
     this.props.onReblog(this.props.status, e);
   }
 
+  componentDidMount () {
+    this._reboostTimer = armReboostClock(this.props.status, () => this.forceUpdate());
+  }
+
+  componentDidUpdate () {
+    clearTimeout(this._reboostTimer);
+    this._reboostTimer = armReboostClock(this.props.status, () => this.forceUpdate());
+  }
+
+  componentWillUnmount () {
+    clearTimeout(this._reboostTimer);
+  }
+
   handleReboost = () => {
     if (this.props.reboosting || !this.props.onReboost) {
       return;
@@ -226,8 +241,14 @@ class ActionBar extends React.PureComponent {
     }
   }
 
+  handleCheckReboost = () => {
+    if (this.props.onCheckReboost) {
+      this.props.onCheckReboost(this.props.status);
+    }
+  }
+
   renderBoostButton = ({ intl, status, reblogged, publicStatus, reblogPrivate, expired, externalContent, disableReactions, reblogTitle }) => {
-    const minutes = reboostWaitMinutes(status.get('reboost_retry_after'));
+    const minutes = reboostWaitMinutes(reboostRemainingSeconds(status));
     const waiting = !reblogged && minutes > 0;
     const menu = enableReboost && reblogged && me && !externalContent && !expired && (publicStatus || reblogPrivate);
     let title = reblogTitle;
@@ -247,7 +268,7 @@ class ActionBar extends React.PureComponent {
       <DropdownMenuContainer
         status={status}
         menuRole='menu'
-        items={reboostMenuItems({ intl, messages, status, onReboost: this.handleReboost, onUnreblog: this.handleUnreblog, busy: this.props.reboosting })}
+        items={reboostMenuItems({ intl, messages, status, onReboost: this.handleReboost, onUnreblog: this.handleUnreblog, onCheck: this.handleCheckReboost, busy: this.props.reboosting })}
         direction='right'
       >
         <IconButton className={classNames({ reblogPrivate })} disabled={disableReactions || expired} active={reblogged} title={title} icon='retweet' />

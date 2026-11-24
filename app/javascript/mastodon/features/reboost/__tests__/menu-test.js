@@ -1,4 +1,4 @@
-import { reboostMenuItems, reboostWaitMinutes } from '../menu';
+import { reboostMenuItems, reboostRemainingSeconds, reboostWaitMinutes } from '../menu';
 
 const intl = {
   formatMessage: (message, values) => {
@@ -44,5 +44,28 @@ describe('reboost menu', () => {
 
     const busy = reboostMenuItems({ intl, messages, status: { get: () => null }, onReboost: jest.fn(), onUnreblog: jest.fn(), busy: true });
     expect(busy[0].disabled).toBe(true);
+  });
+
+  it('enables reboost after the stored deadline without a reload', () => {
+    jest.useFakeTimers('modern');
+    jest.setSystemTime(new Date('2026-11-24T00:00:00Z'));
+    const until = Date.now() + (5 * 60 * 1000);
+    const status = { get: (key) => key === 'reboost_retry_until' ? until : null };
+    const messagesWithCheck = { ...messages, reboost_check: { defaultMessage: 'Check status' } };
+
+    expect(reboostMenuItems({ intl, messages, status, onReboost: jest.fn(), onUnreblog: jest.fn(), busy: false })[0].disabled).toBe(true);
+
+    jest.setSystemTime(new Date('2026-11-24T00:05:00Z'));
+    const later = reboostMenuItems({ intl, messages, status, onReboost: jest.fn(), onUnreblog: jest.fn(), busy: false });
+    expect(reboostRemainingSeconds(status)).toBe(0);
+    expect(later[0].text).toBe('Reboost');
+    expect(later[0].disabled).toBe(false);
+
+    const pending = {
+      get: (key) => key === 'reboost_operation' ? { get: (name) => name === 'id' ? '9' : 'pending' } : null,
+    };
+    const checked = reboostMenuItems({ intl, messages: messagesWithCheck, status: pending, onReboost: jest.fn(), onUnreblog: jest.fn(), onCheck: jest.fn(), busy: true });
+    expect(checked.map(item => item.text)).toContain('Check status');
+    jest.useRealTimers();
   });
 });

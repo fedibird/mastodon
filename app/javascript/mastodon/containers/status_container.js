@@ -13,6 +13,7 @@ import {
 import {
   reblog,
   reboost,
+  checkReboostOperation,
   favourite,
   bookmark,
   unreblog,
@@ -153,6 +154,10 @@ const mapDispatchToProps = (dispatch, { intl, contextType }) => ({
 
   onReboost (status) {
     return dispatch(reboost(status));
+  },
+
+  onCheckReboost (status) {
+    return dispatch(checkReboostOperation(status));
   },
 
   onUnreblog (status) {

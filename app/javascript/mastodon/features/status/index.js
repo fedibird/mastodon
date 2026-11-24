@@ -19,6 +19,7 @@ import {
   unbookmark,
   reblog,
   reboost,
+  checkReboostOperation,
   unreblog,
   pin,
   unpin,
@@ -291,6 +292,10 @@ export class Status extends ImmutablePureComponent {
 
   handleReboost = (status) => {
     return this.props.dispatch(reboost(status));
+  }
+
+  handleCheckReboost = (status) => {
+    return this.props.dispatch(checkReboostOperation(status));
   }
 
   handleUnreblog = (status) => {
@@ -742,6 +747,7 @@ export class Status extends ImmutablePureComponent {
                     onFavourite={this.handleFavouriteClick}
                     onReblog={this.handleReblogClick}
                     onReboost={this.handleReboost}
+                    onCheckReboost={this.handleCheckReboost}
                     onUnreblog={this.handleUnreblog}
                     onBookmark={this.handleBookmarkClick}
                     onQuote={this.handleQuoteClick}

@@ -27,7 +27,8 @@ jest.mock('../importer', () => ({
 import api from '../../api';
 import { followReboostOperation } from '../../features/reboost/follow_operation';
 import { importFetchedStatus, STATUS_IMPORT } from '../importer';
-import { reboost, REBOOST_OPERATION, REBLOG_SUCCESS } from '../interactions';
+import { checkReboostOperation, reblog, reboost, REBOOST_OPERATION, REBLOG_SUCCESS } from '../interactions';
+import { reboostRemainingSeconds } from '../../features/reboost/menu';
 import statuses from '../../reducers/statuses';
 
 const status = ImmutableMap({ id: '1', reblogged: true });
@@ -192,6 +193,69 @@ describe('reboost', () => {
     expect(api.post).not.toHaveBeenCalled();
   });
 
+  it('follows a normal boost that is answered with 202 until it completes', async () => {
+    api.post.mockResolvedValue({ status: 202, data: { operation_id: '9', state: 'pending' } });
+    followReboostOperation.mockResolvedValue({ id: '9', state: 'completed', new_status_id: '50' });
+    api.get.mockResolvedValue({ data: { id: '50', reblog: { id: '1', reblogged: true } } });
+    const { actions, dispatch, getState } = setup();
+
+    await reblog(status)(dispatch, getState);
+
+    expect(api.post).toHaveBeenCalledWith('/api/v1/statuses/1/reblog', { visibility: undefined });
+    expect(importFetchedStatus).toHaveBeenCalledWith({ id: '50', reblog: { id: '1', reblogged: true } });
+    expect(actions.some(action => action.type === REBLOG_SUCCESS)).toBe(true);
+    expect(getState().getIn(['statuses', '1', 'reboost_operation'])).toBeUndefined();
+  });
+
+  it('follows a normal boost that is answered with 202 until it is cancelled or fails', async () => {
+    api.post.mockResolvedValue({ status: 202, data: { operation_id: '9', state: 'pending' } });
+    followReboostOperation.mockResolvedValue({ id: '9', state: 'cancelled', new_status_id: null });
+    api.get.mockResolvedValue({ data: { id: '1', reblogged: false } });
+    const cancelled = setup();
+
+    await reblog(status)(cancelled.dispatch, cancelled.getState);
+
+    expect(cancelled.actions.some(action => action.type === REBLOG_SUCCESS)).toBe(false);
+    expect(cancelled.actions.some(action => action.type === 'ALERT_SHOW' && action.title.id === 'reboost.cancelled_title')).toBe(true);
+    expect(cancelled.getState().getIn(['statuses', '1', 'reboost_operation'])).toBeUndefined();
+
+    followReboostOperation.mockResolvedValue({ id: '9', state: 'failed', new_status_id: null });
+    const failed = setup();
+
+    await reblog(status)(failed.dispatch, failed.getState);
+
+    expect(failed.actions.some(action => action.type === REBLOG_SUCCESS)).toBe(false);
+    expect(failed.actions.some(action => action.type === 'ALERT_SHOW' && action.title.id === 'reboost.failed_title')).toBe(true);
+  });
+
+  it('reports a disabled reboost from a normal boost as a failure', async () => {
+    api.post.mockRejectedValue({ response: { status: 403, data: { error: 'reboost disabled' } } });
+    const { actions, dispatch, getState } = setup();
+
+    await reblog(status)(dispatch, getState);
+
+    expect(actions.some(action => action.type === 'REBLOG_FAIL')).toBe(true);
+    expect(actions.some(action => action.type === REBLOG_SUCCESS)).toBe(false);
+  });
+
+  it('checks the saved operation without posting again', async () => {
+    api.post.mockResolvedValue({ status: 202, data: { operation_id: '9', state: 'pending' } });
+    followReboostOperation.mockRejectedValue(new Error('timeout'));
+    const harness = setup();
+
+    await reboost(status)(harness.dispatch, harness.getState);
+    api.post.mockClear();
+    api.get.mockResolvedValueOnce({ data: { id: '9', state: 'completed', new_status_id: '50' } });
+    api.get.mockResolvedValueOnce({ data: { id: '50', reblog: { id: '1', reblogged: true } } });
+
+    await checkReboostOperation(status)(harness.dispatch, harness.getState);
+
+    expect(api.post).not.toHaveBeenCalled();
+    expect(api.get).toHaveBeenCalledWith('/api/v1/statuses/1/reboost_operation', { params: { operation_id: '9' } });
+    expect(harness.actions.some(action => action.type === REBLOG_SUCCESS)).toBe(true);
+    expect(harness.getState().getIn(['statuses', '1', 'reboost_operation'])).toBeUndefined();
+  });
+
   it('keeps the in-flight operation when a status payload is imported', () => {
     let state = ImmutableMap({ '1': ImmutableMap({ id: '1', reblogged: true }) });
     state = statuses(state, { type: REBOOST_OPERATION, statusId: '1', operation: { id: '9', state: 'pending' } });
@@ -199,5 +263,17 @@ describe('reboost', () => {
 
     expect(state.getIn(['1', 'content'])).toBe('updated');
     expect(state.getIn(['1', 'reboost_operation']).toJS()).toEqual({ id: '9', state: 'pending' });
+  });
+
+  it('turns a cooldown into a deadline that expires', () => {
+    jest.useFakeTimers('modern');
+    jest.setSystemTime(new Date('2026-11-24T00:00:00Z'));
+    const state = statuses(ImmutableMap(), { type: STATUS_IMPORT, status: { id: '1', reboost_retry_after: 300 } });
+
+    expect(state.getIn(['1', 'reboost_retry_until'])).toBe(Date.now() + 300000);
+    expect(reboostRemainingSeconds(state.get('1'))).toBe(300);
+    jest.setSystemTime(new Date('2026-11-24T00:05:00Z'));
+    expect(reboostRemainingSeconds(state.get('1'))).toBe(0);
+    jest.useRealTimers();
   });
 });

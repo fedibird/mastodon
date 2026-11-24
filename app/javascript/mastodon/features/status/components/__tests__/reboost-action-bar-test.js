@@ -266,4 +266,63 @@ describe('detailed status reboost menu', () => {
 
     expect(screen.getByRole('button', { name: 'Reboost (about 4 min left)' })).toBeDisabled();
   });
+
+  it('enables a new boost when the cooldown deadline passes', () => {
+    jest.useFakeTimers('modern');
+    jest.setSystemTime(new Date('2026-11-24T00:00:00Z'));
+    const store = createStore(root, applyMiddleware(thunk));
+    const status = fromJS({
+      id: 's1',
+      account: { id: 'other', acct: 'bob', username: 'bob', url: 'https://example.test/bob' },
+      visibility: 'public',
+      muted: false,
+      reblogged: false,
+      favourited: false,
+      bookmarked: false,
+      reblogs_count: 1,
+      favourites_count: 0,
+      replies_count: 0,
+      status_referred_by_count: 0,
+      emoji_reactions: [],
+      reboost_retry_until: Date.now() + 5000,
+      url: 'https://example.test/s1',
+    });
+
+    render(
+      <Provider store={store}>
+        <RouterProvider>
+          <ActionBar
+            status={status}
+            onReply={jest.fn()}
+            onFavourite={jest.fn()}
+            onReblog={jest.fn()}
+            onReboost={jest.fn()}
+            onUnreblog={jest.fn()}
+            onQuote={jest.fn()}
+            onBookmark={jest.fn()}
+            onDelete={jest.fn()}
+            onExpire={jest.fn()}
+            onDirect={jest.fn()}
+            onMemberList={jest.fn()}
+            onMention={jest.fn()}
+            onMute={jest.fn()}
+            onBlock={jest.fn()}
+            onReport={jest.fn()}
+            onEmbed={jest.fn()}
+            onMuteConversation={jest.fn()}
+            onPin={jest.fn()}
+            addEmojiReaction={jest.fn()}
+            removeEmojiReaction={jest.fn()}
+          />
+        </RouterProvider>
+      </Provider>,
+    );
+
+    expect(screen.getByRole('button', { name: 'Reboost (about 1 min left)' })).toBeDisabled();
+    act(() => {
+      jest.advanceTimersByTime(5000);
+    });
+    expect(screen.getByRole('button', { name: 'Boost' })).toBeEnabled();
+    jest.useRealTimers();
+  });
 });
