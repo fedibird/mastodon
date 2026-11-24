@@ -244,6 +244,7 @@ describe('personal emoji stock source', () => {
   it('publishes a newer save after another tab marker and ignores an older one', async () => {
     const changed = jest.fn();
     const pending = deferred();
+    const followUp = deferred();
     const changeKey = 'mastodon:personal-emoji-set:account-1';
 
     get.mockReturnValueOnce(pending.promise);
@@ -261,20 +262,54 @@ describe('personal emoji stock source', () => {
     expect(source.getPickerEmojiSize()).toBe(32);
     expect(localStorage.getItem(changeKey)).toBe('tab-a-rev5');
 
+    get.mockReturnValueOnce(followUp.promise);
     pending.resolve({ status: 200, data: documentFor(5, 22), headers: { etag: 'rev5' } });
-    await source.loadPersonalEmojiStock();
+    await Promise.resolve();
+    expect(get).toHaveBeenCalledTimes(2);
     expect(source.getCachedPersonalEmojiStock()).toBeNull();
     expect(source.getPickerEmojiSize()).toBe(32);
+    expect(localStorage.getItem(changeKey)).toBe('tab-a-rev5');
+
+    followUp.resolve({ status: 200, data: documentFor(6, 44), headers: { etag: 'rev6' } });
+    await expect(source.loadPersonalEmojiStock()).resolves.toEqual({ status: 'ready', stock: documentFor(6).stock });
+    expect(source.getCachedPersonalEmojiStock().stock.categories[0].name).toBe('Category 6');
+    expect(source.getPickerEmojiSize()).toBe(44);
     const markerAfter6 = localStorage.getItem(changeKey);
     expect(markerAfter6).not.toBe(markerAfter5);
     expect(markerAfter6).not.toBe('tab-a-rev5');
     expect(markerAfter6).not.toContain('Category');
+    expect(localStorage.getItem(changeKey)).toBe(markerAfter6);
+    expect(changed).toHaveBeenLastCalledWith({ status: 'ready', stock: documentFor(6).stock });
 
     changed.mockClear();
     expect(source.notifySavedPersonalEmojiSet(documentFor(5, 22))).toBe(false);
+    expect(source.getCachedPersonalEmojiStock().stock.categories[0].name).toBe('Category 6');
+    expect(source.getPickerEmojiSize()).toBe(44);
+    expect(changed).not.toHaveBeenCalled();
+  });
+
+  it('leaves an error when the follow-up read after a stale success fails', async () => {
+    const pending = deferred();
+    const changeKey = 'mastodon:personal-emoji-set:account-1';
+
+    get.mockReturnValueOnce(pending.promise);
+    unsubscribers.push(source.subscribePersonalEmojiStock(() => {}));
+    expect(source.notifySavedPersonalEmojiSet(documentFor(5, 32))).toBe(true);
+    localStorage.setItem(changeKey, 'tab-a-rev5');
+    window.dispatchEvent(new StorageEvent('storage', { key: changeKey, newValue: 'tab-a-rev5' }));
+    expect(source.notifySavedPersonalEmojiSet(documentFor(6, 40))).toBe(false);
+
+    get.mockRejectedValueOnce(new Error('offline'));
+    pending.resolve({ status: 200, data: documentFor(5, 22), headers: { etag: 'rev5' } });
+    await expect(source.loadPersonalEmojiStock()).rejects.toThrow('offline');
     expect(source.getCachedPersonalEmojiStock()).toBeNull();
     expect(source.getPickerEmojiSize()).toBe(32);
-    expect(changed).not.toHaveBeenCalled();
+    expect(localStorage.getItem(changeKey)).not.toBe('tab-a-rev5');
+    expect(localStorage.getItem(changeKey)).not.toContain('Category');
+
+    get.mockResolvedValueOnce({ status: 200, data: documentFor(6, 44), headers: { etag: 'rev6' } });
+    await expect(source.loadPersonalEmojiStock()).resolves.toEqual({ status: 'ready', stock: documentFor(6).stock });
+    expect(source.getPickerEmojiSize()).toBe(44);
   });
 
   it('keeps a newer revalidation ahead of a delayed save', async () => {

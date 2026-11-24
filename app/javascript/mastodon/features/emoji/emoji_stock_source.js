@@ -123,6 +123,46 @@ function announceCommit(revision) {
   }
 }
 
+// One more server read after a successful GET that is older than a commit
+// queued during that read. The queued snapshot is not painted. A network
+// failure is not retried here.
+function readCommittedStock(neededRevision, requestedGeneration) {
+  const headers = {};
+  const accessToken = initialState?.meta?.access_token;
+
+  if (accessToken) {
+    headers.Authorization = `Bearer ${accessToken}`;
+  }
+
+  return api().get(endpoint, {
+    headers,
+    validateStatus: status => (status >= 200 && status < 300) || status === 304,
+  }).then(response => {
+    if (requestedGeneration !== generation) {
+      return currentResult();
+    }
+
+    if (response.status === 304) {
+      return { status: 'error', error: new Error('Personal emoji stock was superseded') };
+    }
+
+    const incoming = validateDocument(response.data);
+
+    if (!Number.isInteger(incoming.revision) || incoming.revision < neededRevision || revisionIsOlder(incoming.revision)) {
+      return { status: 'error', error: new Error('Personal emoji stock was superseded') };
+    }
+
+    noteRevision(incoming.revision);
+    cachedDocument = incoming;
+    prepareEmojiStock(cachedDocument.stock);
+    etag = response.headers?.etag || null;
+    applySize(cachedDocument.picker_emoji_size);
+    const result = ready(cachedDocument);
+    stockListeners.forEach(listener => listener(result));
+    return result;
+  });
+}
+
 function watchRevalidation(promise) {
   revalidationPromise = promise;
   promise.then(result => {
@@ -251,7 +291,20 @@ export function loadPersonalEmojiStock() {
     if (response.status !== 304) {
       const incoming = validateDocument(response.data);
 
-      if (revisionIsOlder(incoming.revision) || (queuedSave && Number.isInteger(queuedSave.revision) && incoming.revision < queuedSave.revision)) {
+      const queuedRevision = queuedSave && queuedSave.revision;
+
+      // The read succeeded but does not include the commit queued while it
+      // was in flight. Keep the original callers waiting for one newer read
+      // instead of painting this document or leaving the picker in error.
+      if (Number.isInteger(queuedRevision) && Number.isInteger(incoming.revision) && incoming.revision < queuedRevision && !revisionIsOlder(incoming.revision)) {
+        if (cachedDocument && Number.isInteger(cachedDocument.revision) && cachedDocument.revision >= queuedRevision) {
+          return ready(cachedDocument);
+        }
+
+        return readCommittedStock(queuedRevision, requestedGeneration);
+      }
+
+      if (revisionIsOlder(incoming.revision)) {
         if (cachedDocument) {
           return ready(cachedDocument);
         }
