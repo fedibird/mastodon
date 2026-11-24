@@ -14,9 +14,11 @@ let etag = null;
 let request = null;
 let latestRequest = null;
 let generation = 0;
-// Highest revision applied or observed. Storage invalidation clears the cache
-// but must not forget this, or a delayed older save could refill it.
+// Highest revision applied from a trusted response. A storage marker is only
+// a signal to revalidate; it is not a revision and never rejects a save.
 let knownRevision = null;
+let revalidationPromise = null;
+let queuedSave = null;
 let listening = false;
 let currentSize = Number(pickerEmojiSize) || 22;
 
@@ -90,6 +92,47 @@ function noteRevision(revision) {
 // revision is an older document.
 function revisionIsOlder(revision) {
   return Number.isInteger(revision) && Number.isInteger(knownRevision) && revision < knownRevision;
+}
+
+function watchRevalidation(promise) {
+  revalidationPromise = promise;
+  promise.finally(() => {
+    if (revalidationPromise !== promise) {
+      return;
+    }
+
+    revalidationPromise = null;
+    const queued = queuedSave;
+    queuedSave = null;
+
+    if (queued) {
+      notifySavedPersonalEmojiSet(queued);
+    }
+  }).catch(() => {});
+}
+
+function queueSave(saved) {
+  if (!queuedSave || (Number.isInteger(saved.revision) && (!Number.isInteger(queuedSave.revision) || saved.revision > queuedSave.revision))) {
+    queuedSave = saved;
+  }
+}
+
+// A marker written while nothing was listening is still a newer invalidation.
+// Detect it before a save response is allowed to replace the cache.
+function noteUnseenMarker() {
+  const marker = changeMarker();
+
+  if (marker === lastChange || revalidationPromise) {
+    return;
+  }
+
+  lastChange = marker;
+  generation += 1;
+  request = null;
+  latestRequest = null;
+  cachedDocument = null;
+  etag = null;
+  watchRevalidation(loadPersonalEmojiStock().catch(() => {}));
 }
 
 // Each open revalidates with the server. Revision protects writes; ETag also
@@ -185,7 +228,10 @@ function handleStorage(event) {
     return;
   }
 
-  lastChange = event.newValue;
+  // The receiving document already has the new storage value. Prefer that over
+  // the event payload so a later save does not see a second, unseen marker.
+  const marker = changeMarker();
+  lastChange = marker === null ? event.newValue : marker;
   generation += 1;
   request = null;
   latestRequest = null;
@@ -195,8 +241,9 @@ function handleStorage(event) {
 
   // A standard picker may also be open. Refresh its shared size without
   // mounting Nimble or accepting preference values from localStorage.
+  // This read stays authoritative: a delayed save must not cancel it.
   if (sizeListeners.size > 0) {
-    loadPersonalEmojiStock().catch(() => {});
+    watchRevalidation(loadPersonalEmojiStock().catch(() => {}));
   }
 }
 
@@ -265,13 +312,30 @@ export function personalEmojiStockGeneration() {
 // That counter only invalidates reads. Revision decides which document is newer,
 // including after the cache was cleared. An older revision never replaces stock
 // or the shared picker size, and does not write another tab marker.
+export function personalEmojiDocumentIsCurrent(document) {
+  if (!document || !Number.isInteger(document.revision) || revalidationPromise) {
+    return false;
+  }
+
+  return !revisionIsOlder(document.revision);
+}
+
 export function notifySavedPersonalEmojiSet(document) {
   if (personalStockDisabled) {
     return false;
   }
   const saved = validateDocument(document);
 
+  noteUnseenMarker();
+
   if (revisionIsOlder(saved.revision)) {
+    return false;
+  }
+
+  // An invalidation is already revalidating. Keep this commit queued and let
+  // that GET finish; bumping generation here would discard the newer read.
+  if (revalidationPromise) {
+    queueSave(saved);
     return false;
   }
 

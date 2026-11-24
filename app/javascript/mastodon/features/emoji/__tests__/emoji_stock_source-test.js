@@ -271,4 +271,48 @@ describe('personal emoji stock source', () => {
     expect(localStorage.getItem('mastodon:personal-emoji-set:account-1')).toBe(markerAfter6);
     expect(changed).not.toHaveBeenCalled();
   });
+
+  it('keeps a newer revalidation ahead of a delayed save', async () => {
+    const pending = deferred();
+    const changed = jest.fn();
+    const changeKey = 'mastodon:personal-emoji-set:account-1';
+
+    get.mockReturnValueOnce(pending.promise);
+    unsubscribers.push(source.subscribePersonalEmojiStock(changed), source.subscribePickerEmojiSize(() => {}));
+    expect(source.notifySavedPersonalEmojiSet(documentFor(4, 28))).toBe(true);
+
+    localStorage.setItem(changeKey, 'tab-b-rev6');
+    window.dispatchEvent(new StorageEvent('storage', { key: changeKey, newValue: 'tab-b-rev6' }));
+    expect(get).toHaveBeenCalledTimes(1);
+    expect(source.getCachedPersonalEmojiStock()).toBeNull();
+
+    expect(source.notifySavedPersonalEmojiSet(documentFor(5, 30))).toBe(false);
+    expect(localStorage.getItem(changeKey)).toBe('tab-b-rev6');
+    expect(source.getPickerEmojiSize()).toBe(28);
+
+    pending.resolve({ status: 200, data: documentFor(6, 44), headers: { etag: 'rev6' } });
+    await expect(source.loadPersonalEmojiStock()).resolves.toEqual({ status: 'ready', stock: documentFor(6).stock });
+    expect(source.getCachedPersonalEmojiStock().stock.categories[0].name).toBe('Category 6');
+    expect(source.getPickerEmojiSize()).toBe(44);
+    expect(localStorage.getItem(changeKey)).toBe('tab-b-rev6');
+  });
+
+  it('revalidates a marker that changed while no listener was mounted before adopting a save', async () => {
+    const pending = deferred();
+    const changeKey = 'mastodon:personal-emoji-set:account-1';
+
+    expect(source.notifySavedPersonalEmojiSet(documentFor(4, 28))).toBe(true);
+    localStorage.setItem(changeKey, 'while-unmounted');
+    get.mockReturnValueOnce(pending.promise);
+
+    expect(source.notifySavedPersonalEmojiSet(documentFor(5, 30))).toBe(false);
+    expect(localStorage.getItem(changeKey)).toBe('while-unmounted');
+    expect(get).toHaveBeenCalledTimes(1);
+    expect(source.getPickerEmojiSize()).toBe(28);
+
+    pending.resolve({ status: 200, data: documentFor(6, 44), headers: { etag: 'rev6' } });
+    await expect(source.loadPersonalEmojiStock()).resolves.toEqual({ status: 'ready', stock: documentFor(6).stock });
+    expect(source.getCachedPersonalEmojiStock().stock.categories[0].name).toBe('Category 6');
+    expect(source.getPickerEmojiSize()).toBe(44);
+  });
 });

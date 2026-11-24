@@ -9,7 +9,7 @@ import { emojiActionsDisablePersonalRemove, emojiMuteDisableActions, emojiPicker
 import { syncEmojiMutes } from 'mastodon/actions/emoji_mutes';
 import { addEmojiReaction, removeEmojiReaction } from 'mastodon/actions/interactions';
 import { currentEmojiMutes } from 'mastodon/features/emoji/emoji_mute_store';
-import { notifySavedPersonalEmojiSet, personalEmojiStockGeneration } from 'mastodon/features/emoji/emoji_stock_source';
+import { notifySavedPersonalEmojiSet, personalEmojiDocumentIsCurrent, personalEmojiStockGeneration } from 'mastodon/features/emoji/emoji_stock_source';
 import { closeModal, openModal } from 'mastodon/actions/modal';
 import { enableEmojiMuteLoading } from 'mastodon/actions/emoji_mutes';
 import { currentEmojiMuteBoot, emojiMuteConfirmation } from 'mastodon/features/emoji/emoji_mute_availability';
@@ -105,6 +105,8 @@ const messages = defineMessages({
   unmuteConfirm: { id: 'emoji_actions.unmute_confirm', defaultMessage: 'Unmute this emoji? Saved rules stay until you remove them.' },
   addSuccess: { id: 'emoji_actions.add_success', defaultMessage: 'Added to {name}' },
   removeSuccess: { id: 'emoji_actions.remove_success', defaultMessage: 'Removed from {name}' },
+  personalRefreshFailed: { id: 'emoji_actions.personal_refresh_failed', defaultMessage: 'Saved, but the personal set could not refresh' },
+  retryPersonalRefresh: { id: 'emoji_actions.retry_personal_refresh', defaultMessage: 'Refresh personal set' },
   openSettings: { id: 'emoji_actions.open_mute_settings', defaultMessage: 'Open mute settings' },
   retry: { id: 'emoji_actions.retry', defaultMessage: 'Try again' },
   resolveFailed: { id: 'emoji_actions.resolve_failed', defaultMessage: 'Could not load emoji actions' },
@@ -211,6 +213,8 @@ export function buildEmojiActionMenuItems({
   onAddToCategory,
   onRemoveFromCategory,
   personalRemoveDisabled = false,
+  personalRefreshFailed = false,
+  onRetryPersonalRefresh,
   onRetry,
   onRetrySync,
 }) {
@@ -336,7 +340,14 @@ export function buildEmojiActionMenuItems({
     });
   }
 
-  if (canAdd) {
+  if (canAdd && personalRefreshFailed) {
+    items.push(null, {
+      text: intl.formatMessage(messages.retryPersonalRefresh),
+      icon: 'refresh',
+      action: onRetryPersonalRefresh,
+      disabled: busy || typeof onRetryPersonalRefresh !== 'function',
+    });
+  } else if (canAdd) {
     items.push(null);
 
     if (!categories || categories.length === 0) {
@@ -497,6 +508,7 @@ class EmojiActionsMenuController extends React.PureComponent {
     syncError: null,
     pendingSyncRevision: null,
     busy: false,
+    personalRefreshFailed: false,
     statusId: null,
     accountId: null,
     source: null,
@@ -767,6 +779,7 @@ class EmojiActionsMenuController extends React.PureComponent {
       syncError: null,
       pendingSyncRevision: null,
       busy: false,
+      personalRefreshFailed: false,
       statusId: null,
       accountId: null,
       source: null,
@@ -1125,6 +1138,8 @@ class EmojiActionsMenuController extends React.PureComponent {
       onAddToCategory: this.handleAddToCategory,
       onRemoveFromCategory: this.handleRemoveFromCategory,
       personalRemoveDisabled: emojiActionsDisablePersonalRemove,
+      personalRefreshFailed: this.state.personalRefreshFailed,
+      onRetryPersonalRefresh: this.handleRetryPersonalRefresh,
       onRetry: this.handleRetry,
       onRetrySync: this.handleRetrySync,
     });
@@ -1486,73 +1501,103 @@ class EmojiActionsMenuController extends React.PureComponent {
     });
   };
 
-  // Session identity and stock freshness are separate. A storage event does
-  // not mean this response is older, and it must not leave the open menu busy.
-  // A committed change is always offered to the stock source. The open menu
-  // adopts that document only when nothing else invalidated stock during the
-  // request; otherwise it reloads and clears busy even if that reload fails.
+  sessionCurrent = session => isCurrentMenuSession(session, {
+    loadGeneration: this.loadGeneration,
+    reference: this.state.reference,
+  });
+
+  applyPersonalDocument = (session, document, notice) => {
+    if (!this.sessionCurrent(session) || !document || !Array.isArray(document.categories)) {
+      return false;
+    }
+
+    this.setState({
+      busy: false,
+      error: null,
+      personalRefreshFailed: false,
+      personalRevision: document.revision,
+      categories: document.categories,
+      notice,
+    });
+    return true;
+  };
+
+  // Stock decides whether a response is current. Generation movement alone does
+  // not. A rejected or no-op document is replaced by a fresh read. Refresh
+  // failure stays on an explicit reload and does not resend the old revision.
   finishPersonalCategoryMutation = ({
     session,
     stockGeneration,
     document,
     changed,
     successMessage,
-    failureMessage,
   }) => {
     const stockMoved = personalEmojiStockGeneration() !== stockGeneration;
+    const published = changed ? notifySavedPersonalEmojiSet(document) === true : false;
+    const unchangedIsCurrent = !changed && !stockMoved && personalEmojiDocumentIsCurrent(document);
 
-    if (changed) {
-      notifySavedPersonalEmojiSet(document);
+    if (!this.sessionCurrent(session)) {
+      return;
     }
 
-    const sessionCurrent = () => isCurrentMenuSession(session, {
-      loadGeneration: this.loadGeneration,
-      reference: this.state.reference,
+    if (published || unchangedIsCurrent) {
+      this.applyPersonalDocument(session, document, successMessage);
+      return;
+    }
+
+    this.reloadPersonalDocument(session, {
+      notice: successMessage,
+      allowDocument: published ? document : null,
     });
+  };
 
-    if (!sessionCurrent()) {
-      return;
-    }
-
-    if (!stockMoved && document) {
-      this.setState({
-        busy: false,
-        error: null,
-        personalRevision: document.revision,
-        categories: Array.isArray(document.categories) ? document.categories : this.state.categories,
-        notice: successMessage,
-      });
-      return;
-    }
-
+  reloadPersonalDocument = (session, { notice, allowDocument }) => {
     loadPersonalEmojiSetDocument().then(latest => {
-      if (!sessionCurrent()) {
+      if (!this.sessionCurrent(session)) {
         return;
       }
 
       if (!latest || !Array.isArray(latest.categories)) {
-        this.setState({ busy: false, error: new Error('Could not refresh personal set'), notice: failureMessage });
+        this.failPersonalRefresh(session, allowDocument, notice);
         return;
       }
 
-      this.setState({
-        busy: false,
-        error: null,
-        personalRevision: latest.revision,
-        categories: latest.categories,
-        notice: successMessage,
-      });
+      this.applyPersonalDocument(session, latest, notice);
     }).catch(() => {
-      if (!sessionCurrent()) {
-        return;
-      }
-
-      this.setState({
-        busy: false,
-        error: new Error('Could not refresh personal set'),
-        notice: failureMessage,
-      });
+      this.failPersonalRefresh(session, allowDocument, notice);
     });
+  };
+
+  failPersonalRefresh = (session, allowDocument, notice) => {
+    if (!this.sessionCurrent(session)) {
+      return;
+    }
+
+    if (allowDocument && this.applyPersonalDocument(session, allowDocument, notice)) {
+      return;
+    }
+
+    this.setState({
+      busy: false,
+      personalRefreshFailed: true,
+      notice: this.props.intl.formatMessage(messages.personalRefreshFailed),
+      error: new Error('Could not refresh personal set'),
+    });
+  };
+
+  recoverPersonalConflict = (session, message) => {
+    this.reloadPersonalDocument(session, { notice: message, allowDocument: null });
+  };
+
+  handleRetryPersonalRefresh = () => {
+    if (this.state.busy || !this.state.reference) {
+      return;
+    }
+
+    const session = captureMenuSession(this.loadGeneration, this.state.reference);
+
+    this.setState({ busy: true, error: null });
+    this.reloadPersonalDocument(session, { notice: null, allowDocument: null });
   };
 
   handleAddToCategory = category => {
@@ -1580,21 +1625,22 @@ class EmojiActionsMenuController extends React.PureComponent {
           document && document.operation && document.operation.added === false ? messages.alreadyInCategory : messages.addSuccess,
           { name: category.name || category.id },
         ),
-        failureMessage: intl.formatMessage(messages.addFailed),
       });
     }).catch(error => {
-      if (!isCurrentMenuSession(session, { loadGeneration: this.loadGeneration, reference: this.state.reference })) {
+      if (!this.sessionCurrent(session)) {
         return;
       }
 
-      const message = error && error.code === 'conflict'
-        ? intl.formatMessage(messages.addConflict)
-        : intl.formatMessage(messages.addFailed);
+      if (error && error.code === 'conflict') {
+        this.recoverPersonalConflict(session, intl.formatMessage(messages.addConflict));
+        return;
+      }
 
       this.setState({
         busy: false,
+        personalRefreshFailed: false,
         error,
-        notice: message,
+        notice: intl.formatMessage(messages.addFailed),
       });
     });
   };
@@ -1619,49 +1665,22 @@ class EmojiActionsMenuController extends React.PureComponent {
         document,
         changed: Boolean(document && document.operation && document.operation.removed),
         successMessage: intl.formatMessage(messages.removeSuccess, { name: category.name || category.id }),
-        failureMessage: intl.formatMessage(messages.removeFailed),
       });
     }).catch(error => {
-      if (!isCurrentMenuSession(session, { loadGeneration: this.loadGeneration, reference: this.state.reference })) {
+      if (!this.sessionCurrent(session)) {
         return;
       }
 
-      const conflict = error && error.code === 'conflict';
-      const message = conflict
-        ? intl.formatMessage(messages.removeConflict)
-        : intl.formatMessage(messages.removeFailed);
-
-      if (!conflict) {
-        this.setState({
-          busy: false,
-          error,
-          notice: message,
-        });
+      if (error && error.code === 'conflict') {
+        this.recoverPersonalConflict(session, intl.formatMessage(messages.removeConflict));
         return;
       }
 
-      loadPersonalEmojiSetDocument().then(latest => {
-        if (!isCurrentMenuSession(session, { loadGeneration: this.loadGeneration, reference: this.state.reference })) {
-          return;
-        }
-
-        this.setState({
-          busy: false,
-          error,
-          notice: message,
-          personalRevision: latest ? latest.revision : personalRevision,
-          categories: latest && Array.isArray(latest.categories) ? latest.categories : this.state.categories,
-        });
-      }).catch(() => {
-        if (!isCurrentMenuSession(session, { loadGeneration: this.loadGeneration, reference: this.state.reference })) {
-          return;
-        }
-
-        this.setState({
-          busy: false,
-          error,
-          notice: message,
-        });
+      this.setState({
+        busy: false,
+        personalRefreshFailed: false,
+        error,
+        notice: intl.formatMessage(messages.removeFailed),
       });
     });
   };
