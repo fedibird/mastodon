@@ -183,6 +183,11 @@ class DeleteAccountService < BaseService
     @account.mentions.reorder(nil).where.not(status_id: reported_status_ids).in_batches.delete_all
   end
 
+  # Another account's draft still names this file. Clearing account_id does
+  # not authorize that account to read it. The join keeps the object out of
+  # the 1-day unattached cleanup, so the instance keeps paying for storage
+  # until that draft drops the reference. The same cleanup then deletes the
+  # row and the stored object. No new owner is assigned.
   def detach_media_held_by_other_drafts!
     held_by_others = PostDraftMediaAttachment.joins(:post_draft)
                                              .where.not(post_drafts: { account_id: @account.id })

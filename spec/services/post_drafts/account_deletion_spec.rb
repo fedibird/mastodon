@@ -156,6 +156,25 @@ describe 'post drafts during account deletion' do
       expect(shared.reload.account_id).to be_nil
       expect(File.exist?(shared_path)).to be true
       expect(User.exists?(grantee.id)).to be true
+
+      shared.update_columns(created_at: 10.days.ago)
+      restored = PostDrafts::Presenter.new(grantee).one(other_draft.reload)
+      expect(restored[:media_retained]).to be true
+      expect(restored[:media_restore]).to eq 'partial'
+      expect(restored[:media]).to eq []
+
+      Scheduler::MediaCleanupScheduler.new.perform
+      expect(MediaAttachment.exists?(shared.id)).to be true
+      expect(File.exist?(shared_path)).to be true
+
+      removed = PostDrafts::Store.new(grantee.account).destroy(other_draft.id, expected_revision: other_draft.revision)
+      expect(removed.status).to eq :deleted
+      expect(PostDraftMediaAttachment.exists?(media_attachment_id: shared.id)).to be false
+      expect(File.exist?(shared_path)).to be true
+
+      Scheduler::MediaCleanupScheduler.new.perform
+      expect(MediaAttachment.exists?(shared.id)).to be false
+      expect(File.exist?(shared_path)).to be false
     end
 
     it 'drops the operator draft and leaves the grantor draft when the operator account is reserved' do
