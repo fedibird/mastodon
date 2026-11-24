@@ -343,4 +343,102 @@ describe('inline emoji synthetic context menu guard', () => {
     controller.handleContextMenu(event);
     expect(controller.openFromElement).toHaveBeenCalledTimes(1);
   });
+  it('keeps the existing muted status but disables accidental mute mutations', () => {
+    const intl = { formatMessage: descriptor => descriptor.defaultMessage || descriptor.id };
+    const reference = { kind: 'unicode', native: '😀' };
+    const resolved = {
+      actions: { mute: { allowed: true }, add_to_personal_category: { allowed: false } },
+    };
+    const params = {
+      intl,
+      reference,
+      resolved,
+      categories: [],
+      status: 'ready',
+      busy: false,
+      muteActionsEnabled: false,
+      onMute: jest.fn(),
+      onUnmute: jest.fn(),
+      onCopy: jest.fn(),
+    };
+    const available = buildEmojiActionMenuItems({ ...params, mute: null });
+    expect(available.some(item => item?.text === 'Mute emoji')).toBe(false);
+    expect(available.some(item => item?.text === 'Emoji details')).toBe(true);
+
+    const muted = buildEmojiActionMenuItems({ ...params, mute: { id: '9' } });
+    expect(muted.some(item => item?.text === 'Muted')).toBe(true);
+    expect(muted.some(item => item?.text === 'Unmute emoji')).toBe(false);
+    expect(muted.some(item => item?.text === 'Change mute settings')).toBe(false);
+    expect(muted.some(item => item?.text === 'Open mute settings')).toBe(true);
+  });
+
+  it('removes only the category whose typed identity matches', () => {
+    const onRemove = jest.fn();
+    const onAdd = jest.fn();
+    const family = '👨‍👩‍👧‍👦';
+    const reference = { kind: 'unicode', native: family };
+    const categories = [
+      { id: 'plain', name: 'Plain', items: [{ kind: 'unicode', native: '👍' }] },
+      { id: 'family', name: 'Family', items: [{ kind: 'unicode', native: family }] },
+      { id: 'custom', name: 'Custom', items: [{ kind: 'custom', custom_emoji_id: '4', shortcode: 'same' }] },
+    ];
+    const items = buildEmojiActionMenuItems({
+      intl,
+      reference,
+      resolved: {
+        actions: { add_to_personal_category: { allowed: true }, mute: { allowed: false } },
+      },
+      categories,
+      status: 'ready',
+      busy: false,
+      onAddToCategory: onAdd,
+      onRemoveFromCategory: onRemove,
+    });
+    const row = text => items.find(item => item && item.text === text);
+
+    expect(row('Add to Plain').icon).toBe('plus-circle');
+    expect(row('Add to Plain').disabled).toBe(false);
+    expect(row('Remove from Family').icon).toBe('minus-circle');
+    expect(row('Remove from Family').disabled).toBe(false);
+    row('Remove from Family').action();
+    expect(onRemove).toHaveBeenCalledWith(categories[1]);
+    expect(onAdd).not.toHaveBeenCalled();
+    expect(row('Add to Custom').icon).toBe('plus-circle');
+  });
+
+  it('matches a local custom emoji by database id and keeps removal disabled when requested', () => {
+    const onRemove = jest.fn();
+    const onAdd = jest.fn();
+    const reference = { kind: 'custom', scope: 'local', custom_emoji_id: '9', shortcode: 'same' };
+    const base = {
+      intl,
+      reference,
+      resolved: {
+        actions: { add_to_personal_category: { allowed: true }, mute: { allowed: false } },
+      },
+      categories: [
+        { id: 'other', name: 'Other', items: [{ kind: 'custom', scope: 'local', custom_emoji_id: '4', shortcode: 'same' }] },
+        { id: 'mine', name: 'Mine', items: [{ kind: 'custom', custom_emoji_id: '9', shortcode: 'previous' }] },
+      ],
+      status: 'ready',
+      busy: false,
+      onAddToCategory: onAdd,
+      onRemoveFromCategory: onRemove,
+    };
+    const enabled = buildEmojiActionMenuItems(base);
+    const row = (list, text) => list.find(item => item && item.text === text);
+
+    expect(row(enabled, 'Add to Other').disabled).toBe(false);
+    expect(row(enabled, 'Remove from Mine').icon).toBe('minus-circle');
+    expect(row(enabled, 'Remove from Mine').disabled).toBe(false);
+
+    const disabled = buildEmojiActionMenuItems({ ...base, personalRemoveDisabled: true });
+    expect(row(disabled, 'Add to Other').disabled).toBe(false);
+    expect(row(disabled, 'Add to Other').icon).toBe('plus-circle');
+    expect(row(disabled, 'Already in Mine').icon).toBe('check-circle');
+    expect(row(disabled, 'Already in Mine').disabled).toBe(true);
+    expect(row(disabled, 'Already in Mine').action).toBeNull();
+    expect(row(disabled, 'Remove from Mine')).toBeUndefined();
+  });
+
 });

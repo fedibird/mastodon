@@ -770,7 +770,7 @@ describe('emoji mute projection', () => {
     expect(calls.filter(url => url.includes('/api/v1/statuses?'))).toHaveLength(restoredCalls);
   });
 
-  it('skips withheld restore on the first bootstrap and runs it when the UI already exists', async () => {
+  it('restores withheld statuses on the first bootstrap without refreshing notifications', async () => {
     resetEmojiMuteStoreForTests();
     installEmojiMutesForTests({ revision: '5', emoji_mutes: [] });
     const calls = [];
@@ -842,15 +842,18 @@ describe('emoji mute projection', () => {
     };
 
     await syncEmojiMutes({ bootstrap: true })(dispatch, getState);
-    expect(calls.some(url => url.includes('/api/v1/statuses?'))).toBe(false);
+    expect(calls.filter(url => url.includes('/api/v1/statuses?')).join(' ')).toContain('ids[]=pending');
     expect(calls.some(url => url.includes('/api/v1/notifications'))).toBe(false);
-    expect(state.getIn(['statuses', 'pending', 'emoji_reactions_withheld'])).toBe(true);
+    expect(state.getIn(['statuses', 'pending', 'emoji_reactions_withheld'])).toBeUndefined();
 
     calls.length = 0;
     await syncEmojiMutes()(dispatch, getState);
-    expect(calls.filter(url => url.includes('/api/v1/statuses?')).join(' ')).toContain('ids[]=pending');
+    expect(calls.some(url => url.includes('/api/v1/statuses?'))).toBe(false);
+    expect(calls.some(url => url.includes('/api/v1/notifications'))).toBe(false);
+
+    calls.length = 0;
+    await syncEmojiMutes({ reconnect: true })(dispatch, getState);
     expect(calls.some(url => url.includes('/api/v1/notifications') && !url.includes('unread'))).toBe(true);
-    expect(state.getIn(['statuses', 'pending', 'emoji_reactions_withheld'])).toBeUndefined();
   });
 
   it('limits initial recovery to explicitly withheld reactions and waits until rules are ready', () => {
@@ -1106,6 +1109,70 @@ describe('emoji mute projection', () => {
       expect(fetched).toEqual(expect.stringContaining(`ids[]=${id}`));
     });
     expect(calls.filter(url => url.includes('ids[]=1')).length).toBeGreaterThan(1);
+  });
+
+  it('counts a reaction notification that arrives before the rules and is then restored', () => {
+    resetEmojiMuteStoreForTests();
+    const withheld = notificationsReducer(fromJS({
+      items: [],
+      pendingItems: [],
+      unread: 0,
+      lastReadId: '0',
+      readMarkerId: '0',
+      top: false,
+      mounted: 0,
+      isTabVisible: true,
+      hasMore: true,
+    }), {
+      type: 'NOTIFICATIONS_UPDATE',
+      notification: {
+        id: '8',
+        type: 'emoji_reaction',
+        account: { id: '1' },
+        emoji_reaction: { name: '😀' },
+      },
+    });
+    expect(withheld.get('unread')).toBe(0);
+    expect(withheld.get('emojiMuteWithheld').size).toBe(1);
+
+    installEmojiMutesForTests({ revision: '1', emoji_mutes: [] });
+    const restored = notificationsReducer(withheld, { type: EMOJI_MUTES_APPLY, mutes: [], revision: '1' });
+    expect(restored.get('items').map(item => item.get('id')).toJS()).toEqual(['8']);
+    expect(restored.get('unread')).toBe(1);
+  });
+
+  it('adjusts unread by the restored or hidden rows and keeps the unloaded total', () => {
+    resetEmojiMuteStoreForTests();
+    const base = fromJS({
+      items: [{ id: '4', type: 'mention', account: { id: '1' } }],
+      pendingItems: [],
+      unread: 10,
+      lastReadId: '5',
+      top: false,
+      mounted: 0,
+      isTabVisible: true,
+      hasMore: true,
+    });
+    const withheld = notificationsReducer(base, {
+      type: 'NOTIFICATIONS_UPDATE',
+      notification: {
+        id: '8',
+        type: 'emoji_reaction',
+        account: { id: '1' },
+        emoji_reaction: { name: '😀' },
+      },
+    });
+    expect(withheld.get('unread')).toBe(10);
+
+    installEmojiMutesForTests({ revision: '1', emoji_mutes: [] });
+    const restored = notificationsReducer(withheld, { type: EMOJI_MUTES_APPLY, mutes: [], revision: '1' });
+    expect(restored.get('items').some(item => item.get('id') === '8')).toBe(true);
+    expect(restored.get('unread')).toBe(11);
+
+    const hide = [{ effects: { hide_reactions: true }, emoji: { kind: 'unicode', native: '😀' } }];
+    const hidden = notificationsReducer(restored, { type: EMOJI_MUTES_APPLY, mutes: hide, revision: '2' });
+    expect(hidden.get('items').some(item => item.get('id') === '8')).toBe(false);
+    expect(hidden.get('unread')).toBe(10);
   });
 
   it('does not restore a withheld notification after clear, block, or a filter change', () => {
@@ -1605,6 +1672,7 @@ describe('emoji mute projection', () => {
 
   it('registers the mute change event for EventSource', () => {
     expect(KNOWN_EVENT_TYPES).toContain('emoji_mutes_changed');
+    expect(KNOWN_EVENT_TYPES).toContain('emoji_mute_preference');
     expect(reactionNameHidden('‼️', null, [{ effects: { hide_reactions: true }, emoji: { kind: 'unicode', native: '‼' } }])).toBe(false);
     expect(reactionNameHidden('1⃣', null, [{ effects: { hide_reactions: true }, emoji: { kind: 'unicode', native: '1️⃣' } }])).toBe(false);
   });

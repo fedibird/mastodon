@@ -9,7 +9,12 @@ jest.mock('mastodon/api', () => {
   return { __esModule: true, default: jest.fn(() => ({ get })) };
 });
 
+jest.mock('mastodon/features/emoji/emoji_mute_boot_bypass', () => ({
+  emojiMuteBypassEnabled: jest.fn(() => false),
+}));
+
 import api from 'mastodon/api';
+import { emojiMuteBypassEnabled } from '../emoji_mute_boot_bypass';
 import reducer from 'mastodon/reducers/emoji_mutes';
 import {
   EMOJI_MUTES_APPLY,
@@ -48,8 +53,33 @@ const document = (revision, name) => ({
 
 describe('emoji mute async safety (B5)', () => {
   beforeEach(() => {
+    emojiMuteBypassEnabled.mockReturnValue(false);
     resetEmojiMuteStoreForTests();
     api().get.mockReset();
+  });
+
+  it('starts without reading mute rules only after an explicit bypass', async () => {
+    emojiMuteBypassEnabled.mockReturnValue(true);
+    let state = reducer(undefined, { type: '@@INIT' });
+    const getState = () => ImmutableMap({ emojiMutes: state });
+    const dispatch = action => {
+      state = reducer(state, action);
+      return action;
+    };
+
+    expect(emojiMuteDocumentReady()).toBe(true);
+    expect(await loadEmojiMutes()).toEqual([]);
+    await syncEmojiMutes({ bootstrap: true })(dispatch, getState);
+    expect(state.get('phase')).toBe('ready');
+    expect(state.get('appliedRevision')).toBe('0');
+    expect(state.get('rules').size).toBe(0);
+    expect(api().get).not.toHaveBeenCalled();
+
+    await syncEmojiMutes({ changed: { revision: '42' } })(dispatch, getState);
+    expect(await noteEmojiMutesChanged({ revision: '42' })).toEqual([]);
+    expect(observedEmojiMuteRevision()).toBeNull();
+    expect(state.get('phase')).toBe('ready');
+    expect(api().get).not.toHaveBeenCalled();
   });
 
   it('does not treat an unfetched document as an empty confirmed rule set', () => {

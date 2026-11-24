@@ -60,6 +60,7 @@ describe('emoji-mute privacy portal responsive layout contract', () => {
     privacyRoot.className = 'emoji-mutes-privacy-portal';
     privacyRoot.style.display = 'contents';
     hotkeys = document.createElement('div');
+    hotkeys.className = 'emoji-mutes-webui-hotkeys';
     menuRoot = document.createElement('div');
     menuRoot.id = 'emoji-actions-overlay-root';
     privacyRoot.appendChild(hotkeys);

@@ -8,7 +8,7 @@ import { applyMiddleware, createStore } from 'redux';
 import { combineReducers } from 'redux-immutable';
 import thunk from 'redux-thunk';
 
-import { EMOJI_MUTES_APPLY, EMOJI_MUTES_RESET, EMOJI_MUTES_REVISION } from 'mastodon/actions/emoji_mutes';
+import { EMOJI_MUTES_APPLY, EMOJI_MUTES_DISABLE, EMOJI_MUTES_FAIL, EMOJI_MUTES_IGNORE, EMOJI_MUTES_RESET, EMOJI_MUTES_REVISION } from 'mastodon/actions/emoji_mutes';
 import { groupTimelineId } from 'mastodon/actions/timeline_ids';
 import { resetEmojiMuteTextForTests } from 'mastodon/features/emoji/emoji_mute_text';
 import emojiMutes from 'mastodon/reducers/emoji_mutes';
@@ -143,9 +143,11 @@ const headingButton = () => document.querySelector('#tabs-bar__portal h1 button'
 const headingText = () => headingButton().textContent;
 const region = container => container.querySelector('[role="region"]');
 
+const PLACEHOLDER = '\u25FB';
+
 const apply = (store, mutes, revision = '2') => {
   act(() => {
-    store.dispatch({ type: EMOJI_MUTES_APPLY, revision, mutes });
+    store.dispatch({ type: EMOJI_MUTES_APPLY, revision, mutes, availability: 'enabled' });
   });
 };
 
@@ -276,8 +278,10 @@ describe('group column emoji mute landmark', () => {
     });
 
     expect(store.getState().getIn(['emojiMutes', 'phase'])).toBe('stale');
-    expect(region(container).getAttribute('aria-label')).toBe('Group [first]');
-    expect(headingText(container)).toBe('Group [first]');
+    expect(store.getState().getIn(['emojiMutes', 'display'])).toBe('suppress');
+    expect(region(container).getAttribute('aria-label')).toBe(`Group ${PLACEHOLDER}`);
+    expect(headingText()).toBe(`Group ${PLACEHOLDER}`);
+    expect(region(container).getAttribute('aria-label')).not.toContain(THUMB);
 
     act(() => {
       store.dispatch({
@@ -287,7 +291,7 @@ describe('group column emoji mute landmark', () => {
       });
     });
 
-    expect(region(container).getAttribute('aria-label')).toBe('Group [first]');
+    expect(region(container).getAttribute('aria-label')).toBe(`Group ${PLACEHOLDER}`);
 
     apply(store, [
       rule({ kind: 'unicode', native: THUMB }, '[second]'),
@@ -308,6 +312,40 @@ describe('group column emoji mute landmark', () => {
     ], '1');
 
     expect(region(container).getAttribute('aria-label')).toBe('Group [next-user]');
-    expect(headingText(container)).toBe('Group [next-user]');
+    expect(headingText()).toBe('Group [next-user]');
+
+    act(() => {
+      store.dispatch({ type: EMOJI_MUTES_IGNORE });
+    });
+
+    expect(store.getState().getIn(['emojiMutes', 'display'])).toBe('show');
+    expect(region(container).getAttribute('aria-label')).toBe(plain);
+    expect(headingText()).toBe(plain);
+
+    apply(store, [
+      rule({ kind: 'unicode', native: THUMB }, '[again]'),
+    ], '2');
+
+    act(() => {
+      store.dispatch({ type: EMOJI_MUTES_FAIL, failure: 'unavailable' });
+    });
+
+    expect(store.getState().getIn(['emojiMutes', 'display'])).toBe('suppress');
+    expect(region(container).getAttribute('aria-label')).toBe(`Group ${PLACEHOLDER}`);
+    expect(headingText()).not.toContain(THUMB);
+
+    apply(store, [
+      rule({ kind: 'unicode', native: THUMB }, '[again]'),
+    ], '3');
+
+    expect(region(container).getAttribute('aria-label')).toBe('Group [again]');
+
+    act(() => {
+      store.dispatch({ type: EMOJI_MUTES_DISABLE });
+    });
+
+    expect(store.getState().getIn(['emojiMutes', 'display'])).toBe('show');
+    expect(region(container).getAttribute('aria-label')).toBe(plain);
+    expect(headingText()).toBe(plain);
   });
 });

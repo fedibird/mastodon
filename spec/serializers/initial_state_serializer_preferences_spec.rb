@@ -33,6 +33,15 @@ RSpec.describe InitialStateSerializer do
   describe 'reader-backed preferences' do
     let(:user) { Fabricate(:user, locale: 'ja', account: Fabricate(:account, locked: true)) }
 
+    it 'publishes the emoji mute feature flags for a signed-in account' do
+      meta = serialize(user.account)[:meta]
+
+      expect(meta[:emoji_mute_enabled]).to eq(false)
+      expect(meta[:emoji_mute_enabled_explicit]).to eq(false)
+      expect(meta[:emoji_mute_enabled_known]).to eq(true)
+      expect(meta[:emoji_mute_modal]).to eq(true)
+    end
+
     it 'matches the existing getters for unset values and keeps the same keys' do
       json = serialize(user.account)
       meta = json[:meta]
@@ -43,7 +52,8 @@ RSpec.describe InitialStateSerializer do
       expect(meta[:emoji_picker_prefer_personal]).to be false
       expect(meta[:emoji_picker_prefer_personal]).to eq user.setting_emoji_picker_prefer_personal
       expect(meta[:emoji_picker_disable_personal]).to be false
-      expect(meta[:emoji_picker_lazy_load_standard]).to be true
+      expect(meta[:emoji_actions_disable_personal_remove]).to be false
+      expect(meta[:emoji_picker_lazy_load_standard]).to be false
       expect(meta[:emoji_picker_lazy_load_standard]).to eq user.setting_emoji_picker_lazy_load_standard
       expect(meta[:new_features_policy]).to eq 'default'
       expect(meta[:new_features_policy]).to eq user.setting_new_features_policy
@@ -95,11 +105,19 @@ RSpec.describe InitialStateSerializer do
       store_setting(user, 'emoji_picker_prefer_personal', false)
       store_setting(user, 'emoji_picker_disable_personal', true)
       store_setting(user, 'emoji_picker_lazy_load_standard', false)
+      store_setting(user, 'emoji_actions_disable_personal_remove', false)
       meta = serialize(user.account)[:meta]
 
       expect(meta[:emoji_picker_prefer_personal]).to be false
       expect(meta[:emoji_picker_disable_personal]).to be true
       expect(meta[:emoji_picker_disable_personal]).to eq user.setting_emoji_picker_disable_personal
+      expect(meta[:emoji_actions_disable_personal_remove]).to be false
+      expect(meta[:emoji_actions_disable_personal_remove]).to eq user.setting_emoji_actions_disable_personal_remove
+
+      store_setting(user, 'emoji_actions_disable_personal_remove', true)
+      enabled = serialize(user.account)[:meta]
+      expect(enabled[:emoji_actions_disable_personal_remove]).to be true
+      expect(UserPreferences::Reader.new(user).get(:emoji_actions_disable_personal_remove).effective).to be true
       expect(meta[:emoji_picker_lazy_load_standard]).to be false
       expect(meta[:emoji_picker_lazy_load_standard]).to eq user.setting_emoji_picker_lazy_load_standard
     end
@@ -164,6 +182,7 @@ RSpec.describe InitialStateSerializer do
       expect(json[:meta]).not_to have_key(:emoji_picker_prefer_personal)
       expect(json[:meta]).not_to have_key(:emoji_picker_disable_personal)
       expect(json[:meta]).not_to have_key(:emoji_picker_lazy_load_standard)
+      expect(json[:meta]).not_to have_key(:emoji_actions_disable_personal_remove)
       expect(json[:meta]).not_to have_key(:translation_bar_visibility)
       expect(json[:compose]).not_to have_key(:default_privacy)
       expect(json[:meta][:enable_local_timeline]).to be_nil

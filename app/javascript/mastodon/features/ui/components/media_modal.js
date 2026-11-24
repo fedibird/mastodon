@@ -15,10 +15,9 @@ import Footer from 'mastodon/features/picture_in_picture/components/footer';
 import { getAverageFromBlurhash } from 'mastodon/blurhash';
 import { connect } from 'react-redux';
 import { attachmentAccessibility, statusTranslationView } from 'mastodon/utils/translation_view';
-import { withEmojiMuteTextIndex } from 'mastodon/components/emoji_muted_html';
-import { emojiMutedAltText } from 'mastodon/features/emoji/emoji_mute_text';
 import { mediaModalPagination } from 'mastodon/utils/media_modal_pagination';
 import { modalVideoDimensions, modalVideoFrameStyle } from 'mastodon/utils/modal_video_dimensions';
+import { emojiMuteTextIndexFromState, presentEmojiMutePlain } from 'mastodon/features/emoji/emoji_mute_text';
 
 const messages = defineMessages({
   close: { id: 'lightbox.close', defaultMessage: 'Close' },
@@ -38,6 +37,7 @@ const mapStateToProps = (state, props) => {
     translationView,
     lang: translationView ? translationView.mediaLang : props.lang,
     timelineStatuses: props.timelineStatusIds ? state.get('statuses') : null,
+    emojiMuteTextIndex: emojiMuteTextIndexFromState(state),
   };
 };
 
@@ -64,7 +64,6 @@ class MediaModal extends ImmutablePureComponent {
     currentTime: PropTypes.number,
     autoPlay: PropTypes.bool,
     volume: PropTypes.number,
-    emojiMuteTextIndex: PropTypes.object,
   };
 
   state = {
@@ -285,7 +284,7 @@ class MediaModal extends ImmutablePureComponent {
         sourceLang: this.props.lang || '',
         targetLang: this.props.lang || '',
       });
-      const description = emojiMutedAltText(accessible.text, this.props.emojiMuteTextIndex);
+      const description = presentEmojiMutePlain(accessible.text, this.props.emojiMuteTextIndex);
       const lang = accessible.lang || this.props.lang;
 
       if (image.get('type') === 'image') {
@@ -296,6 +295,7 @@ class MediaModal extends ImmutablePureComponent {
             width={width}
             height={height}
             alt={description}
+            emojiMuteSource={accessible.text || ''}
             lang={lang}
             key={`${image.get('url')}:${imageIndex}`}
             onClick={this.toggleNavigation}
@@ -322,6 +322,7 @@ class MediaModal extends ImmutablePureComponent {
               onCloseVideo={onClose}
               detailed
               alt={description}
+              emojiMuteSource={accessible.text || ''}
               lang={lang}
             />
           </div>
@@ -334,6 +335,7 @@ class MediaModal extends ImmutablePureComponent {
             height={height}
             key={`${image.get('preview_url')}:${imageIndex}`}
             alt={description}
+            emojiMuteSource={accessible.text || ''}
             lang={lang}
             onClick={this.toggleNavigation}
           />
@@ -419,6 +421,6 @@ class MediaModal extends ImmutablePureComponent {
 
 // Public status pages mount this without a Redux store. The logged-in WebUI
 // keeps the connected default export so translation state still comes from status.
-export const PublicMediaModal = injectIntl(withEmojiMuteTextIndex(MediaModal));
+export const PublicMediaModal = injectIntl(MediaModal);
 
 export default connect(mapStateToProps)(PublicMediaModal);

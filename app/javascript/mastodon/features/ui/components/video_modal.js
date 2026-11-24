@@ -7,9 +7,8 @@ import Footer from 'mastodon/features/picture_in_picture/components/footer';
 import { getAverageFromBlurhash } from 'mastodon/blurhash';
 import { connect } from 'react-redux';
 import { attachmentAccessibility, statusTranslationView } from 'mastodon/utils/translation_view';
-import { withEmojiMuteTextIndex } from 'mastodon/components/emoji_muted_html';
-import { emojiMutedAltText } from 'mastodon/features/emoji/emoji_mute_text';
 import { modalVideoDimensions, modalVideoFrameStyle } from 'mastodon/utils/modal_video_dimensions';
+import { emojiMuteTextIndexFromState, presentEmojiMutePlain } from 'mastodon/features/emoji/emoji_mute_text';
 
 const mapStateToProps = (state, props) => {
   const status = props.statusId ? state.getIn(['statuses', props.statusId]) : null;
@@ -19,10 +18,11 @@ const mapStateToProps = (state, props) => {
   return {
     translationView,
     lang: translationView ? translationView.mediaLang : props.lang,
+    emojiMuteTextIndex: emojiMuteTextIndexFromState(state),
   };
 };
 
-@connect(mapStateToProps)
+export default @connect(mapStateToProps)
 class VideoModal extends ImmutablePureComponent {
 
   static propTypes = {
@@ -37,7 +37,6 @@ class VideoModal extends ImmutablePureComponent {
     }),
     onClose: PropTypes.func.isRequired,
     onChangeBackgroundColor: PropTypes.func.isRequired,
-    emojiMuteTextIndex: PropTypes.object,
   };
 
   componentDidMount () {
@@ -58,7 +57,7 @@ class VideoModal extends ImmutablePureComponent {
       sourceLang: this.props.lang || '',
       targetLang: this.props.lang || '',
     });
-    const description = emojiMutedAltText(accessible.text, this.props.emojiMuteTextIndex);
+    const description = presentEmojiMutePlain(accessible.text, this.props.emojiMuteTextIndex);
     const lang = accessible.lang || this.props.lang;
     const dimensions = modalVideoDimensions(media);
 
@@ -79,6 +78,7 @@ class VideoModal extends ImmutablePureComponent {
             onCloseVideo={onClose}
             detailed
             alt={description}
+            emojiMuteSource={accessible.text || ''}
             lang={lang}
           />
         </div>
@@ -91,5 +91,3 @@ class VideoModal extends ImmutablePureComponent {
   }
 
 }
-
-export default withEmojiMuteTextIndex(VideoModal);

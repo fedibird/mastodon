@@ -7,16 +7,19 @@ import statusesReducer from 'mastodon/reducers/statuses';
 import emojify from '../emoji';
 import {
   buildReplaceInTextIndex,
+  emojiMuteTextIndexFromState,
   emojiMuteTextParseCount,
   emojiMuteUnicodeComparisonCount,
   emojiMutedPlainLabel,
   emojiMutedPlainText,
   replaceEmojiInDisplayHtml,
+  SUPPRESS_UNVERIFIED_INDEX,
   replaceInTextIndexFromRules,
   replaceMutedEmojiInPlain,
   replaceUnicodeEmojiInPlainText,
   replaceUnicodeEmojiInPreviewHtml,
   resetEmojiMuteTextForTests,
+  suppressUnicodeEmoji,
 } from '../emoji_mute_text';
 
 const THUMBS = '👍';
@@ -65,6 +68,20 @@ const textOf = html => {
 describe('replace_in_text display transform', () => {
   beforeEach(() => {
     resetEmojiMuteTextForTests();
+  });
+
+  it('replaces a classless emoji svg and leaves an attachment image', () => {
+    const html = `<p><picture><source srcset="/emoji/1f44d.svg" src="/emoji/1f44d.svg"><img src="/emoji/1f44d.svg" alt="${THUMBS}"></picture><img src="/media/photo.jpg" alt="a ${THUMBS} photo"></p>`;
+    const result = show(html, [unicodeRule(THUMBS, '[up]')]);
+    const template = document.createElement('template');
+    template.innerHTML = result;
+    const photo = template.content.querySelector('img');
+
+    expect(textOf(result)).toBe('[up]');
+    expect(template.content.querySelector('picture, source')).toBeNull();
+    expect(photo.getAttribute('src')).toBe('/media/photo.jpg');
+    expect(photo.getAttribute('alt')).toBe(`a ${THUMBS} photo`);
+    expect(show(html, [])).toBe(html);
   });
 
   it('replaces a whole unicode sequence and leaves a different sequence', () => {
@@ -378,6 +395,21 @@ describe('emojiMutedPlainLabel', () => {
     resetEmojiMuteTextForTests();
   });
 
+  it('clears an image shortcode on an ordinary link that starts with a hash', () => {
+    const html = '<p><a href="https://example.com/page" title=":blob:" aria-label="blob at remote.example">#<img draggable="false" class="emojione custom-emoji" alt=":blob:" title="blob" src="https://cdn.example/blob.svg" data-shortcode="blob" data-domain="remote.example"></a></p>';
+    const result = replaceEmojiInDisplayHtml(html, SUPPRESS_UNVERIFIED_INDEX);
+    const template = document.createElement('template');
+
+    template.innerHTML = result;
+    const link = template.content.querySelector('a');
+
+    expect(link.textContent.startsWith('#')).toBe(true);
+    expect(link.getAttribute('title') || '').not.toContain(':blob:');
+    expect(link.getAttribute('title') || '').not.toContain('remote.example');
+    expect(link.getAttribute('aria-label') || '').not.toContain('blob');
+    expect(link.getAttribute('aria-label') || '').not.toContain('remote.example');
+  });
+
   it('replaces an emoji inside its link without keeping the shortcode title', () => {
     const html = '<p><a class="custom-emoji-url-link" href="https://remote.example/emoji/blob" data-shortcode="blob" data-domain="remote.example" title=":blob:" aria-label="blob at remote.example"><img draggable="false" class="emojione custom-emoji" alt=":blob:" title="blob" src="https://cdn.example/blob.svg" data-shortcode="blob" data-domain="remote.example" data-original="https://cdn.example/blob.svg"></a></p>';
     const result = show(html, [rule({ kind: 'custom', scope: 'remote', domain: 'remote.example', shortcode: 'blob' }, '［絵文字］')]);
@@ -614,5 +646,102 @@ describe('unicode preview text', () => {
     resetEmojiMuteTextForTests();
     expect(replaceUnicodeEmojiInPlainText(`${plain} ${THUMBS}`, index)).toContain('[thumb]');
     expect(emojiMuteUnicodeComparisonCount()).toBeLessThan(plain.length);
+  });
+
+  it('omits unverified emoji from html, alt, and spoken text', () => {
+    const html = `<p>hi ${img({ alt: THUMBS, src: '/emoji/1f44d.svg' })} ${img({ alt: ':blob:', src: 'https://cdn.example/secret.svg', custom: true, extra: ' data-shortcode="blob"' })} ${FAMILY} ${DOUBLE_EXCLAMATION}</p><a href="https://example.test/keep" title="${THUMBS}" aria-label="${THUMBS}" aria-labelledby="emoji-name">link</a>`;
+    const hidden = replaceEmojiInDisplayHtml(html, SUPPRESS_UNVERIFIED_INDEX);
+    const template = document.createElement('template');
+    template.innerHTML = hidden;
+
+    expect(template.content.querySelector('img')).toBeNull();
+    expect(hidden).not.toContain(THUMBS);
+    expect(hidden).not.toContain('1f44d');
+    expect(hidden).not.toContain('secret.svg');
+    expect(hidden).not.toContain(':blob:');
+    expect(hidden).not.toContain(FAMILY);
+    expect(hidden).not.toContain(DOUBLE_EXCLAMATION);
+    expect(hidden).toContain('◻');
+    expect(template.content.querySelector('a').getAttribute('title')).toBe('◻');
+    expect(template.content.querySelector('a').getAttribute('aria-label')).toBe('◻');
+    expect(template.content.querySelector('a').getAttribute('href')).toBe('https://example.test/keep');
+    expect(template.content.querySelector('a').getAttribute('aria-labelledby')).toBe('emoji-name');
+    expect(suppressUnicodeEmoji('abc 123')).toBe('abc 123');
+    expect(suppressUnicodeEmoji('🏽')).toBe('◻');
+    expect(suppressUnicodeEmoji('🇦')).toBe('◻');
+    expect(suppressUnicodeEmoji('🇺🇸')).toBe('◻');
+    expect(suppressUnicodeEmoji(`keep ${THUMBS} 3️⃣`)).toBe('keep ◻ ◻');
+    expect(replaceUnicodeEmojiInPlainText('plain 🏽 🇦', SUPPRESS_UNVERIFIED_INDEX)).toBe('plain ◻ ◻');
+    expect(replaceUnicodeEmojiInPreviewHtml('preview 🏽', SUPPRESS_UNVERIFIED_INDEX)).toBe('preview ◻');
+    const labelled = replaceEmojiInDisplayHtml('<a title="🏽" aria-label="🇦" href="https://example.test/a">text</a>', SUPPRESS_UNVERIFIED_INDEX);
+    expect(labelled).toContain('title="◻"');
+    expect(labelled).toContain('aria-label="◻"');
+    expect(labelled).toContain('href="https://example.test/a"');
+    expect(emojiMutedPlainText(`hello ${THUMBS}`, '', SUPPRESS_UNVERIFIED_INDEX)).toBe('hello ◻');
+    expect(emojiMutedPlainLabel(`hello ${THUMBS}`, '', SUPPRESS_UNVERIFIED_INDEX)).toBe('hello ◻');
+    expect(emojiMutedPlainLabel(`hello ${THUMBS}`, html, SUPPRESS_UNVERIFIED_INDEX)).not.toContain(THUMBS);
+    expect(emojiMutedPlainLabel(`hello ${THUMBS}`, html, SUPPRESS_UNVERIFIED_INDEX)).not.toContain(':blob:');
+  });
+
+  it('keeps an attachment image and removes emoji images, including preview markup', () => {
+    const html = `<img src="/media/x.jpg" alt="${THUMBS}" srcset="/media/x.jpg 2x"><img class="emojione" alt="${THUMBS}" title=":ok_hand:" src="/emoji/1f44c.svg" srcset="/emoji/1f44c.svg 2x"><img class="emojione custom-emoji" alt=":blob:" title="blob" src="https://cdn.example/secret.svg" srcset="https://cdn.example/secret.svg 2x" data-shortcode="blob" data-domain="" data-emoji-id="10">`;
+    const hidden = replaceEmojiInDisplayHtml(html, SUPPRESS_UNVERIFIED_INDEX);
+    const template = document.createElement('template');
+    template.innerHTML = hidden;
+    const photo = template.content.querySelector('img');
+
+    expect(photo.getAttribute('src')).toBe('/media/x.jpg');
+    expect(photo.getAttribute('srcset')).toBe('/media/x.jpg 2x');
+    expect(photo.getAttribute('alt')).toBe('◻');
+    expect(hidden).not.toContain('/emoji/1f44c.svg');
+    expect(hidden).not.toContain('secret.svg');
+    expect(hidden).not.toContain(THUMBS);
+    expect(hidden).not.toContain(':blob:');
+    expect(hidden).not.toContain('srcset="/emoji');
+    expect(template.content.querySelectorAll('img')).toHaveLength(1);
+
+    const shown = emojiMuteTextIndexFromState(fromJS({ emojiMutes: { display: 'show', rules: [] } }));
+    expect(replaceEmojiInDisplayHtml(html, shown)).toBe(html);
+
+    const applied = replaceEmojiInDisplayHtml(html, buildReplaceInTextIndex([
+      unicodeRule(THUMBS, '[ok]'),
+      rule({ kind: 'custom', scope: 'local', custom_emoji_id: '10', shortcode: 'blob' }, '[blob]'),
+    ]));
+    const appliedDom = document.createElement('template');
+    appliedDom.innerHTML = applied;
+    const appliedPhoto = appliedDom.content.querySelector('img');
+
+    expect(appliedPhoto.getAttribute('src')).toBe('/media/x.jpg');
+    expect(appliedPhoto.getAttribute('alt')).toBe(THUMBS);
+    expect(applied).toContain('[ok]');
+    expect(applied).toContain('[blob]');
+    expect(applied).not.toContain('secret.svg');
+    expect(applied).not.toContain('/emoji/1f44c.svg');
+
+    const preview = replaceUnicodeEmojiInPreviewHtml(`<p>Hi ${THUMBS}</p>${html}`, SUPPRESS_UNVERIFIED_INDEX);
+    expect(preview).not.toContain('secret.svg');
+    expect(preview).not.toContain('/emoji/1f44c.svg');
+    expect(preview).not.toContain(THUMBS);
+    expect(preview).toContain('src="/media/x.jpg"');
+    expect(preview).toContain('alt="◻"');
+  });
+});
+
+describe('emojiMuteTextIndexFromState', () => {
+  const rule = fromJS([{
+    emoji: { kind: 'unicode', native: THUMBS },
+    replacement: '[ok]',
+    effects: { replace_in_text: true },
+  }]);
+
+  it('suppresses while unverified, applies rules when ready, and shows everything when ignored or off', () => {
+    expect(emojiMuteTextIndexFromState(fromJS({ emojiMutes: { display: 'suppress', rules: rule } }))).toBe(SUPPRESS_UNVERIFIED_INDEX);
+    const applied = emojiMuteTextIndexFromState(fromJS({ emojiMutes: { display: 'apply', rules: rule } }));
+    expect(applied.active).toBe(true);
+    expect(applied.suppressAll).toBeUndefined();
+    expect(replaceUnicodeEmojiInPlainText(`hi ${THUMBS}`, applied)).toBe('hi [ok]');
+    expect(emojiMuteTextIndexFromState(fromJS({ emojiMutes: { display: 'show', rules: rule } })).active).toBe(false);
+    expect(replaceUnicodeEmojiInPlainText(`hi ${THUMBS}`, emojiMuteTextIndexFromState(fromJS({ emojiMutes: { display: 'show', rules: rule } })))).toBe(`hi ${THUMBS}`);
+    expect(emojiMuteTextIndexFromState(null)).toBeUndefined();
   });
 });

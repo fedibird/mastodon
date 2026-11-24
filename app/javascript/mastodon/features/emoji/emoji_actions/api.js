@@ -83,6 +83,10 @@ export function createEmojiMute(emoji, options = {}) {
     replacement: options.replacement === undefined ? DEFAULT_MUTE_REPLACEMENT : options.replacement,
   };
 
+  if (options.enable === true) {
+    body.enable = true;
+  }
+
   return emojiActionsRequest(mutesEndpoint, {
     method: 'POST',
     body: JSON.stringify(body),
@@ -129,6 +133,18 @@ export function appendPersonalCategoryItem(categoryId, emoji, expectedRevision) 
 
   return emojiActionsRequest(`${personalEndpoint}/categories/${encodeURIComponent(categoryId)}/items`, {
     method: 'POST',
+    body: JSON.stringify({
+      expected_revision: expectedRevision,
+      emoji: reference,
+    }),
+  });
+}
+
+export function removePersonalCategoryItem(categoryId, emoji, expectedRevision) {
+  const reference = normalizeReference(emoji);
+
+  return emojiActionsRequest(`${personalEndpoint}/categories/${encodeURIComponent(categoryId)}/items`, {
+    method: 'DELETE',
     body: JSON.stringify({
       expected_revision: expectedRevision,
       emoji: reference,

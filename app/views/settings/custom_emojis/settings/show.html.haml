@@ -76,6 +76,13 @@
 
   .fields-group
     = f.input :setting_emoji_picker_disable_actions, as: :boolean, wrapper: :with_label, hint: true, fedibird_features: true
+    = f.input :setting_emoji_actions_disable_personal_remove, as: :boolean, wrapper: :with_label, hint: true, fedibird_features: true
+
+  .fields-group
+    = f.input :setting_emoji_preview_click_action, collection: %w(none close detail copy), label_method: lambda { |item| t("simple_form.labels.defaults.setting_emoji_preview_click_action_#{item}") }, wrapper: :with_label, include_blank: false, hint: true, fedibird_features: true
+    = f.input :setting_emoji_mute_enabled, as: :boolean, wrapper: :with_label, hint: true, fedibird_features: true
+    = f.input :setting_emoji_mute_modal, as: :boolean, wrapper: :with_label, hint: true, fedibird_features: true
+    = f.input :setting_emoji_mute_disable_actions, as: :boolean, wrapper: :with_label, hint: true, fedibird_features: true
 
   .fields-group
     = f.input :setting_max_frequently_used_emojis, wrapper: :with_label, label: t('simple_form.labels.defaults.setting_max_frequently_used_emojis'), hint: t('simple_form.hints.defaults.setting_max_frequently_used_emojis', count: CustomEmoji::FREQUENTLY_USED_EMOJIS_LIMIT), fedibird_features: true

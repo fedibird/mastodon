@@ -17,6 +17,7 @@ class UserPreferences::WriteContract
     emoji_picker_disable_personal
     emoji_picker_disable_standard
     emoji_picker_disable_actions
+    emoji_actions_disable_personal_remove
     emoji_picker_lazy_load_standard
   ).freeze
 
@@ -113,7 +114,7 @@ class UserPreferences::WriteContract
     case key
     when 'default_privacy'
       value.is_a?(String) && Status.selectable_visibilities.include?(value)
-    when 'default_sensitive', 'reduce_motion', 'emoji_picker_prefer_personal', 'emoji_picker_disable_personal', 'emoji_picker_disable_standard', 'emoji_picker_disable_actions', 'emoji_picker_lazy_load_standard'
+    when 'default_sensitive', 'reduce_motion', 'emoji_picker_prefer_personal', 'emoji_picker_disable_personal', 'emoji_picker_disable_standard', 'emoji_picker_disable_actions', 'emoji_actions_disable_personal_remove', 'emoji_picker_lazy_load_standard'
       value == true || value == false
     when 'default_language'
       value.is_a?(String) && valid_locale?(value)
@@ -132,7 +133,7 @@ class UserPreferences::WriteContract
 
   def type_matches?(key, value)
     case key
-    when 'default_sensitive', 'reduce_motion', 'emoji_picker_prefer_personal', 'emoji_picker_disable_personal', 'emoji_picker_disable_standard', 'emoji_picker_disable_actions', 'emoji_picker_lazy_load_standard'
+    when 'default_sensitive', 'reduce_motion', 'emoji_picker_prefer_personal', 'emoji_picker_disable_personal', 'emoji_picker_disable_standard', 'emoji_picker_disable_actions', 'emoji_actions_disable_personal_remove', 'emoji_picker_lazy_load_standard'
       value == true || value == false
     when 'content_font_size', 'info_font_size'
       value.is_a?(Integer)

@@ -4,8 +4,10 @@ import { autoPlayEmoji } from 'mastodon/initial_state';
 import { assetHost } from 'mastodon/utils/config';
 import unicodeMapping from 'mastodon/features/emoji/emoji_unicode_mapping_light';
 import classNames from 'classnames';
+import { withEmojiMuteTextIndex } from 'mastodon/components/emoji_muted_html';
+import { UNVERIFIED_EMOJI_PLACEHOLDER } from 'mastodon/features/emoji/emoji_mute_text';
 
-export default class Emoji extends React.PureComponent {
+class Emoji extends React.PureComponent {
 
   static propTypes = {
     emoji: PropTypes.string.isRequired,
@@ -18,10 +20,15 @@ export default class Emoji extends React.PureComponent {
     onLoad: PropTypes.func,
     alt: PropTypes.string,
     title: PropTypes.string,
+    emojiMuteTextIndex: PropTypes.object,
   };
 
   render () {
-    const { emoji, hovered, url, static_url, domain, onClick, onLoad } = this.props;
+    const { emoji, hovered, url, static_url, domain, onClick, onLoad, emojiMuteTextIndex } = this.props;
+
+    if (emojiMuteTextIndex && emojiMuteTextIndex.suppressAll) {
+      return <span className='emoji-mute-unverified' aria-hidden='true'>{UNVERIFIED_EMOJI_PLACEHOLDER}</span>;
+    }
 
     if (unicodeMapping[emoji]) {
       const { filename, shortCode } = unicodeMapping[emoji];
@@ -36,6 +43,7 @@ export default class Emoji extends React.PureComponent {
           alt={alt}
           title={title}
           src={`${assetHost}/emoji/${filename}.svg`}
+          hidden={false}
           onLoad={onLoad}
         />
       );
@@ -53,6 +61,7 @@ export default class Emoji extends React.PureComponent {
           alt={alt}
           title={title}
           src={filename}
+          hidden={false}
           data-shortcode={emoji}
           data-domain={domain}
           data-original={url}
@@ -67,3 +76,5 @@ export default class Emoji extends React.PureComponent {
   }
 
 }
+
+export default withEmojiMuteTextIndex(Emoji);

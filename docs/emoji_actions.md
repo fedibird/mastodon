@@ -4,6 +4,7 @@ Tracking: [#761](https://github.com/fedibird/mastodon/issues/761) /
 [#762](https://github.com/fedibird/mastodon/issues/762).
 
 P1 adds a read-only typed reference API and a one-item personal-set append.
+The same category item path also accepts a one-item removal.
 Mute storage and registration requests are not implemented. Their actions are
 reported as unavailable and are not advertised.
 
@@ -119,3 +120,45 @@ is accepted and remains that id if the shortcode is registered again later.
 
 Limits match the editor save: 512 KiB, 50 categories, 200 items in a
 category, and 1,000 items in the set.
+
+## `DELETE /api/v1/emoji_sets/personal/categories/:category_id/items`
+
+Authenticated write on the same path as append. Accepted scopes are `write`
+or `write:accounts`. The body is the same envelope:
+
+```json
+{
+  "expected_revision": 4,
+  "emoji": { "kind": "custom", "scope": "local", "custom_emoji_id": "123456789" }
+}
+```
+
+The route locks the same `users` row, compares `expected_revision` before
+looking for a match, and writes nothing on HTTP 409 `code: "conflict"`.
+Unknown categories are HTTP 404 `code: "category_not_found"`. Invalid JSON
+and unknown fields are HTTP 422. A local custom reference without
+`custom_emoji_id` is HTTP 422 `identity_required`; shortcode and image URL
+are not delete keys. A contradictory shortcode on a placement that would be
+removed is HTTP 422 `contradictory_field` and writes nothing.
+
+A matching revision whose category does not contain that identity is HTTP
+200. `operation.removed` is false, `item_ids` is empty, and the revision,
+`updated_at`, and picker size stay unchanged. Remote references are absent
+from personal sets, so they take this no-op path rather than deleting a
+different emoji.
+
+A removal drops only the matching placements in the named category. Other
+categories, remaining order, unavailable rows, and `picker_emoji_size` stay.
+Stored shortcodes and Unicode `emoji_id` values are not re-resolved. An
+explicit representative heading whose placement was removed becomes
+`{ "mode": "first" }`, the same fallback as the personal-set editor. An
+empty category is kept. The response is the editor document plus:
+
+```json
+{ "operation": { "removed": true, "category_id": "favorites", "item_ids": ["thumb"] } }
+```
+
+`operation` is not added to `GET` or `PUT`. The stock ETag changes only when
+the document changes. Disabled or deleted custom rows that are already saved
+can be removed by database id; this route does not re-check addability and
+does not drop any other stale row.

@@ -224,6 +224,7 @@ export const KNOWN_EVENT_TYPES = [
   'announcement.reaction',
   'preferences_changed',
   'emoji_mutes_changed',
+  'emoji_mute_preference',
 ];
 
 /**

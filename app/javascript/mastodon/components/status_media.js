@@ -7,7 +7,7 @@ import Bundle from '../features/ui/components/bundle';
 import { MediaGallery, Video, Audio } from '../features/ui/util/async-components';
 import { attachmentAccessibility } from 'mastodon/utils/translation_view';
 import { withEmojiMuteTextIndex } from 'mastodon/components/emoji_muted_html';
-import { emojiMutedAltText } from 'mastodon/features/emoji/emoji_mute_text';
+import { presentEmojiMutePlain } from 'mastodon/features/emoji/emoji_mute_text';
 import { cropImages, displayMedia, maxAttachments } from '../initial_state';
 import { mediaGalleryAspectRatio } from 'mastodon/utils/media_gallery_layout';
 
@@ -413,7 +413,8 @@ const LocalMediaPlayerView = ({
     sourceLang,
     targetLang,
   });
-  const describedText = emojiMutedAltText(described.text, emojiMuteTextIndex);
+  const describedSource = typeof described.text === 'string' ? described.text : '';
+  const describedText = presentEmojiMutePlain(describedSource, emojiMuteTextIndex);
   const type = attachment.get('type');
 
   if (type === 'audio') {
@@ -425,6 +426,7 @@ const LocalMediaPlayerView = ({
       <AudioComponent
         src={attachment.get('url')}
         alt={describedText}
+        emojiMuteSource={describedSource}
         lang={described.lang}
         poster={attachment.get('preview_url') || posterFallback}
         backgroundColor={attachment.getIn(['meta', 'colors', 'background'])}
@@ -447,6 +449,7 @@ const LocalMediaPlayerView = ({
       blurhash={attachment.get('blurhash')}
       src={attachment.get('url')}
       alt={describedText}
+      emojiMuteSource={describedSource}
       lang={described.lang}
       width={width}
       height={height}

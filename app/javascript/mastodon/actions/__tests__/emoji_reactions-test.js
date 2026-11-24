@@ -99,13 +99,14 @@ describe('emoji reaction API actions', () => {
     expect(get.mock.calls[0][1].params.emojis).toEqual(['🎉', '👍']);
     expect(read().getIn(['lists', 'default', 'filters', 'emojis']).toJS()).toEqual(['🎉', '👍']);
     expect(getEmojiReactionQueryKey({ emojis: ['🎉', '👍'] })).toBe(getEmojiReactionQueryKey({ emojis: ['👍', '🎉', '👍'] }));
+    expect(getEmojiReactionQueryKey({ emojis: ['🎉'], sortByPostDate: true })).not.toBe(getEmojiReactionQueryKey({ emojis: ['🎉'], sortByPostDate: false }));
     expect(pinnedEmojiReactionColumnParams({
       emojis: fromJS(['achievement@example.com', '🎉']),
       onlyMedia: false,
       withoutMedia: true,
     })).toEqual({
       emojis: ['achievement@example.com', '🎉'],
-      other: { onlyMedia: false, withoutMedia: true },
+      other: { onlyMedia: false, withoutMedia: true, sortByPostDate: false },
     });
   });
 

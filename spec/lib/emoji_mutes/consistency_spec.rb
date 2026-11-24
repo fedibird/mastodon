@@ -95,4 +95,34 @@ RSpec.describe 'Emoji mute collection consistency' do
     expect(list.fetch('revision')).to eq '2'
     expect(list.fetch('emoji_mutes').map { |row| row.dig('emoji', 'native') }).to contain_exactly('😀', '🎉')
   end
+
+  it 'does not pair a newly enabled preference with rules read before that mute' do
+    held = Queue.new
+    release = Queue.new
+    reader = Thread.new do
+      ActiveRecord::Base.connection_pool.with_connection do
+        EmojiMutes::Repository.before_revision_read = lambda {
+          held << true
+          Timeout.timeout(10) { release.pop }
+        }
+        mutes, revision, preference = EmojiMutes::Repository.consistent_state(user.id)
+        [mutes.map(&:native), revision, preference&.value]
+      end
+    end
+    Timeout.timeout(10) { held.pop }
+    writer = Thread.new do
+      ActiveRecord::Base.connection_pool.with_connection do
+        create_native('🎉', User.find(user.id))
+      end
+    end
+    sleep 0.2
+    expect(writer.alive?).to be true
+    release << true
+    expect(reader.value).to eq [[], 0, nil]
+    expect(writer.join(10)).to be_present
+    mutes, revision, preference = EmojiMutes::Repository.consistent_state(user.id)
+    expect(mutes.map(&:native)).to eq ['🎉']
+    expect(revision).to eq 1
+    expect(preference.value).to eq true
+  end
 end

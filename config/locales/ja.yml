@@ -3316,6 +3316,7 @@ ja:
       <p>オリジナルの出典: <a href="https://github.com/discourse/discourse">Discourse privacy policy</a></p>
     title: "%{instance} 利用規約・プライバシーポリシー"
   themes:
+    system: Mastodon (システムに合わせる)
     contrast: Mastodon (ハイコントラスト)
     default: Mastodon (ダーク)
     hmt-blue: hanubeki (ブルー) 

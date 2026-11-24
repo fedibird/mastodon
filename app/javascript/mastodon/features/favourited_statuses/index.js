@@ -2,7 +2,7 @@ import React from 'react';
 import { connect } from 'react-redux';
 import PropTypes from 'prop-types';
 import ImmutablePropTypes from 'react-immutable-proptypes';
-import { fetchFavouritedStatuses, expandFavouritedStatuses } from '../../actions/favourites';
+import { fetchFavouritedStatuses, expandFavouritedStatuses, favouritesListKey } from '../../actions/favourites';
 import Column from '../ui/components/column';
 import ColumnHeader from '../../components/column_header';
 import { addColumn, removeColumn, moveColumn } from '../../actions/columns';
@@ -11,6 +11,7 @@ import StatusList from '../../components/status_list';
 import { defineMessages, injectIntl, FormattedMessage } from 'react-intl';
 import ImmutablePureComponent from 'react-immutable-pure-component';
 import { debounce } from 'lodash';
+import { List as ImmutableList } from 'immutable';
 import { defaultColumnWidth } from 'mastodon/initial_state';
 import { readTimelineLayout } from 'mastodon/utils/timeline_layout';
 import { changeSetting } from '../../actions/settings';
@@ -20,6 +21,8 @@ const messages = defineMessages({
   heading: { id: 'column.favourites', defaultMessage: 'Favourites' },
 });
 
+const EMPTY_STATUS_LIST = ImmutableList();
+
 const mapStateToProps = (state, { columnId }) => {
   const uuid = columnId;
   const columns = state.getIn(['settings', 'columns']);
@@ -27,13 +30,19 @@ const mapStateToProps = (state, { columnId }) => {
   const layoutMode = readTimelineLayout(state, columnId, 'favourited_statuses');
   const mediaLayout = layoutMode === 'media';
   const onlyMedia = mediaLayout || ((columnId && index >= 0) ? columns.get(index).getIn(['params', 'other', 'onlyMedia']) : state.getIn(['settings', 'favourited_statuses', 'other', 'onlyMedia']));
-  const withoutMedia = mediaLayout ? false : ((columnId && index >= 0) ? columns.get(index).getIn(['params', 'other', 'withoutMedia']) : state.getIn(['settings', 'favourited_statuses', 'other', 'withoutMedia']));
+  const withoutMedia = !mediaLayout && ((columnId && index >= 0) ? columns.get(index).getIn(['params', 'other', 'withoutMedia']) : state.getIn(['settings', 'favourited_statuses', 'other', 'withoutMedia']));
   const columnWidth = (columnId && index >= 0) ? columns.get(index).getIn(['params', 'columnWidth']) : state.getIn(['settings', 'favourited_statuses', 'columnWidth']);
+  const sortByPostDate = !!((columnId && index >= 0) ? columns.get(index).getIn(['params', 'other', 'sortByPostDate']) : state.getIn(['settings', 'favourited_statuses', 'other', 'sortByPostDate']));
+  const listKey = favouritesListKey(columnId, sortByPostDate);
+  const list = state.getIn(['status_lists', listKey]);
 
   return {
-    statusIds: state.getIn(['status_lists', 'favourites', 'items']),
-    isLoading: state.getIn(['status_lists', 'favourites', 'isLoading'], true),
-    hasMore: !!state.getIn(['status_lists', 'favourites', 'next']),
+    listKey,
+    sortByPostDate,
+    statusIds: list ? list.get('items') : EMPTY_STATUS_LIST,
+    isLoading: list ? list.get('isLoading') : true,
+    hasMore: !!(list && list.get('next')),
+    stale: !!(list && list.get('stale')),
     onlyMedia,
     withoutMedia,
     columnWidth: columnWidth ?? defaultColumnWidth,
@@ -57,6 +66,9 @@ class Favourites extends ImmutablePureComponent {
     mediaStatuses: ImmutablePropTypes.map,
     onlyMedia: PropTypes.bool,
     withoutMedia: PropTypes.bool,
+    sortByPostDate: PropTypes.bool,
+    listKey: PropTypes.string,
+    stale: PropTypes.bool,
     hasMore: PropTypes.bool,
     isLoading: PropTypes.bool,
   };
@@ -64,29 +76,30 @@ class Favourites extends ImmutablePureComponent {
   static defaultProps = {
     onlyMedia: false,
     withoutMedia: false,
+    sortByPostDate: false,
   };
 
   componentDidMount () {
-    const { dispatch, onlyMedia, withoutMedia } = this.props;
+    const { dispatch, listKey, onlyMedia, withoutMedia, sortByPostDate } = this.props;
 
-    dispatch(fetchFavouritedStatuses({ onlyMedia, withoutMedia }));
+    dispatch(fetchFavouritedStatuses({ listKey, onlyMedia, withoutMedia, sortByPostDate }));
   }
 
   componentDidUpdate (prevProps) {
-    const { dispatch, onlyMedia, withoutMedia } = this.props;
+    const { dispatch, listKey, onlyMedia, withoutMedia, sortByPostDate, stale, isLoading } = this.props;
 
-    if (prevProps.onlyMedia !== onlyMedia || prevProps.withoutMedia !== withoutMedia) {
-      dispatch(fetchFavouritedStatuses({ onlyMedia, withoutMedia }));
+    if (prevProps.listKey !== listKey || prevProps.onlyMedia !== onlyMedia || prevProps.withoutMedia !== withoutMedia || prevProps.sortByPostDate !== sortByPostDate || (stale && !isLoading)) {
+      dispatch(fetchFavouritedStatuses({ listKey, onlyMedia, withoutMedia, sortByPostDate }));
     }
   }
 
   handlePin = () => {
-    const { columnId, dispatch, onlyMedia, withoutMedia } = this.props;
+    const { columnId, dispatch, onlyMedia, withoutMedia, sortByPostDate } = this.props;
 
     if (columnId) {
       dispatch(removeColumn(columnId));
     } else {
-      dispatch(addColumn('FAVOURITES', { other: { onlyMedia, withoutMedia } }));
+      dispatch(addColumn('FAVOURITES', { other: { onlyMedia, withoutMedia, sortByPostDate } }));
     }
   }
 
@@ -104,7 +117,7 @@ class Favourites extends ImmutablePureComponent {
   }
 
   handleLoadMore = debounce(() => {
-    this.props.dispatch(expandFavouritedStatuses());
+    this.props.dispatch(expandFavouritedStatuses({ listKey: this.props.listKey }));
   }, 300, { leading: true })
 
   handleWidthChange = (value) => {
@@ -118,7 +131,7 @@ class Favourites extends ImmutablePureComponent {
   }
 
   render () {
-    const { intl, statusIds, columnId, multiColumn, hasMore, isLoading, columnWidth, withoutMedia, layoutMode, mediaStatuses } = this.props;
+    const { intl, statusIds, columnId, multiColumn, hasMore, isLoading, columnWidth, withoutMedia, layoutMode, mediaStatuses, listKey, sortByPostDate } = this.props;
     const pinned = !!columnId;
 
     const emptyMessage = <FormattedMessage id='empty_column.favourited_statuses' defaultMessage="You don't have any favourite posts yet. When you favourite one, it will show up here." />;
@@ -143,11 +156,12 @@ class Favourites extends ImmutablePureComponent {
         </ColumnHeader>
 
         <StatusList
+          key={`${listKey}:${sortByPostDate ? 'status' : 'added'}`}
           layoutMode={layoutMode}
           mediaStatuses={mediaStatuses}
           trackScroll={!pinned}
           statusIds={statusIds}
-          scrollKey={`favourited_statuses-${columnId}`}
+          scrollKey={`favourited_statuses-${columnId}${sortByPostDate ? '-status' : ''}`}
           hasMore={hasMore}
           isLoading={isLoading}
           onLoadMore={this.handleLoadMore}

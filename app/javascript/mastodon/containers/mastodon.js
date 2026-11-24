@@ -7,15 +7,18 @@ import { BrowserRouter, Route } from 'react-router-dom';
 import { ScrollContext } from 'react-router-scroll-4';
 import UI from '../features/ui';
 import { settingsReturnScroll, settleSettingsReturnScroll } from '../features/embedded_rails_settings/navigation';
-import { fetchCircles } from '../actions/circles';
+import { prefetchCircles } from '../actions/circles';
 import { ensureCustomEmojis } from '../actions/custom_emojis';
 import { preloadEmojiPickersIfNeeded } from '../features/emoji/emoji_picker_preferences';
 import { hydrateStore } from '../actions/store';
 import { startMastodonSubscriptions } from './mastodon_subscriptions';
-import { IntlProvider, addLocaleData, FormattedMessage } from 'react-intl';
-import { syncEmojiMutes, invalidateEmojiMuteAsyncWork, EMOJI_MUTES_RESET } from '../actions/emoji_mutes';
+import { IntlProvider, addLocaleData } from 'react-intl';
+import EmojiMuteLoadNotice, { EmojiMuteNoticeContext } from '../components/emoji_mute_load_notice';
+import { invalidateEmojiMuteAsyncWork, retryEmojiMuteLoad, ignoreEmojiMutesThisView, disableEmojiMuteFeature, emojiMuteSyncGeneration, emojiMuteSyncInFlight, EMOJI_MUTES_RESET } from '../actions/emoji_mutes';
 import { classifyEmojiMuteFetchError } from '../features/emoji/emoji_mute_fetch_error';
 import { resetEmojiMuteSession } from '../features/emoji/emoji_mute_store';
+import { currentEmojiMuteBoot } from '../features/emoji/emoji_mute_availability';
+import { createUnverifiedEmojiGuard } from '../features/emoji/emoji_mute_live_dom';
 import { setEmojiActionsOverlayPrivacyContainer } from '../features/emoji/emoji_actions/overlay_root';
 import { getLocale } from '../locales';
 import initialState from '../initial_state';
@@ -28,7 +31,20 @@ export const store = configureStore();
 const hydrateAction = hydrateStore(initialState);
 
 store.dispatch(hydrateAction);
-store.dispatch(fetchCircles());
+store.dispatch(prefetchCircles());
+
+// Registered before any connected component. The walk runs only when display
+// enters suppress, and it leaves React's nodes in place. Compose fields are
+// skipped because their values are not text nodes.
+const unverifiedEmojiGuard = createUnverifiedEmojiGuard();
+
+export function scrubVisibleEmojiIfUnverified() {
+  unverifiedEmojiGuard(store.getState());
+}
+
+scrubVisibleEmojiIfUnverified.reset = () => unverifiedEmojiGuard.reset();
+
+store.subscribe(scrubVisibleEmojiIfUnverified);
 // Share the catalog request/result with the first standard picker open.
 // Preloads are deliberately not awaited before mounting the WebUI.
 preloadEmojiPickersIfNeeded(undefined, undefined, () => store.dispatch(ensureCustomEmojis()));
@@ -41,6 +57,50 @@ const signedIn = !!(initialState?.meta?.me || initialState?.meta?.access_token);
 // A failed network read can be repeated. Ignore clicks until this quiet
 // period has elapsed so a held button cannot queue a burst of GETs.
 const EMOJI_MUTE_RETRY_COOLDOWN_MS = 1000;
+// Composer and search are the usual next stop. Advanced columns often have
+// neither, so a visible column link or header control keeps Tab from restarting
+// at the top of the document.
+const EMOJI_MUTE_NOTICE_FOCUS = [
+  '.autosuggest-textarea__textarea',
+  '.search__input',
+  'a.column-link',
+  'button.column-header__button:not([disabled])',
+  '.column-header > button:not([disabled])',
+  'a.drawer__tab',
+];
+
+const focusableAfterIgnoredNotice = element => {
+  if (!element || !element.isConnected || element.disabled || typeof element.focus !== 'function') {
+    return false;
+  }
+
+  if (element.closest('[hidden], [aria-hidden="true"]')) {
+    return false;
+  }
+
+  const style = window.getComputedStyle(element);
+
+  return style.display !== 'none' && style.visibility !== 'hidden';
+};
+
+const focusAfterIgnoredNotice = root => {
+  if (!root || typeof root.querySelectorAll !== 'function') {
+    return null;
+  }
+
+  for (let index = 0; index < EMOJI_MUTE_NOTICE_FOCUS.length; index += 1) {
+    const candidates = root.querySelectorAll(EMOJI_MUTE_NOTICE_FOCUS[index]);
+
+    for (let candidate = 0; candidate < candidates.length; candidate += 1) {
+      if (focusableAfterIgnoredNotice(candidates[candidate])) {
+        return candidates[candidate];
+      }
+    }
+  }
+
+  return null;
+};
+
 const sessionMatches = state => {
   if (!state || typeof state.getIn !== 'function') {
     return true;
@@ -58,14 +118,18 @@ export default class Mastodon extends React.PureComponent {
   };
 
   state = {
-    emojiMuteBoot: signedIn ? 'loading' : 'ready',
+    emojiMuteBoot: 'ready',
     emojiMuteFailure: null,
+    emojiMuteRechecking: false,
+    ignoredNoticeClosed: false,
+    preferenceError: false,
+    preferenceSaving: false,
   };
 
   // Consecutive Redux actions may be batched before React commits setState.
   // Compare the requested phase as well as the committed one so a stale
   // action always supersedes an earlier ready action in the same batch.
-  requestedBootPhase = signedIn ? 'loading' : 'ready';
+  requestedBootPhase = 'ready';
 
   // The portal target is never changed or unmounted during a mute revision.
   // Instead we detach *that same DOM node* from the visible document. This
@@ -135,46 +199,25 @@ export default class Mastodon extends React.PureComponent {
     this.savedUiFocus = null;
   };
 
-  scheduleUiPortalRestore = () => {
-    const generation = this.uiRevealGeneration || 0;
-
-    // The Mastodon store subscription runs before the nested display
-    // subscriptions. Wait until the current Redux dispatch has finished
-    // updating their projected HTML/ARIA before making it visible again.
-    Promise.resolve().then(() => {
-      if (generation !== (this.uiRevealGeneration || 0) || !this.mounted || this.sessionChanged ||
-          this.state.emojiMuteBoot !== 'ready' || this.requestedBootPhase !== 'ready' ||
-          store.getState().getIn(['emojiMutes', 'phase']) !== 'ready') {
-        return null;
-      }
-
-      this.attachUiPortal();
-      return null;
-    }).catch(error => {
-      if (!this.mounted || this.sessionChanged) {
-        return null;
-      }
-
-      throw error;
-    });
-  };
-
   componentDidMount() {
     this.mounted = true;
     this.uiPortalRoot.className = 'emoji-mutes-privacy-portal';
     setEmojiActionsOverlayPrivacyContainer(this.uiPortalRoot);
     this.unsubscribeEmojiMutes = store.subscribe(this.observeEmojiMuteState);
+    this.uiInitialized = true;
+    this.uiPortalRoot.style.display = 'contents';
+    this.attachUiPortal();
+    this.bootstrapComplete = true;
+    this.startSubscriptions();
 
-    // A guest does not have a per-user mute document to fetch.
-    if (signedIn) {
+    // Known-disabled viewers keep their saved rules but do not fetch them at
+    // boot. Unknown and enabled viewers fetch in the background. The WebUI
+    // is already mounted; unverified emoji are omitted from the content.
+    if (signedIn && currentEmojiMuteBoot().fetch) {
       this.bootstrapEmojiMutes();
-    } else {
-      this.uiInitialized = true;
-      this.uiPortalRoot.style.display = 'contents';
-      this.attachUiPortal();
-      this.forceUpdate();
-      this.startSubscriptions();
     }
+
+    this.forceUpdate();
   }
 
   componentWillUnmount () {
@@ -206,9 +249,10 @@ export default class Mastodon extends React.PureComponent {
     }
   };
 
-  // A newer streaming revision means the currently rendered HTML may expose
-  // a newly muted emoji. Remove the WebUI (including images and aria labels)
-  // rather than merely covering it with CSS. Keep the Redux data intact.
+  // A newer streaming revision suppresses emoji in Redux. The module-level
+  // subscriber already removed the previous images and labels from the live
+  // document. This observer only moves the notice and isolates a changed
+  // session. The WebUI stays mounted, and compose drafts stay in their fields.
   observeEmojiMuteState = () => {
     if (!this.mounted || this.sessionChanged) {
       return;
@@ -223,7 +267,7 @@ export default class Mastodon extends React.PureComponent {
       this.sessionChanged = true;
       this.requestedBootPhase = 'session-changed';
       this.bootstrapGeneration = (this.bootstrapGeneration || 0) + 1;
-      this.setState({ emojiMuteBoot: 'session-changed' }, () => {
+      this.setState({ emojiMuteBoot: 'session-changed', ignoredNoticeClosed: false }, () => {
         if (this.disconnect) {
           this.disconnect();
           this.disconnect = null;
@@ -241,35 +285,73 @@ export default class Mastodon extends React.PureComponent {
     }
 
     const phase = state.getIn(['emojiMutes', 'phase']);
-    let next = 'loading';
+    const availability = state.getIn(['emojiMutes', 'availability']);
+    let next = this.requestedBootPhase;
 
-    if (phase === 'ready') {
+    const syncing = emojiMuteSyncInFlight();
+    // A confirmed failure stays on the card through a later sync. The first
+    // fetch has no failure yet, so that one still waits without a card.
+    const confirmedError = this.requestedBootPhase === 'error' || this.state.emojiMuteBoot === 'error';
+
+    if (availability === 'temporary_ignore') {
+      next = 'ignored';
+    } else if (phase === 'ready') {
       next = 'ready';
     } else if (phase === 'error') {
       next = 'error';
+    } else if (syncing || (phase === 'loading' && this.emojiMuteRequestInFlight)) {
+      next = confirmedError ? 'error' : 'loading';
     }
 
-    if (next !== this.requestedBootPhase) {
-      this.requestedBootPhase = next;
-      if (next !== 'ready') {
-        // Detach synchronously when the Redux revision changes, before any
-        // existing display subscription can expose unverified emoji content.
-        this.detachUiPortal();
-      }
+    if (next !== 'ready' && next !== 'error' && next !== 'ignored' && next !== 'loading') {
+      return;
+    }
 
+    const reduxFailure = state.getIn(['emojiMutes', 'failure']);
+    const failure = next === 'error' ? (reduxFailure || this.state.emojiMuteFailure || 'unavailable') : null;
+    // Only the newest sync disables retry. An older click can still be
+    // unsettled after that sync finishes, and the next click clears it.
+    const rechecking = next === 'error' && syncing;
+
+    if (next !== this.requestedBootPhase || failure !== this.state.emojiMuteFailure || rechecking !== this.state.emojiMuteRechecking) {
+      this.requestedBootPhase = next;
       this.setState({
         emojiMuteBoot: next,
-        emojiMuteFailure: next === 'error' ? (state.getIn(['emojiMutes', 'failure']) || 'unavailable') : null,
-      }, () => {
-        if (next === 'ready' && this.mounted && !this.sessionChanged) {
-          this.scheduleUiPortalRestore();
-        }
+        emojiMuteFailure: failure,
+        emojiMuteRechecking: rechecking,
+        preferenceError: next === 'ready' ? false : this.state.preferenceError,
       });
     }
   };
 
+  dismissIgnoredNotice = () => {
+    if (this.requestedBootPhase !== 'ignored' && this.state.emojiMuteBoot !== 'ignored') {
+      return;
+    }
+
+    this.setState({ ignoredNoticeClosed: true }, () => {
+      // The close control has left the document. Move only when nothing else
+      // still holds focus, and only onto the composer or search field.
+      if (!this.mounted || document.activeElement !== document.body) {
+        return;
+      }
+
+      const target = focusAfterIgnoredNotice(this.uiPortalRoot);
+
+      if (target) {
+        target.focus();
+      }
+    });
+  };
+
   bootstrapEmojiMutes = () => {
-    if (this.emojiMuteRequestInFlight || Date.now() < (this.retryReadyAt || 0)) {
+    // A click owns its sync only while that sync is still the newest one.
+    // An older click must not block the button after a later sync has finished.
+    if (this.emojiMuteRequestInFlight && this.emojiMuteOwnedSyncGeneration !== emojiMuteSyncGeneration() && !emojiMuteSyncInFlight()) {
+      this.emojiMuteRequestInFlight = false;
+    }
+
+    if (this.emojiMuteRequestInFlight || emojiMuteSyncInFlight() || Date.now() < (this.retryReadyAt || 0)) {
       return;
     }
 
@@ -277,13 +359,15 @@ export default class Mastodon extends React.PureComponent {
     this.bootstrapGeneration = generation;
     this.emojiMuteRequestInFlight = true;
     this.retryReadyAt = 0;
-    this.requestedBootPhase = 'loading';
-    this.setState({ emojiMuteBoot: 'loading', emojiMuteFailure: null });
+    this.setState({ preferenceError: false });
 
-    // Skip the status and notification refresh only before the first UI
-    // mount. A retry while that UI is detached still has withheld reactions
-    // and a notification list to restore, without mounting the columns again.
-    store.dispatch(syncEmojiMutes({ bootstrap: !this.uiInitialized })).then(() => {
+    // The WebUI is already mounted. The first GET skips the notification
+    // refresh because the columns are mounting. A later retry must restore them.
+    const initialDocumentFetch = !this.emojiMuteInitialFetchStarted;
+    this.emojiMuteInitialFetchStarted = true;
+    const request = store.dispatch(retryEmojiMuteLoad({ bootstrap: initialDocumentFetch }));
+    this.emojiMuteOwnedSyncGeneration = emojiMuteSyncGeneration();
+    request.then(result => {
       if (generation !== this.bootstrapGeneration) {
         return;
       }
@@ -294,38 +378,36 @@ export default class Mastodon extends React.PureComponent {
         return;
       }
 
+      // The newer sync already changed Redux. This completion does not.
+      if (result && result.superseded) {
+        this.bootstrapComplete = true;
+        this.observeEmojiMuteState();
+        return;
+      }
+
       this.bootstrapComplete = true;
-      // A stale server answer can resolve without applying a document. That
-      // is not permission to reveal the hydrated timeline.
-      const phase = store.getState().getIn(['emojiMutes', 'phase']);
+      const muteState = store.getState();
+      const availability = muteState.getIn(['emojiMutes', 'availability']);
+
+      if (availability === 'temporary_ignore') {
+        this.requestedBootPhase = 'ignored';
+        this.setState({ emojiMuteBoot: 'ignored', emojiMuteFailure: null, emojiMuteRechecking: false });
+        return;
+      }
+
+      const phase = muteState.getIn(['emojiMutes', 'phase']);
       if (phase !== 'ready') {
-        const failure = store.getState().getIn(['emojiMutes', 'failure']) || 'unavailable';
+        const failure = muteState.getIn(['emojiMutes', 'failure']) || this.state.emojiMuteFailure || 'unavailable';
         this.requestedBootPhase = 'error';
         if (failure === 'unavailable') {
           this.retryReadyAt = Date.now() + EMOJI_MUTE_RETRY_COOLDOWN_MS;
         }
-        this.setState({ emojiMuteBoot: 'error', emojiMuteFailure: failure });
+        this.setState({ emojiMuteBoot: 'error', emojiMuteFailure: failure, emojiMuteRechecking: false });
         return;
       }
 
-      const initialMount = !this.uiInitialized;
-      this.uiInitialized = true;
-      this.uiPortalRoot.style.display = 'contents';
-      if (initialMount) {
-        // An empty root is safe to attach before the first UI mount; this
-        // ensures componentDidMount sees real geometry.
-        this.attachUiPortal();
-      }
-
       this.requestedBootPhase = 'ready';
-      this.setState({ emojiMuteBoot: 'ready', emojiMuteFailure: null }, () => {
-        if (!initialMount) {
-          // An existing UI holds old HTML. It must remain detached until
-          // the fresh Redux document has propagated to its display nodes.
-          this.scheduleUiPortalRestore();
-        }
-        this.startSubscriptions();
-      });
+      this.setState({ emojiMuteBoot: 'ready', emojiMuteFailure: null, emojiMuteRechecking: false });
     }).catch(error => {
       if (generation !== this.bootstrapGeneration) {
         return;
@@ -333,7 +415,18 @@ export default class Mastodon extends React.PureComponent {
 
       this.emojiMuteRequestInFlight = false;
 
+      // A newer sync already replaced this GET. Its completion owns the card.
+      if (error && error.superseded) {
+        return;
+      }
+
       if (!this.mounted || this.sessionChanged) {
+        return;
+      }
+
+      const availability = store.getState().getIn(['emojiMutes', 'availability']);
+
+      if (availability === 'temporary_ignore' || availability === 'disabled') {
         return;
       }
 
@@ -345,7 +438,43 @@ export default class Mastodon extends React.PureComponent {
         this.retryReadyAt = Date.now() + EMOJI_MUTE_RETRY_COOLDOWN_MS;
       }
 
-      this.setState({ emojiMuteBoot: 'error', emojiMuteFailure: failure });
+      this.setState({ emojiMuteBoot: 'error', emojiMuteFailure: failure, emojiMuteRechecking: false });
+    });
+  };
+
+  ignoreEmojiMutes = () => {
+    store.dispatch(ignoreEmojiMutesThisView());
+  };
+
+  turnEmojiMutesOff = () => {
+    if (this.state.preferenceSaving) {
+      return;
+    }
+
+    this.setState({ preferenceSaving: true, preferenceError: false });
+    store.dispatch(disableEmojiMuteFeature()).then(data => {
+      if (!this.mounted || this.sessionChanged) {
+        return;
+      }
+
+      if (!data || data.applied !== true || data.enabled !== false) {
+        this.setState({ preferenceSaving: false, preferenceError: true });
+        return;
+      }
+
+      this.requestedBootPhase = 'ready';
+      this.setState({
+        preferenceSaving: false,
+        preferenceError: false,
+        emojiMuteBoot: 'ready',
+        emojiMuteFailure: null,
+      });
+    }).catch(() => {
+      if (!this.mounted || this.sessionChanged) {
+        return;
+      }
+
+      this.setState({ preferenceSaving: false, preferenceError: true });
     });
   };
 
@@ -364,44 +493,21 @@ export default class Mastodon extends React.PureComponent {
 
   render () {
     const { locale } = this.props;
-
     const boot = this.state.emojiMuteBoot;
-    let bootContent;
-
-    if (boot === 'loading') {
-      bootContent = <FormattedMessage id='emoji_mutes.bootstrap_loading' defaultMessage='Loading emoji mute settings…' />;
-    } else if (boot === 'session-changed') {
-      bootContent = (
-        <React.Fragment>
-          <p><FormattedMessage id='emoji_mutes.session_changed' defaultMessage='Your account changed. Reload to protect your emoji mute settings.' /></p>
-          <button type='button' onClick={this.reloadPage}>
-            <FormattedMessage id='emoji_mutes.session_reload' defaultMessage='Reload the page' />
-          </button>
-        </React.Fragment>
-      );
-    } else if (this.state.emojiMuteFailure === 'unauthorized') {
-      bootContent = (
-        <React.Fragment>
-          <p><FormattedMessage id='emoji_mutes.bootstrap_unauthorized' defaultMessage='Your session expired. Reload the page and sign in again. Posts stay hidden until then.' /></p>
-          <button type='button' onClick={this.reloadPage}>
-            <FormattedMessage id='emoji_mutes.bootstrap_sign_in' defaultMessage='Reload and sign in' />
-          </button>
-        </React.Fragment>
-      );
-    } else if (this.state.emojiMuteFailure === 'forbidden') {
-      bootContent = (
-        <p><FormattedMessage id='emoji_mutes.bootstrap_forbidden' defaultMessage='This account cannot read emoji mute settings. Posts stay hidden.' /></p>
-      );
-    } else {
-      bootContent = (
-        <React.Fragment>
-          <p><FormattedMessage id='emoji_mutes.bootstrap_error' defaultMessage='Emoji mute settings could not be verified. Posts are hidden until you retry.' /></p>
-          <button type='button' onClick={this.bootstrapEmojiMutes}>
-            <FormattedMessage id='emoji_mutes.bootstrap_retry' defaultMessage='Retry loading settings' />
-          </button>
-        </React.Fragment>
-      );
-    }
+    const sessionChanged = boot === 'session-changed';
+    const noticeValue = {
+      boot,
+      failure: this.state.emojiMuteFailure,
+      rechecking: this.state.emojiMuteRechecking,
+      ignoredNoticeClosed: this.state.ignoredNoticeClosed,
+      preferenceSaving: this.state.preferenceSaving,
+      preferenceError: this.state.preferenceError,
+      onRetry: this.bootstrapEmojiMutes,
+      onIgnore: this.ignoreEmojiMutes,
+      onDismissIgnored: this.dismissIgnoredNotice,
+      onDisable: this.turnEmojiMutesOff,
+      onReload: this.reloadPage,
+    };
 
     const ui = this.uiInitialized && createPortal(
       <BrowserRouter basename='/web'>
@@ -416,20 +522,15 @@ export default class Mastodon extends React.PureComponent {
       <IntlProvider locale={locale} messages={messages}>
         <Provider store={store}>
           <ErrorBoundary>
-            <React.Fragment>
-              {/* The ready WebUI requires the real .app-holder > div flex box
-                  for its responsive width/alignment. When the privacy gate
-                  is showing (and the UI is detached), this empty host must
-                  be boxless so it does not displace the retry/loading UI.
-                  The inner privacy root always stays display: contents. */}
-              <div ref={this.setUiPortalHost} style={boot === 'ready' ? undefined : { display: 'contents' }} />
+            <EmojiMuteNoticeContext.Provider value={noticeValue}>
+              <div ref={this.setUiPortalHost} style={sessionChanged ? { display: 'contents' } : undefined} />
               {ui}
-              {boot !== 'ready' && (
-                <div className='emoji-mutes-bootstrap' role={boot === 'error' ? 'alert' : 'status'} style={{ padding: '2rem', textAlign: 'center' }}>
-                  {bootContent}
+              {sessionChanged && (
+                <div className='emoji-mute-load-notice-slot'>
+                  <EmojiMuteLoadNotice placement='session' />
                 </div>
               )}
-            </React.Fragment>
+            </EmojiMuteNoticeContext.Provider>
           </ErrorBoundary>
         </Provider>
       </IntlProvider>

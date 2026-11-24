@@ -1,5 +1,12 @@
 import api from 'mastodon/api';
 import initialState from 'mastodon/initial_state_data';
+import { emojiMuteBypassEnabled } from './emoji_mute_boot_bypass';
+import {
+  currentEmojiMuteBoot,
+  noteEmojiMuteDisabledLocally,
+  noteEmojiMuteEnabledLocally,
+  resetEmojiMuteBootForTests,
+} from './emoji_mute_availability';
 
 // Memory only. The definition, replacement text, and access token are not
 // written to localStorage. `observedRevision` is the newest change we have
@@ -10,6 +17,7 @@ const REVISION = /^(?:0|[1-9]\d*)$/;
 // Axios has no request timeout by default. A stalled request must release
 // the initial/stream revision gate to a retryable error state.
 const EMOJI_MUTES_GET_TIMEOUT_MS = 20000;
+const EMOJI_MUTE_PREFERENCE_TIMEOUT_MS = 20000;
 
 let observedRevision = null;
 let appliedRevision = null;
@@ -23,7 +31,18 @@ let sessionVersion = 0;
 // already hold. Only a GET that adopts a current document lifts this.
 let authorizationFailure = null;
 let viewerSignedInOverride = null;
+let temporaryIgnore = false;
+let preferenceConfirming = false;
+let preferenceConfirmGeneration = 0;
 const documentListeners = new Set();
+
+function rulesFetchSkipped() {
+  return emojiMuteBypassEnabled() || temporaryIgnore || currentEmojiMuteBoot().availability === 'disabled';
+}
+
+export function emojiMuteTemporarilyIgnored() {
+  return temporaryIgnore;
+}
 
 function viewerIsSignedIn() {
   if (viewerSignedInOverride !== null) {
@@ -110,6 +129,16 @@ export function blockEmojiMuteAuthorization(failure) {
 }
 
 export function emojiMuteDocumentReady() {
+  // Reconnect confirmation has already hidden emoji in Redux. The module
+  // must not keep accepting reactions from the previous OFF snapshot.
+  if (preferenceConfirming) {
+    return false;
+  }
+
+  if (rulesFetchSkipped()) {
+    return true;
+  }
+
   if (authorizationFailure) {
     return false;
   }
@@ -122,18 +151,120 @@ export function emojiMuteDocumentReady() {
     (observedRevision === null || compareRevision(appliedRevision, observedRevision) >= 0);
 }
 
+function releaseEmojiMutePreferenceConfirmation() {
+  preferenceConfirmGeneration += 1;
+  preferenceConfirming = false;
+}
+
+export function beginEmojiMutePreferenceConfirmation() {
+  preferenceConfirming = true;
+  preferenceConfirmGeneration += 1;
+  requestVersion += 1;
+  request = null;
+  settled = false;
+  notifyEmojiMuteDocument();
+  return preferenceConfirmGeneration;
+}
+
+export function emojiMutePreferenceConfirmationCurrent(generation) {
+  return generation === preferenceConfirmGeneration;
+}
+
+export function endEmojiMutePreferenceConfirmation(generation) {
+  if (generation !== preferenceConfirmGeneration) {
+    return false;
+  }
+
+  releaseEmojiMutePreferenceConfirmation();
+  notifyEmojiMuteDocument();
+  return true;
+}
+
+export function emojiMutePreferenceConfirming() {
+  return preferenceConfirming;
+}
+
+export function abandonEmojiMutePreferenceConfirmation() {
+  if (!preferenceConfirming) {
+    return false;
+  }
+
+  releaseEmojiMutePreferenceConfirmation();
+  notifyEmojiMuteDocument();
+  return true;
+}
+
 // Invalidate outstanding GETs before an account boundary is crossed. No
 // credential, definition or replacement text is persisted in browser storage.
 export function resetEmojiMuteSession() {
   sessionVersion += 1;
   requestVersion += 1;
+  appliedPreferenceRevision = '0';
+  releaseEmojiMutePreferenceConfirmation();
+  beginEmojiMutePreferenceRead();
   observedRevision = null;
   appliedRevision = null;
   mutes = [];
   request = null;
   settled = false;
   authorizationFailure = null;
+  temporaryIgnore = false;
   invalidateEmojiMuteNotificationFetches();
+  notifyEmojiMuteDocument();
+}
+
+export function beginEmojiMuteEnabledFetch() {
+  noteEmojiMuteEnabledLocally();
+  releaseEmojiMutePreferenceConfirmation();
+  beginEmojiMutePreferenceRead();
+  temporaryIgnore = false;
+  requestVersion += 1;
+  request = null;
+  settled = false;
+  appliedRevision = null;
+  mutes = [];
+  authorizationFailure = null;
+  notifyEmojiMuteDocument();
+}
+
+export function applyEmojiMuteDisabledDocument(explicit = false) {
+  noteEmojiMuteDisabledLocally(explicit);
+  releaseEmojiMutePreferenceConfirmation();
+  beginEmojiMutePreferenceRead();
+  temporaryIgnore = false;
+  requestVersion += 1;
+  request = null;
+  settled = true;
+  appliedRevision = appliedRevision || '0';
+  observedRevision = appliedRevision;
+  mutes = [];
+  authorizationFailure = null;
+  notifyEmojiMuteDocument();
+}
+
+export function ignoreEmojiMutesForThisView() {
+  temporaryIgnore = true;
+  beginEmojiMutePreferenceRead();
+  releaseEmojiMutePreferenceConfirmation();
+  requestVersion += 1;
+  request = null;
+  settled = true;
+  appliedRevision = appliedRevision || '0';
+  observedRevision = appliedRevision;
+  mutes = [];
+  authorizationFailure = null;
+  notifyEmojiMuteDocument();
+}
+
+export function clearEmojiMuteTemporaryIgnore() {
+  if (!temporaryIgnore) {
+    return;
+  }
+
+  temporaryIgnore = false;
+  settled = false;
+  appliedRevision = null;
+  mutes = [];
   notifyEmojiMuteDocument();
 }
 
@@ -145,13 +276,34 @@ export function emojiReactionEventsAccepted() {
   return emojiMuteDocumentReady();
 }
 
-function adopt(document, minRevision) {
+// The mute list uses Preference#as_json (`enabled`). Older create responses
+// used `emoji_mute_enabled`. Only a strict false turns effects off; a missing
+// field still applies the rules.
+function documentPreference(document) {
+  if (!document || typeof document !== 'object') {
+    return null;
+  }
+
+  if (document.enabled === true || document.enabled === false) {
+    return document.enabled;
+  }
+
+  if (document.emoji_mute_enabled === true || document.emoji_mute_enabled === false) {
+    return document.emoji_mute_enabled;
+  }
+
+  return null;
+}
+
+function adopt(document, minRevision, preferenceGeneration) {
   if (!document || !Array.isArray(document.emoji_mutes) || !REVISION.test(String(document.revision))) {
     throw new Error('Invalid emoji mute document');
   }
 
   const next = String(document.revision);
+  const preference = documentPreference(document);
 
+  // An older list must not turn the feature on or off after a newer list.
   if (appliedRevision !== null && compareRevision(next, appliedRevision) < 0) {
     return mutes;
   }
@@ -164,6 +316,24 @@ function adopt(document, minRevision) {
   // response below that revision is never an authoritative document.
   if (observedRevision !== null && compareRevision(next, observedRevision) < 0) {
     return mutes;
+  }
+
+  if (preference === false) {
+    // A preference read that started after this list owns the outcome.
+    // Adopting this snapshot would also invalidate that newer read.
+    if (preferenceGeneration !== preferenceReadGeneration) {
+      return mutes;
+    }
+
+    applyEmojiMuteDisabledDocument(document.explicit === true);
+    appliedRevision = next;
+    observedRevision = next;
+    notifyEmojiMuteDocument();
+    return mutes;
+  }
+
+  if (preference === true && currentEmojiMuteBoot().availability !== 'enabled') {
+    noteEmojiMuteEnabledLocally();
   }
 
   appliedRevision = next;
@@ -180,6 +350,21 @@ function adopt(document, minRevision) {
 }
 
 export function loadEmojiMutes(options = {}) {
+  if (rulesFetchSkipped()) {
+    const changed = !settled || appliedRevision === null;
+    settled = true;
+    appliedRevision = appliedRevision || '0';
+    if (emojiMuteBypassEnabled() || temporaryIgnore || currentEmojiMuteBoot().availability === 'disabled') {
+      mutes = [];
+    }
+
+    if (changed) {
+      notifyEmojiMuteDocument();
+    }
+
+    return Promise.resolve(mutes);
+  }
+
   if (!viewerIsSignedIn()) {
     const changed = !settled || appliedRevision === null;
     settled = true;
@@ -204,6 +389,7 @@ export function loadEmojiMutes(options = {}) {
 
   const version = ++requestVersion;
   const session = sessionVersion;
+  const preferenceGeneration = preferenceReadGeneration;
   const pending = api().get('/api/v1/fedibird/emoji_mutes', { headers, timeout: EMOJI_MUTES_GET_TIMEOUT_MS }).then(response => {
     // Force refresh, session reset, or another user's request superseded us.
     // The old promise may finish, but it must not mutate the module document.
@@ -217,7 +403,7 @@ export function loadEmojiMutes(options = {}) {
       throw new Error('Emoji mute revision did not reach the verified version');
     }
 
-    return adopt(response.data, options.minRevision);
+    return adopt(response.data, options.minRevision, preferenceGeneration);
   }).finally(() => {
     if (request === pending) {
       request = null;
@@ -229,6 +415,10 @@ export function loadEmojiMutes(options = {}) {
 }
 
 export function noteEmojiMutesChanged(payload) {
+  if (preferenceConfirming || rulesFetchSkipped()) {
+    return Promise.resolve(mutes);
+  }
+
   const next = payload && payload.revision !== undefined && payload.revision !== null ? String(payload.revision) : '';
 
   if (!REVISION.test(next)) {
@@ -266,12 +456,164 @@ export function noteEmojiMutesChanged(payload) {
 
 export function resetEmojiMuteStoreForTests() {
   viewerSignedInOverride = null;
+  temporaryIgnore = false;
+  preferenceReadGeneration = 0;
+  appliedPreferenceRevision = '0';
+  resetEmojiMuteBootForTests();
   resetEmojiMuteSession();
   notificationFetchEpoch = 0;
 }
 
+let preferenceReadGeneration = 0;
+let appliedPreferenceRevision = '0';
+
+export function emojiMuteRequestVersion() {
+  return requestVersion;
+}
+
+export function emojiMutePreferenceGeneration() {
+  return preferenceReadGeneration;
+}
+
+export function beginEmojiMutePreferenceRead() {
+  preferenceReadGeneration += 1;
+  return preferenceReadGeneration;
+}
+
+export function emojiMutePreferenceReadCurrent(generation) {
+  return generation === preferenceReadGeneration;
+}
+
+export function preferenceRevisionStale(revision) {
+  if (revision === undefined || revision === null || revision === '') {
+    return false;
+  }
+
+  return compareRevision(String(revision), appliedPreferenceRevision) < 0;
+}
+
+export function notePreferenceRevision(revision) {
+  if (revision === undefined || revision === null || revision === '') {
+    return;
+  }
+
+  const next = String(revision);
+
+  if (compareRevision(next, appliedPreferenceRevision) > 0) {
+    appliedPreferenceRevision = next;
+  }
+}
+
+export function emojiMutePreferenceReadable(data) {
+  return !!(data && (data.enabled === true || data.enabled === false));
+}
+
+export function emojiMutePreferenceAcceptable(data) {
+  return emojiMutePreferenceReadable(data) && data.explicit === true;
+}
+
+function applySavedPreference(data) {
+  notePreferenceRevision(data.preference_revision);
+
+  if (data.enabled === false) {
+    applyEmojiMuteDisabledDocument(true);
+  } else if (!(currentEmojiMuteBoot().availability === 'enabled' && emojiMuteDocumentReady())) {
+    beginEmojiMuteEnabledFetch();
+  }
+
+  return { ...data, applied: true };
+}
+
+function preferenceNotSavedError() {
+  const error = new Error('Emoji mute preference was not saved');
+  error.preferenceNotSaved = true;
+  return error;
+}
+
+function preferenceUnconfirmedError() {
+  const error = new Error('Emoji mute preference response could not be confirmed');
+  error.preferenceUnconfirmed = true;
+  return error;
+}
+
+function preferenceResponseLost(error) {
+  if (error && error.preferenceNotSaved) {
+    return false;
+  }
+
+  if (error && error.preferenceUnconfirmed) {
+    return true;
+  }
+
+  const code = error && error.response && error.response.data && Array.isArray(error.response.data.errors)
+    ? error.response.data.errors[0] && error.response.data.errors[0].code
+    : null;
+
+  if (code === 'not_saved') {
+    return true;
+  }
+
+  return !error || !error.response;
+}
+
+export function loadEmojiMutePreference() {
+  const headers = {};
+
+  if (accessToken) {
+    headers.Authorization = `Bearer ${accessToken}`;
+  }
+
+  return api().get('/api/v1/fedibird/emoji_mute_preference', { headers, timeout: EMOJI_MUTE_PREFERENCE_TIMEOUT_MS }).then(response => (
+    response && response.data
+  ));
+}
+
+function confirmSavedPreference(generation) {
+  return loadEmojiMutePreference().then(data => {
+    if (!emojiMutePreferenceAcceptable(data)) {
+      throw preferenceNotSavedError();
+    }
+
+    if (!emojiMutePreferenceReadCurrent(generation) || preferenceRevisionStale(data.preference_revision)) {
+      return { ...data, applied: false };
+    }
+
+    return applySavedPreference(data);
+  });
+}
+
+export function saveEmojiMuteEnabled(enabled) {
+  const headers = { 'Content-Type': 'application/json' };
+  const generation = preferenceReadGeneration;
+
+  if (accessToken) {
+    headers.Authorization = `Bearer ${accessToken}`;
+  }
+
+  return api().patch('/api/v1/fedibird/emoji_mute_preference', { enabled }, { headers, timeout: EMOJI_MUTE_PREFERENCE_TIMEOUT_MS }).then(response => {
+    const data = response && response.data;
+
+    if (!emojiMutePreferenceAcceptable(data)) {
+      throw preferenceUnconfirmedError();
+    }
+
+    if (!emojiMutePreferenceReadCurrent(generation) || preferenceRevisionStale(data.preference_revision)) {
+      return confirmSavedPreference(generation);
+    }
+
+    return applySavedPreference(data);
+  }).catch(error => {
+    if (!preferenceResponseLost(error)) {
+      throw error;
+    }
+
+    return confirmSavedPreference(generation);
+  });
+}
+
 export function installEmojiMutesForTests(document) {
   // No pending request from another fixture may overwrite this document.
+  releaseEmojiMutePreferenceConfirmation();
   requestVersion += 1;
   sessionVersion += 1;
   appliedRevision = String(document.revision);

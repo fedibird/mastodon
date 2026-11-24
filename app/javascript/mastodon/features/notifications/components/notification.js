@@ -13,7 +13,7 @@ import Emoji from 'mastodon/components/emoji';
 import Icon from 'mastodon/components/icon';
 import Permalink from 'mastodon/components/permalink';
 import Content from 'mastodon/components/content';
-import EmojiMutedHtml, { bindCustomEmojiClick, unbindCustomEmojiClick, customEmojiTarget } from 'mastodon/components/emoji_muted_html';
+import EmojiMutedHtml, { bindCustomEmojiClick, unbindCustomEmojiClick, customEmojiTarget, EmojiMuteSurface } from 'mastodon/components/emoji_muted_html';
 import { attachInlineEmojiMenus, handleInlineEmojiClick } from 'mastodon/features/emoji/emoji_actions/inline_emoji';
 import classNames from 'classnames';
 import Report from './report';
@@ -491,7 +491,9 @@ class Notification extends ImmutablePureComponent {
         <div className={classNames('notification notification-reaction focusable', { unread })} tabIndex='0' aria-label={notificationForScreenReader(intl, intl.formatMessage(messages.emoji_reaction, { name: notification.getIn(['account', 'acct']) }), notification.get('created_at'))}>
           <div className='notification__message' ref={this.setRef}>
             <div className={classNames('notification__reaction-icon-wrapper', { wide })}>
-              <Emoji hovered={false} emoji={emoji} title={title} url={url} static_url={static_url} domain={domain} />
+              <EmojiMuteSurface>
+                <Emoji hovered={false} emoji={emoji} title={title} url={url} static_url={static_url} domain={domain} />
+              </EmojiMuteSurface>
             </div>
 
             <span title={notification.get('created_at')} className={classNames('notification__reaction-message-wrapper', { wide })}>

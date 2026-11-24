@@ -44,6 +44,14 @@ module Settings
       key = key.to_s
       if @object.is_a?(User) && key == PersonalEmojiSets::PickerSize::KEY
         PersonalEmojiSets::PickerSize.write_legacy!(@object, value)
+      elsif @object.is_a?(User) && key == EmojiMutes::Preference::KEY
+        record = thing_scoped.find_or_initialize_by(var: key)
+        record.update!(value: value)
+        # The saved argument can be older than a commit that landed after this
+        # request read the row. The refresh writes the current database value.
+        # The request memo must not keep the value from before this write.
+        EmojiMutes::Preference.refresh_cache(record)
+        EmojiMutes::Preference.new(@object).forget_rules!
       else
         record = thing_scoped.find_or_initialize_by(var: key)
         record.update!(value: value)
@@ -58,6 +66,9 @@ module Settings
       # personal-set save commits. This one shared editor setting is read from
       # its row, retaining the legacy raw type without that stale-fill race.
       return PersonalEmojiSets::PickerSize.read_raw(@object.id) if @object.is_a?(User) && name == PersonalEmojiSets::PickerSize::KEY
+      # A cache miss can observe off, then fill that value after a newer on
+      # has been committed. This gate is the row, not that fill.
+      return EmojiMutes::Preference.read_value(@object) if @object.is_a?(User) && name == EmojiMutes::Preference::KEY
       return read_revision_value(name) if revision_scoped?(name)
 
       read_legacy_value(name)

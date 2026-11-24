@@ -768,7 +768,10 @@ img.custom-emoji[data-emoji-actions='1'] {
     background: $ui-base-color;
     color: $primary-text-color;
     box-shadow: 0 6px 24px rgba(0, 0, 0, .28);
-    pointer-events: none;
+    // Intercept pointer/touch over the entire preview, including empty space.
+    pointer-events: auto;
+    user-select: none;
+    -webkit-user-select: none;
   }
 
   .emoji-actions-menu__preview-media {

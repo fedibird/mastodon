@@ -40,6 +40,26 @@ const INACTIVE_INDEX = Object.freeze({
   replacements: new Map(),
 });
 
+// Shown in place of every user-generated emoji while the mute document is
+// not verified. It is not a glyph, an alt string, or an image URL.
+export const UNVERIFIED_EMOJI_PLACEHOLDER = '\u25FB';
+const SUPPRESS_UNICODE_EMOJI = /(?:\p{Regional_Indicator}{2}|[#*0-9]\uFE0F?\u20E3|\p{Extended_Pictographic}(?:\uFE0F|\uFE0E)?(?:\p{Emoji_Modifier})?(?:\u200D\p{Extended_Pictographic}(?:\uFE0F|\uFE0E)?(?:\p{Emoji_Modifier})?)*|\p{Emoji_Modifier}|\p{Regional_Indicator})/gu;
+
+export const SUPPRESS_UNVERIFIED_INDEX = Object.freeze({
+  signature: 'suppress-unverified',
+  active: true,
+  suppressAll: true,
+  replacements: new Map(),
+});
+
+export function suppressUnicodeEmoji(text) {
+  if (typeof text !== 'string' || text === '') {
+    return text;
+  }
+
+  return text.replace(SUPPRESS_UNICODE_EMOJI, UNVERIFIED_EMOJI_PLACEHOLDER);
+}
+
 let cachedRules = null;
 let cachedIndex = INACTIVE_INDEX;
 let cacheSignature = INACTIVE_INDEX.signature;
@@ -150,6 +170,28 @@ export function replaceInTextIndexFromRules(rules) {
   return cachedIndex;
 }
 
+// One display decision for every surface. `suppress` hides user emoji before
+// a document is verified. `show` is an explicit off or a temporary ignore.
+// Anything else, including older tests that only store rules, applies those
+// rules. Callers must not read `rules` on their own.
+export function emojiMuteTextIndexFromState(state) {
+  if (!state || typeof state.getIn !== 'function') {
+    return undefined;
+  }
+
+  const display = state.getIn(['emojiMutes', 'display']);
+
+  if (display === 'suppress') {
+    return SUPPRESS_UNVERIFIED_INDEX;
+  }
+
+  if (display === 'show') {
+    return INACTIVE_INDEX;
+  }
+
+  return replaceInTextIndexFromRules(state.getIn(['emojiMutes', 'rules']));
+}
+
 const mappedReplacement = (index, reference) => {
   const key = identityKey(reference);
 
@@ -160,7 +202,29 @@ const mappedReplacement = (index, reference) => {
   return index.replacements.get(key);
 };
 
+const EMOJI_ASSET_SRC = /(?:^|[\s/"'(])emoji\/[0-9a-f][0-9a-f-]*\.svg(?=$|[\s,"')])/i;
+
+// A user emoji image is the glyph itself. A normal attachment can keep its
+// URL; only its readable text is scrubbed while verification is pending.
+export function isUserEmojiImage(img) {
+  if (!img || !img.classList) {
+    return false;
+  }
+
+  if (img.classList.contains('emojione') || img.classList.contains('custom-emoji')) {
+    return true;
+  }
+
+  const src = `${img.getAttribute('src') || ''} ${img.getAttribute('srcset') || ''}`;
+
+  return EMOJI_ASSET_SRC.test(src);
+}
+
 const replacementForImage = (img, index) => {
+  if (index && index.suppressAll === true && isUserEmojiImage(img)) {
+    return UNVERIFIED_EMOJI_PLACEHOLDER;
+  }
+
   if (!img.classList.contains('custom-emoji')) {
     const native = img.getAttribute('alt');
 
@@ -198,6 +262,51 @@ const replacementForImage = (img, index) => {
 
   return mappedReplacement(index, { kind: 'custom', scope: 'local', custom_emoji_id: id, shortcode });
 };
+
+// A badge or other plain label that still knows which image the slice came
+// from. The replacement is not scanned again.
+export function replacementForCustomEmoji(emoji, index) {
+  if (!emoji || !index || index.active !== true || index.suppressAll === true) {
+    return undefined;
+  }
+
+  const shortcode = typeof emoji.shortcode === 'string' ? emoji.shortcode : '';
+  const domain = typeof emoji.domain === 'string' ? emoji.domain : '';
+
+  if (shortcode === '' || !emoji.custom) {
+    return undefined;
+  }
+
+  if (domain !== '') {
+    return mappedReplacement(index, { kind: 'custom', scope: 'remote', domain, shortcode });
+  }
+
+  if (!emoji.id) {
+    return undefined;
+  }
+
+  return mappedReplacement(index, { kind: 'custom', scope: 'local', custom_emoji_id: emoji.id, shortcode });
+}
+
+// `keep` means the verified document still shows this image. A replacement
+// is the mute text, never the original glyph.
+export function projectedEmojiImage(img, index) {
+  if (!isUserEmojiImage(img) || !index || index.active !== true) {
+    return { keep: true, replacement: undefined };
+  }
+
+  if (index.suppressAll === true) {
+    return { keep: false, replacement: UNVERIFIED_EMOJI_PLACEHOLDER };
+  }
+
+  const replacement = replacementForImage(img, index);
+
+  if (replacement === undefined) {
+    return { keep: true, replacement: undefined };
+  }
+
+  return { keep: false, replacement };
+}
 
 const replaceNode = (node, text) => {
   const parent = node.parentNode;
@@ -327,7 +436,7 @@ const replaceCompleteEmojiSequence = (value, sequence, replacement) => {
   return result;
 };
 
-const attributeNamesIdentity = (value, identity) => {
+export const attributeNamesIdentity = (value, identity) => {
   if (!value || !identity) {
     return false;
   }
@@ -403,13 +512,33 @@ export function linkTargetEmojiRemains(link) {
   return false;
 }
 
-const LABEL_ATTRIBUTES = ['title', 'aria-label', 'aria-labelledby', 'aria-describedby'];
+const LABEL_ATTRIBUTES = ['title', 'aria-label', 'aria-description', 'aria-labelledby', 'aria-describedby'];
+
+// Real tag links keep range-aware labels. A normal link whose text happens
+// to start with # still has its image shortcode and domain removed.
+const hashtagLabelExempt = link => {
+  if (link.classList.contains('mention') && link.classList.contains('hashtag')) {
+    return true;
+  }
+
+  if (link.hasAttribute('data-menu-hashtag') || link.hasAttribute('data-menu-hashtag-token')) {
+    return true;
+  }
+
+  return false;
+};
 
 // Drop labels that name the muted emoji. Another emoji image in the same
 // link does not keep those labels, and an unrelated word such as "category"
 // is left in place. href and data-* stay so the existing detail link works.
 const scrubMutedEmojiLink = (link, replacement, identity) => {
   if (!link) {
+    return;
+  }
+
+  // A hashtag label can repeat the shortcode, with only one copy coming from
+  // the image. The hashtag projection knows which copy that is.
+  if (hashtagLabelExempt(link)) {
     return;
   }
 
@@ -482,13 +611,18 @@ const transformHtml = (html, index) => {
   parseCount += 1;
   const template = document.createElement('template');
   template.innerHTML = html;
-  const images = template.content.querySelectorAll('img.emojione');
+  const images = template.content.querySelectorAll('img');
   let changed = false;
 
   for (let indexInHtml = 0; indexInHtml < images.length; indexInHtml += 1) {
     const img = images[indexInHtml];
 
     if (!img.parentNode) {
+      continue;
+    }
+
+    // Attachment photos stay. Their alt is handled with the other labels.
+    if (!isUserEmojiImage(img)) {
       continue;
     }
 
@@ -507,6 +641,12 @@ const transformHtml = (html, index) => {
     changed = true;
   }
 
+  if (index && index.suppressAll === true) {
+    suppressTextNodes(template.content);
+    suppressLabelAttributes(template.content);
+    changed = true;
+  }
+
   if (!changed) {
     return html;
   }
@@ -516,8 +656,74 @@ const transformHtml = (html, index) => {
   return holder.innerHTML;
 };
 
+const READABLE_ATTRIBUTES = ['alt', 'title', 'aria-label', 'aria-description', 'aria-valuetext'];
+
+const suppressLabelAttributes = root => {
+  if (!root || typeof root.querySelectorAll !== 'function') {
+    return;
+  }
+
+  root.querySelectorAll('[alt], [title], [aria-label], [aria-description], [aria-valuetext]').forEach(element => {
+    READABLE_ATTRIBUTES.forEach(name => {
+      const value = element.getAttribute(name);
+
+      if (!value) {
+        return;
+      }
+
+      const next = suppressUnicodeEmoji(value);
+
+      if (next !== value) {
+        element.setAttribute(name, next);
+      }
+    });
+  });
+};
+
+const suppressTextNodes = root => {
+  const nodes = [];
+
+  const walk = node => {
+    if (!node) {
+      return;
+    }
+
+    if (node.nodeType === Node.TEXT_NODE) {
+      nodes.push(node);
+      return;
+    }
+
+    const children = node.childNodes;
+
+    if (!children) {
+      return;
+    }
+
+    for (let index = 0; index < children.length; index += 1) {
+      walk(children[index]);
+    }
+  };
+
+  walk(root);
+  nodes.forEach(node => {
+    const next = suppressUnicodeEmoji(node.nodeValue || '');
+
+    if (next !== node.nodeValue) {
+      node.nodeValue = next;
+    }
+  });
+};
+
 export function replaceEmojiInDisplayHtml(html, index) {
-  if (!index || index.active !== true || typeof html !== 'string' || html.indexOf('emojione') === -1) {
+  if (!index || index.active !== true || typeof html !== 'string') {
+    return html;
+  }
+
+  // A character reference such as &#100; is still an emoji asset URL once the
+  // browser decodes the attribute. The raw fast path would skip that img.
+  const encodedEmojiUrl = /<img\b[^>]*\bemoji\/[^"' >]*&(?:#|amp;#)/i.test(html);
+
+  if (index.suppressAll !== true && html.indexOf('emojione') === -1 && html.indexOf('custom-emoji') === -1 && !EMOJI_ASSET_SRC.test(html) && !encodedEmojiUrl) {
     return html;
   }
 
@@ -542,6 +748,48 @@ export function replaceEmojiInDisplayHtml(html, index) {
   }
 
   return next;
+}
+
+// Text that belongs to this node. A later emoji image stays on its own node,
+// so its alt is not copied into the text. Null means the projection is only
+// that image and there is no text to write.
+export function displayTextForEmojiMuteHtml(html, index) {
+  const next = replaceEmojiInDisplayHtml(typeof html === 'string' ? html : '', index);
+  const template = document.createElement('template');
+
+  template.innerHTML = next || '';
+
+  let text = '';
+  let sawEmojiImage = false;
+  const walk = node => {
+    if (sawEmojiImage || !node) {
+      return;
+    }
+
+    if (node.nodeType === Node.TEXT_NODE) {
+      text += node.nodeValue || '';
+      return;
+    }
+
+    if (node.nodeType !== Node.ELEMENT_NODE) {
+      return;
+    }
+
+    if (node.tagName === 'IMG' && isUserEmojiImage(node)) {
+      sawEmojiImage = true;
+      return;
+    }
+
+    Array.from(node.childNodes).forEach(walk);
+  };
+
+  Array.from(template.content.childNodes).forEach(walk);
+
+  if (text === '' && sawEmojiImage) {
+    return null;
+  }
+
+  return text;
 }
 
 const visibleText = html => {
@@ -705,14 +953,15 @@ const replaceUnicodeEmojiSequences = (text, index, mapReplacement) => {
 // Plain text, such as a screen-reader segment or a collapsed label. Custom
 // shortcodes are not emoji identities here.
 export function replaceUnicodeEmojiInPlainText(text, index) {
+  if (index && index.suppressAll === true) {
+    return suppressUnicodeEmoji(text);
+  }
+
   return replaceUnicodeEmojiSequences(text, index, value => value);
 }
 
-// User-authored plain text such as an attachment description. Only a finished
-// Unicode sequence can match. A literal `:shortcode:` is not a custom emoji:
-// this string has no stable local id and no author domain to compare.
-export function emojiMutedAltText(text, index) {
-  if (typeof text !== 'string') {
+export function presentEmojiMutePlain(text, index) {
+  if (typeof text !== 'string' || text === '') {
     return text;
   }
 
@@ -783,6 +1032,12 @@ const previewHtmlFromTextNodes = (text, index) => {
 };
 
 export function replaceUnicodeEmojiInPreviewHtml(text, index) {
+  if (index && index.suppressAll === true) {
+    // Scheduled previews can already contain emojione <img> markup. Share the
+    // display projection so src, srcset, alt, and title do not survive.
+    return typeof text === 'string' ? replaceEmojiInDisplayHtml(text, index) : text;
+  }
+
   if (typeof text !== 'string' || !index || index.active !== true) {
     return text;
   }
@@ -950,6 +1205,17 @@ const spokenCustomText = (html, index) => {
 };
 
 export function replaceMutedEmojiInPlain(plain, html, index) {
+  if (index && index.suppressAll === true && typeof plain === 'string') {
+    const source = stripIndexedNodes(typeof html === 'string' ? html : '');
+    const spoken = spokenCustomText(source, index);
+
+    if (spoken === null) {
+      return suppressUnicodeEmoji(plain);
+    }
+
+    return suppressUnicodeEmoji(spoken);
+  }
+
   if (typeof plain !== 'string' || plain === '' || !index || index.active !== true) {
     return plain;
   }
@@ -972,7 +1238,11 @@ export function emojiMutedPlainLabel(plain, html, index) {
   const presented = replaceEmojiInDisplayHtml(html, index);
 
   if (presented === html || typeof presented !== 'string') {
-    return plain;
+    if (!index || index.active !== true) {
+      return plain;
+    }
+
+    return replaceUnicodeEmojiInPlainText(plain, index);
   }
 
   const signature = index && index.signature ? index.signature : '';

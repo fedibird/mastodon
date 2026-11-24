@@ -180,12 +180,18 @@ const initialState = ImmutableMap({
   }),
 
   bookmarked_statuses: ImmutableMap({
+    other: ImmutableMap({
+      sortByPostDate: false,
+    }),
     regex: ImmutableMap({
       body: '',
     }),
   }),
 
   favourited_statuses: ImmutableMap({
+    other: ImmutableMap({
+      sortByPostDate: false,
+    }),
     regex: ImmutableMap({
       body: '',
     }),
@@ -200,6 +206,7 @@ const initialState = ImmutableMap({
     other: ImmutableMap({
       onlyMedia: false,
       withoutMedia: false,
+      sortByPostDate: false,
     }),
     regex: ImmutableMap({
       body: '',

@@ -13,8 +13,10 @@ import { setStatusTranslationAssumption, setTranslationTargetLanguage } from 'ma
 import { autoPlayEmoji, disableReactions, me, translationBarVisibility, translationPreferredMode, translationPrivateContentAllowed } from 'mastodon/initial_state';
 import { selectAcceptedTranslationPreferences } from 'mastodon/selectors/user_preferences';
 import { translationCapability, translationRequestStatus } from 'mastodon/utils/translation_languages';
-import { linkTargetEmojiRemains, replaceEmojiInDisplayHtml, replaceInTextIndexFromRules, retainMutedEmojiLinkLabel } from 'mastodon/features/emoji/emoji_mute_text';
-import { computeStatusHashtagBadges, isHashtagMenuLink, stripMatchingTrailingHashtags } from 'mastodon/utils/status_hashtags';
+import { bindHashtagMenuName, hashtagIdentityFromNode, hashtagMenuDomName, projectConcealedHashtagText, projectHashtagLabel, syncOpenHashtagMenu } from 'mastodon/features/emoji/hashtag_menu_names';
+import { pairTranslationBlocks } from 'mastodon/utils/translation_blocks';
+import { emojiMuteTextIndexFromState, linkTargetEmojiRemains, replaceEmojiInDisplayHtml, retainMutedEmojiLinkLabel } from 'mastodon/features/emoji/emoji_mute_text';
+import { computeStatusHashtagBadges, isHashtagMenuLink, localeAwareInclude, stripMatchingTrailingHashtags } from 'mastodon/utils/status_hashtags';
 import { sameLanguagePair, statusTranslationView, translationBarEffectivelyVisible, translationDisplayStatus, translationRequestPair, viewerTranslationPair } from 'mastodon/utils/translation_view';
 import { attachInlineEmojiMenus, isInlineEmojiLongPressClick, openInlineEmojiMenu } from 'mastodon/features/emoji/emoji_actions/inline_emoji';
 
@@ -49,7 +51,7 @@ const mapStateToProps = (state, ownProps) => {
     translationBarRevealed: translationBarRevealed(state, subject),
     acceptedTranslationBarVisibility: accepted.visibility,
     acceptedTranslationPreferredMode: accepted.preferredMode,
-    emojiMuteTextIndex: replaceInTextIndexFromRules(state.getIn(['emojiMutes', 'rules'])),
+    emojiMuteTextIndex: emojiMuteTextIndexFromState(state),
   };
 };
 
@@ -62,6 +64,129 @@ const mapDispatchToProps = dispatch => ({
     dispatch(setTranslationTargetLanguage(target));
   },
 });
+
+const sameHashtagName = (left, right) => localeAwareInclude([left || ''], right || '');
+
+const rangesAgree = (left, right) => (
+  left.length === right.length && left.every((range, index) => range[0] === right[index][0] && range[1] === right[index][1])
+);
+
+// Case-only spelling keeps the image offsets. A length change can still place
+// a shortcode that occurs once. Anything else hides the whole tag name so the
+// raw shortcode is not written into an attribute.
+const normalizationOffsets = text => {
+  const offsets = new Array(text.length + 1);
+  let index = 0;
+
+  while (index <= text.length) {
+    offsets[index] = text.slice(0, index).normalize('NFKC').length;
+
+    const code = text.codePointAt(index);
+
+    if (code === undefined) {
+      break;
+    }
+
+    if (code > 0xFFFF) {
+      offsets[index + 1] = offsets[index];
+      index += 2;
+    } else {
+      index += 1;
+    }
+  }
+
+  offsets[text.length] = text.normalize('NFKC').length;
+
+  return offsets;
+};
+
+// ﬁle and file are the same tag, but the ligature moves every later index.
+// A repeated :blob: must not make the typed copy look image-derived.
+const mapNormalizedHashtagRanges = (sourceName, targetName, ranges) => {
+  if (sourceName.normalize('NFKC').toLowerCase() !== targetName.normalize('NFKC').toLowerCase()) {
+    return null;
+  }
+
+  if (sourceName.normalize('NFKC').length !== targetName.normalize('NFKC').length) {
+    return null;
+  }
+
+  const sourceOffsets = normalizationOffsets(sourceName);
+  const targetOffsets = normalizationOffsets(targetName);
+  const targetAt = [];
+
+  for (let index = 0; index <= targetName.length; index += 1) {
+    const normalized = targetOffsets[index];
+
+    if (targetAt[normalized] === undefined) {
+      targetAt[normalized] = index;
+    }
+  }
+
+  const mapped = [];
+
+  for (let index = 0; index < ranges.length; index += 1) {
+    const [start, end] = ranges[index];
+    const normalizedStart = sourceOffsets[start];
+    const normalizedEnd = sourceOffsets[end];
+    const targetStart = targetAt[normalizedStart];
+    const targetEnd = targetAt[normalizedEnd];
+
+    if (normalizedStart === undefined || normalizedEnd === undefined || targetStart === undefined || targetEnd === undefined) {
+      return null;
+    }
+
+    mapped.push([targetStart, targetEnd]);
+  }
+
+  return mapped;
+};
+
+const alignHashtagRanges = (sourceName, targetName, ranges) => {
+  const sourceRanges = ranges || [];
+
+  if (!targetName) {
+    return [];
+  }
+
+  if (!sourceName || sourceName === targetName) {
+    return sourceRanges;
+  }
+
+  if (!sameHashtagName(sourceName, targetName)) {
+    return [];
+  }
+
+  if (!sourceRanges.length) {
+    return [];
+  }
+
+  const sameOffsets = sourceName.length === targetName.length && sourceRanges.every(([start, end]) => (
+    sourceName.slice(start, end) === targetName.slice(start, end)
+  ));
+
+  if (sameOffsets) {
+    return sourceRanges;
+  }
+
+  const placed = [];
+
+  for (let index = 0; index < sourceRanges.length; index += 1) {
+    const slice = sourceName.slice(sourceRanges[index][0], sourceRanges[index][1]);
+    const found = slice ? targetName.indexOf(slice) : -1;
+    const again = found < 0 ? -1 : targetName.indexOf(slice, found + slice.length);
+
+    if (!slice || found < 0 || again !== -1) {
+      const mapped = mapNormalizedHashtagRanges(sourceName, targetName, sourceRanges);
+
+      return mapped || [[0, targetName.length]];
+    }
+
+    placed.push([found, found + slice.length]);
+  }
+
+  return placed;
+};
 
 class StatusContent extends React.PureComponent {
 
@@ -92,6 +217,7 @@ class StatusContent extends React.PureComponent {
     emojiMuteTextIndex: PropTypes.shape({
       active: PropTypes.bool,
       signature: PropTypes.string,
+      suppressAll: PropTypes.bool,
     }),
     onTranslationAssumption: PropTypes.func,
     onTranslationTarget: PropTypes.func,
@@ -169,6 +295,8 @@ class StatusContent extends React.PureComponent {
     const { intl, status, collapsable, onClick, onCollapsedToggle } = this.props;
     const node = this.node;
 
+    this._hashtagAnchorCache = new Map();
+
     if (!node) {
       return;
     }
@@ -186,6 +314,11 @@ class StatusContent extends React.PureComponent {
     for (var i = 0; i < links.length; ++i) {
       let link = links[i];
       if (link.classList.contains('status-link')) {
+        // The node survives a display change. Refresh the menu attribute so a
+        // concealed name does not stay on screen, and a verified name returns.
+        if (this.isHashtagLink(link) && !link.classList.contains('status__content__hashtag-badge')) {
+          this.markHashtagLink(link);
+        }
         continue;
       }
       link.classList.add('status-link');
@@ -276,6 +409,11 @@ class StatusContent extends React.PureComponent {
   componentDidUpdate () {
     this._updateStatusLinks();
     this._updateEmojiLinks();
+
+    // The badge callback stays stable, so React does not call it again when
+    // the mute display or the image ranges change. Bind the mounted nodes
+    // from the ranges recorded for this render.
+    this.syncHashtagBadges();
   }
 
   componentWillUnmount () {
@@ -321,16 +459,474 @@ class StatusContent extends React.PureComponent {
     };
   }
 
-  markHashtagLink (link) {
-    const name = (link.textContent || '').trim().replace(/^[#＃]/, '');
+  hashtagNameFromHref (link) {
+    const href = link.getAttribute('href') || '';
 
+    if (!href) {
+      return '';
+    }
+
+    try {
+      const url = new URL(href, window.location.origin);
+      const parts = url.pathname.split('/').filter(Boolean);
+
+      // Only the public tag routes. A user named tag must not swallow the
+      // next segment and skip the stored HTML.
+      if (parts.length !== 2 || (parts[0] !== 'tag' && parts[0] !== 'tags')) {
+        return '';
+      }
+
+      return decodeURIComponent(parts[1]).replace(/^[#＃]/, '');
+    } catch (error) {
+      return '';
+    }
+  }
+
+  // The visible label is already projected. A missing tags/tag segment must
+  // not copy that label into the menu identity.
+  hashtagAnchorsFromHtml (html) {
+    if (typeof html !== 'string' || html === '') {
+      return [];
+    }
+
+    if (this._hashtagAnchorCache && this._hashtagAnchorCache.has(html)) {
+      return this._hashtagAnchorCache.get(html);
+    }
+
+    const template = document.createElement('template');
+
+    template.innerHTML = html;
+    const anchors = Array.from(template.content.querySelectorAll('a')).filter(isHashtagMenuLink);
+
+    if (this._hashtagAnchorCache) {
+      this._hashtagAnchorCache.set(html, anchors);
+    }
+
+    return anchors;
+  }
+
+  anchorsWithHref (html, href) {
+    const cacheKey = `all:${html}`;
+    let anchors = this._hashtagAnchorCache && this._hashtagAnchorCache.get(cacheKey);
+
+    if (!anchors) {
+      if (typeof html !== 'string' || html === '') {
+        anchors = [];
+      } else {
+        const template = document.createElement('template');
+
+        template.innerHTML = html;
+        anchors = Array.from(template.content.querySelectorAll('a'));
+      }
+
+      if (this._hashtagAnchorCache) {
+        this._hashtagAnchorCache.set(cacheKey, anchors);
+      }
+    }
+
+    return anchors.filter(anchor => anchor.href === href);
+  }
+
+  // Same href, in the order the original HTML rendered them. Projected text
+  // is not classified again: a concealed label no longer starts with #.
+  hashtagLiveIndex (link) {
+    const inTarget = !!link.closest('.status-translation-pair__target');
+    const inBody = !!link.closest('.status__content__text');
+    const region = inBody ? link.closest('.status__content__text') : link.closest('.status__content');
+
+    if (!region) {
+      return 0;
+    }
+
+    const live = Array.from(region.querySelectorAll('a')).filter(item => {
+      if (item.href !== link.href) {
+        return false;
+      }
+
+      if (inTarget) {
+        return !!item.closest('.status-translation-pair__target');
+      }
+
+      if (item.closest('.status-translation-pair__target')) {
+        return false;
+      }
+
+      return inBody || !item.closest('.status__content__text');
+    });
+    return live.indexOf(link);
+  }
+
+  hashtagOccurrenceIdentity (link) {
+    const status = this.props.status;
+    const translated = this._hashtagViewMode === 'translated' || (link && link.closest('.status-translation-pair__target'));
+
+    if (!status || !link || translated) {
+      return null;
+    }
+
+    const html = link.closest('.status__content__text') ? status.get('contentHtml') : status.get('spoilerHtml');
+    const index = this.hashtagLiveIndex(link);
+    const anchor = index < 0 ? null : this.anchorsWithHref(html, link.href)[index];
+
+    if (!anchor || !isHashtagMenuLink(anchor)) {
+      return null;
+    }
+
+    return hashtagIdentityFromNode(anchor);
+  }
+
+  renderedHashtagAttribute (link, name) {
+    const inSpoiler = !link.closest('.status__content__text');
+    const inTarget = !!link.closest('.status-translation-pair__target');
+    const translated = inTarget || this._hashtagViewMode === 'translated';
+    let html;
+
+    if (link.closest('.status-translation-pair__source')) {
+      html = inSpoiler ? this._sourceSpoilerHtml : this._sourceBodyHtml;
+    } else if (translated) {
+      html = inSpoiler ? this._targetSpoilerHtml : this._targetBodyHtml;
+    } else {
+      html = inSpoiler ? this._sourceSpoilerHtml : this._sourceBodyHtml;
+    }
+
+    if (typeof html !== 'string' || html === '') {
+      return null;
+    }
+
+    const cacheKey = `rendered:${html}`;
+    let anchors = this._hashtagAnchorCache && this._hashtagAnchorCache.get(cacheKey);
+
+    if (!anchors) {
+      const template = document.createElement('template');
+
+      template.innerHTML = html;
+      anchors = Array.from(template.content.querySelectorAll('a'));
+
+      if (this._hashtagAnchorCache) {
+        this._hashtagAnchorCache.set(cacheKey, anchors);
+      }
+    }
+
+    const blockAnchor = link.closest('.status-translation-pair__target') ? this.translatedBlockAnchor(link) : null;
+    const index = this.hashtagLiveIndex(link);
+    const source = blockAnchor || (index < 0 ? null : anchors.filter(anchor => anchor.href === link.href)[index]);
+
+    if (!source || !source.hasAttribute(name)) {
+      return null;
+    }
+
+    return source.getAttribute(name) || '';
+  }
+
+  hashtagNameFromAnchor (anchor) {
+    return hashtagIdentityFromNode(anchor).name;
+  }
+
+  // The stored original, not the projected label or the translated wording.
+  // A bilingual block repeats the href, so the two copies are not two
+  // occurrences of the original HTML.
+  hashtagNameFromUnprojectedHtml (link) {
+    const status = this.props.status;
+
+    if (!status) {
+      return '';
+    }
+
+    const html = link.closest('.status__content__text') ? status.get('contentHtml') : status.get('spoilerHtml');
+    const same = this.hashtagAnchorsFromHtml(html).filter(anchor => anchor.href === link.href);
+
+    if (same.length === 0) {
+      return '';
+    }
+
+    const identities = same.map(anchor => hashtagIdentityFromNode(anchor));
+    const names = identities.map(identity => identity.name);
+    const nonempty = names.filter(Boolean);
+    const unique = nonempty.filter((entry, index) => nonempty.indexOf(entry) === index);
+    const translated = this._hashtagViewMode === 'translated' || link.closest('.status-translation-pair__target');
+
+    // A translation can reuse one original name only when every source copy
+    // has that same nonempty name. An empty neighbor stays an ordinary link.
+    if (translated) {
+      if (nonempty.length === names.length && unique.length === 1) {
+        return identities.find(identity => identity.name === unique[0]).name;
+      }
+
+      return '';
+    }
+
+    if (names.length === 1) {
+      return names[0];
+    }
+
+    // Count the original side of this content area, not one source paragraph.
+    // A later paragraph is also index 0 inside its own pair, but it is not
+    // the first name in the stored HTML. The spoiler stays out of the body.
+    const nameIndex = this.hashtagLiveIndex(link);
+    const htmlAnchors = this.anchorsWithHref(html, link.href);
+    const anchor = nameIndex < 0 ? null : htmlAnchors[nameIndex];
+
+    if (!anchor || !isHashtagMenuLink(anchor)) {
+      return '';
+    }
+
+    return this.hashtagNameFromAnchor(anchor);
+  }
+
+  hashtagMenuImages (link) {
+    const status = this.props.status;
+
+    if (!status || !link) {
+      return [];
+    }
+
+    const html = link.closest('.status__content__text') ? status.get('contentHtml') : status.get('spoilerHtml');
+    const index = this.hashtagLiveIndex(link);
+    const anchor = index < 0 ? null : this.anchorsWithHref(html, link.href)[index];
+    const identity = anchor ? hashtagIdentityFromNode(anchor) : null;
+
+    return identity && identity.images ? identity.images : [];
+  }
+
+  hashtagNameFromTags (link) {
+    const tags = this.props.status && this.props.status.get('tags');
+    const href = link.getAttribute('href') || '';
+
+    if (!tags || typeof tags.find !== 'function' || !href) {
+      return '';
+    }
+
+    const match = tags.find(tag => {
+      const url = tag.get('url') || '';
+
+      return url !== '' && url === href;
+    });
+
+    if (!match) {
+      return '';
+    }
+
+    const fromTags = String(match.get('name') || '').replace(/^[#＃]/, '');
+    const html = link.closest('.status__content__text') ? this.props.status.get('contentHtml') : this.props.status.get('spoilerHtml');
+    const shared = this.hashtagAnchorsFromHtml(html).filter(anchor => anchor.href === link.href).length > 1;
+
+    if (!shared) {
+      return fromTags;
+    }
+
+    const fromHtml = this.hashtagNameFromUnprojectedHtml(link);
+
+    return fromHtml && sameHashtagName(fromHtml, fromTags) ? fromTags : '';
+  }
+
+  hashtagImageRanges (link) {
+    const trusted = this.hashtagNameFromHref(link) || this.hashtagNameFromTags(link);
+    const status = this.props.status;
+
+    if (!status) {
+      return [];
+    }
+
+    const html = link.closest('.status__content__text') ? status.get('contentHtml') : status.get('spoilerHtml');
+    const same = this.hashtagAnchorsFromHtml(html).filter(anchor => anchor.href === link.href);
+    const identities = same.map(anchor => hashtagIdentityFromNode(anchor));
+    const translated = this._hashtagViewMode === 'translated' || link.closest('.status-translation-pair__target');
+    const rangesFor = identity => {
+      if (!identity) {
+        return [];
+      }
+
+      if (!trusted) {
+        return identity.imageRanges || [];
+      }
+
+      return alignHashtagRanges(identity.name, trusted, identity.imageRanges || []);
+    };
+    const concealed = name => (name ? [[0, name.length]] : []);
+
+    if (translated) {
+      const pool = trusted
+        ? identities.filter(identity => identity.name && sameHashtagName(identity.name, trusted))
+        : identities.filter(identity => identity.name);
+
+      if (pool.length === 0) {
+        return [];
+      }
+
+      // A translation can reuse one source spelling. Different tags stay unnamed.
+      if (!trusted) {
+        const unique = pool.map(identity => identity.name).filter((entry, index, list) => list.indexOf(entry) === index);
+
+        if (unique.length !== 1 || pool.length !== identities.length) {
+          return [];
+        }
+      }
+
+      const aligned = pool.map(identity => alignHashtagRanges(identity.name, trusted || identity.name, identity.imageRanges || []));
+      const withImages = pool.some(identity => (identity.imageRanges || []).length > 0);
+      const first = aligned[0] || [];
+
+      // Same name, different image positions: do not guess, and do not write
+      // the raw shortcode into the translated link.
+      if (!aligned.every(ranges => rangesAgree(ranges, first))) {
+        return withImages ? concealed(trusted || pool[0].name) : [];
+      }
+
+      return first;
+    }
+
+    const rangeIndex = this.hashtagLiveIndex(link);
+    const anchor = rangeIndex < 0 ? null : this.anchorsWithHref(html, link.href)[rangeIndex];
+
+    if (!anchor || !isHashtagMenuLink(anchor)) {
+      return [];
+    }
+
+    return rangesFor(hashtagIdentityFromNode(anchor));
+  }
+
+  // A omitted identical target shifts later links. The pair index is the block
+  // that actually rendered this link.
+  translatedBlockAnchor (link) {
+    const pair = link && link.closest && link.closest('.status-translation-pair');
+    const blockIndex = pair ? Number(pair.getAttribute('data-block-index')) : NaN;
+
+    if (!pair || Number.isNaN(blockIndex) || typeof this._sourceBodyHtml !== 'string' || typeof this._targetBodyHtml !== 'string') {
+      return null;
+    }
+
+    const pairs = pairTranslationBlocks(this._sourceBodyHtml, this._targetBodyHtml, '', '');
+    const block = pairs[blockIndex];
+
+    if (!block || typeof block.targetHtml !== 'string') {
+      return null;
+    }
+
+    const anchors = this.anchorsWithHref(block.targetHtml, link.href);
+
+    return anchors.length === 1 ? anchors[0] : null;
+  }
+
+  // The translated anchor can be the only place an emoji image appears.
+  // Its ranges describe that label. The menu action keeps the source name.
+  translatedImageIdentity (link) {
+    const translated = this._hashtagViewMode === 'translated' || (link && link.closest('.status-translation-pair__target'));
+
+    if (!translated || !link) {
+      return null;
+    }
+
+    const inSpoiler = !link.closest('.status__content__text');
+    const html = inSpoiler ? this._targetSpoilerHtml : this._targetBodyHtml;
+
+    if (typeof html !== 'string' || html === '') {
+      return null;
+    }
+
+    const blockAnchor = this.translatedBlockAnchor(link);
+    const index = this.hashtagLiveIndex(link);
+    const anchor = blockAnchor || (index < 0 ? null : this.anchorsWithHref(html, link.href)[index]);
+
+    if (!anchor || !isHashtagMenuLink(anchor)) {
+      return null;
+    }
+
+    const identity = hashtagIdentityFromNode(anchor);
+
+    if (!identity.imageRanges || identity.imageRanges.length === 0) {
+      return null;
+    }
+
+    return identity;
+  }
+
+  projectHashtagLinkLabels (link, name, imageRanges) {
+    if (!link) {
+      return;
+    }
+
+    const suppressing = !!(this.props.emojiMuteTextIndex && this.props.emojiMuteTextIndex.suppressAll === true);
+
+    ['title', 'aria-label', 'aria-description', 'aria-valuetext'].forEach(attr => {
+      const original = this.renderedHashtagAttribute(link, attr);
+      const current = link.getAttribute(attr);
+      const base = original === null ? current : original;
+
+      if (!base) {
+        return;
+      }
+
+      if (!suppressing) {
+        if (original !== null && original !== current) {
+          link.setAttribute(attr, original);
+        }
+
+        return;
+      }
+
+      const captured = (base.match(/[#＃]\s*([^\s#＃]+)/) || [])[1] || '';
+      // The first #token can include a sentence period, or be a different tag.
+      // A failed alignment keeps this link's own name and image ranges.
+      const spelling = captured.replace(/[.,!?;)\]。、…]+$/u, '');
+      const aligned = spelling ? alignHashtagRanges(name, spelling, imageRanges || []) : [];
+      const matched = aligned.length > 0;
+      const labelName = matched ? spelling : (name || spelling);
+      const ranges = matched ? aligned : (imageRanges || []);
+      const next = projectConcealedHashtagText(base, labelName, ranges);
+
+      if (next !== current) {
+        link.setAttribute(attr, next);
+      }
+    });
+  }
+
+  markHashtagLink (link) {
+    const name = this.hashtagNameFromHref(link) || this.hashtagNameFromTags(link) || this.hashtagNameFromUnprojectedHtml(link);
+    const imageRanges = this.hashtagImageRanges(link);
+
+    // No trusted name. Drop a binding left by an older status payload.
+    // The href stays, so an ordinary or modified click still opens it.
     if (!name) {
+      link.removeAttribute('data-menu-hashtag');
+      const translatedImages = this.translatedImageIdentity(link);
+
+      bindHashtagMenuName(link, '', this.props.emojiMuteTextIndex, [], translatedImages);
+
+      if (translatedImages) {
+        this.projectHashtagLinkLabels(link, translatedImages.name, translatedImages.imageRanges);
+      }
+
+      syncOpenHashtagMenu(link);
       return;
     }
 
     const { id, name: accountName } = this.statusAccountIdentity();
+    const translatedImages = this.translatedImageIdentity(link);
 
-    link.setAttribute('data-menu-hashtag', name);
+    const menuImages = this.hashtagMenuImages(link);
+    const menuLabel = translatedImages
+      ? {
+        name: translatedImages.name,
+        imageRanges: translatedImages.imageRanges || [],
+        images: translatedImages.images || [],
+        actionImages: menuImages,
+      }
+      : { name, imageRanges, images: menuImages };
+
+    link.setAttribute('data-menu-hashtag', bindHashtagMenuName(link, name, this.props.emojiMuteTextIndex, imageRanges, menuLabel));
+    const occurrence = this.hashtagOccurrenceIdentity(link);
+    let labelName = occurrence && occurrence.name ? occurrence.name : name;
+    let labelRanges = occurrence && occurrence.imageRanges && occurrence.imageRanges.length > 0
+      ? occurrence.imageRanges
+      : imageRanges;
+
+    if (translatedImages) {
+      labelName = translatedImages.name;
+      labelRanges = translatedImages.imageRanges;
+    }
+
+    this.projectHashtagLinkLabels(link, labelName, labelRanges);
+    syncOpenHashtagMenu(link);
 
     if (id) {
       link.setAttribute('data-account-id', id);
@@ -472,6 +1068,66 @@ class StatusContent extends React.PureComponent {
     this.setState({ hashtagsExpanded: true });
   }
 
+  badgeRefFor (name, index, imageRanges, images) {
+    if (!this._badgeRefs) {
+      this._badgeRefs = new Map();
+    }
+
+    const key = `${index}:${name}`;
+
+    if (!this._badgeRanges) {
+      this._badgeRanges = new Map();
+    }
+
+    if (!this._badgeImages) {
+      this._badgeImages = new Map();
+    }
+
+    this._badgeRanges.set(key, imageRanges || []);
+    this._badgeImages.set(key, images || []);
+
+    let ref = this._badgeRefs.get(key);
+
+    if (!ref) {
+      ref = node => {
+        if (!this._badgeNodes) {
+          this._badgeNodes = new Map();
+        }
+
+        if (!node) {
+          this._badgeNodes.delete(key);
+          return;
+        }
+
+        const imageRanges = this._badgeRanges ? (this._badgeRanges.get(key) || []) : [];
+        const images = this._badgeImages ? (this._badgeImages.get(key) || []) : [];
+
+        this._badgeNodes.set(key, { node, name, imageRanges, images });
+        bindHashtagMenuName(node, name, this.props.emojiMuteTextIndex, imageRanges, { name, imageRanges, images });
+      };
+      this._badgeRefs.set(key, ref);
+    }
+
+    return ref;
+  }
+
+  syncHashtagBadges () {
+    if (!this._badgeNodes) {
+      return;
+    }
+
+    this._badgeNodes.forEach((entry, key) => {
+      const imageRanges = this._badgeRanges ? (this._badgeRanges.get(key) || []) : [];
+      const images = this._badgeImages ? (this._badgeImages.get(key) || []) : [];
+
+      if (entry.node.isConnected) {
+        bindHashtagMenuName(entry.node, entry.name, this.props.emojiMuteTextIndex, imageRanges, { name: entry.name, imageRanges, images });
+        this._badgeNodes.set(key, { node: entry.node, name: entry.name, imageRanges, images });
+        syncOpenHashtagMenu(entry.node);
+      }
+    });
+  }
+
   renderHashtagBadges (hashtags, visible) {
     if (!visible || !hashtags || hashtags.length === 0) {
       return null;
@@ -487,6 +1143,7 @@ class StatusContent extends React.PureComponent {
       <div className='status__content__hashtag-badges'>
         {revealedHashtags.map((hashtag, index) => {
           const name = (hashtag.name || '').replace(/^[#＃]/, '');
+          const imageRanges = hashtag.imageRanges || [];
 
           return (
             <a
@@ -495,12 +1152,13 @@ class StatusContent extends React.PureComponent {
               className='status__content__hashtag-badge status-link'
               target='_blank'
               rel='noopener noreferrer'
-              data-menu-hashtag={name}
+              ref={this.badgeRefFor(name, index, imageRanges, hashtag.images || [])}
+              data-menu-hashtag={hashtagMenuDomName(name, this.props.emojiMuteTextIndex, imageRanges)}
               data-account-id={accountId || undefined}
               data-account-name={accountName || undefined}
               data-status-id={statusId || undefined}
             >
-              {hashtag.text}
+              {`${((hashtag.text || '').match(/^[#＃]/) || ['#'])[0]}${projectHashtagLabel(name, imageRanges, this.props.emojiMuteTextIndex, hashtag.images)}`}
             </a>
           );
         })}
@@ -591,6 +1249,8 @@ class StatusContent extends React.PureComponent {
 
     const translationView = statusTranslationView(translated);
     const viewMode = pairMatchesRequest ? translationView.mode : 'original';
+
+    this._hashtagViewMode = viewMode;
     const sourceLang = pairMatchesRequest ? (translationView.sourceLang || status.get('language') || '') : (status.get('language') || '');
     const targetLang = translationView.targetLang;
     const sourceHtml = status.get('contentHtml');
@@ -606,6 +1266,11 @@ class StatusContent extends React.PureComponent {
     const hashtagBadges = this.renderHashtagBadges(sourceHashtagParts.hashtags, contentVisible);
     const sourceSpoilerHtml = status.get('spoilerHtml');
     const targetSpoilerHtml = translated.getIn(['translation', 'spoilerHtml']);
+
+    this._sourceBodyHtml = sourceBodyHtml;
+    this._sourceSpoilerHtml = sourceSpoilerHtml;
+    this._targetBodyHtml = targetBodyHtml;
+    this._targetSpoilerHtml = targetSpoilerHtml;
     // Mute replacement is a view of the stored HTML. Hashtag badges stay on
     // the original string, and the status record is not rewritten.
     const presentHtml = html => replaceEmojiInDisplayHtml(html, this.props.emojiMuteTextIndex);

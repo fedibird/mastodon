@@ -6,7 +6,8 @@ import React from 'react';
 import { Provider } from 'react-redux';
 import { createStore } from 'redux';
 
-import { EMOJI_MUTES_APPLY } from 'mastodon/actions/emoji_mutes';
+import { EMOJI_MUTES_APPLY, EMOJI_MUTES_REVISION } from 'mastodon/actions/emoji_mutes';
+import { createUnverifiedEmojiGuard } from 'mastodon/features/emoji/emoji_mute_live_dom';
 import { normalizePoll, normalizePollOptionTranslation } from 'mastodon/actions/importer/normalizer';
 import emojify from 'mastodon/features/emoji/emoji';
 import { emojiMuteTextParseCount, resetEmojiMuteTextForTests } from 'mastodon/features/emoji/emoji_mute_text';
@@ -440,5 +441,82 @@ describe('poll html identity', () => {
     expect(translated.title).toBe('Oui :blob:');
     expect(translated.titleHtml).toContain('data-domain="remote.test"');
     expect(translated.titleHtml).not.toContain('data-emoji-id');
+  });
+
+  it('hides emoji images and scrubs a photo alt while the mute document is unverified', () => {
+    const source = `Yes ${localImg('10')} <img src="/media/x.jpg" alt="${THUMB}" srcset="/media/x.jpg 2x">`;
+    const store = createStore((state = fromJS({
+      emojiMutes: { display: 'suppress', phase: 'error', availability: 'enabled', rules: [] },
+    }), action) => state.set('emojiMutes', emojiMutes(state.get('emojiMutes'), action)));
+    const { container } = renderPoll(buildPoll([option(`Yes ${THUMB}`, source)]), { store });
+    const photo = container.querySelector('img[src="/media/x.jpg"]');
+
+    expect(container.querySelector('img.custom-emoji, img.emojione')).toBeNull();
+    expect(container.innerHTML).not.toContain('cdn.example/10');
+    expect(container.innerHTML).not.toContain(THUMB);
+    expect(photo.getAttribute('alt')).toBe('◻');
+    expect(photo.getAttribute('srcset')).toBe('/media/x.jpg 2x');
+    expect(container.querySelector('.poll__input').getAttribute('aria-label')).not.toContain(THUMB);
+  });
+
+  it('hides one image shortcode on the poll label before commit and keeps the typed shortcode', () => {
+    const html = `Yes ${localImg('10')} :typed:`;
+    const store = makeStore();
+    const guard = createUnverifiedEmojiGuard();
+    const stopGuard = store.subscribe(() => guard(store.getState()));
+    let atSuppress = null;
+    const stopWatch = store.subscribe(() => {
+      if (store.getState().getIn(['emojiMutes', 'display']) === 'suppress' && !atSuppress) {
+        atSuppress = document.querySelector('.poll__input').getAttribute('aria-label');
+      }
+    });
+    const view = render(
+      <Provider store={store}>
+        <div className='emoji-mutes-privacy-portal'>
+          <Poll poll={buildPoll([option('Yes :blob: :typed:', html)])} lang='en' disabled={false} refresh={jest.fn()} onVote={jest.fn()} />
+        </div>
+      </Provider>,
+    );
+
+    expect(view.container.querySelector('.poll__input').getAttribute('aria-label')).toContain(':blob:');
+    expect(view.container.querySelector('.poll__input').getAttribute('aria-label')).toContain(':typed:');
+
+    act(() => {
+      store.dispatch({ type: EMOJI_MUTES_REVISION, revision: '2' });
+    });
+
+    expect(atSuppress).not.toContain(':blob:');
+    expect(atSuppress).toContain(':typed:');
+    stopGuard();
+    stopWatch();
+  });
+
+  it('keeps a typed shortcode that is identical to the poll emoji', () => {
+    const html = `Yes ${localImg('10')} :blob:`;
+    const store = makeStore();
+    const guard = createUnverifiedEmojiGuard();
+    const stopGuard = store.subscribe(() => guard(store.getState()));
+    let atSuppress = null;
+    const stopWatch = store.subscribe(() => {
+      if (store.getState().getIn(['emojiMutes', 'display']) === 'suppress' && !atSuppress) {
+        atSuppress = document.querySelector('.poll__input').getAttribute('aria-label');
+      }
+    });
+    const view = render(
+      <Provider store={store}>
+        <div className='emoji-mutes-privacy-portal'>
+          <Poll poll={buildPoll([option('Yes :blob: :blob:', html)])} lang='en' disabled={false} refresh={jest.fn()} onVote={jest.fn()} />
+        </div>
+      </Provider>,
+    );
+
+    act(() => {
+      store.dispatch({ type: EMOJI_MUTES_REVISION, revision: '2' });
+    });
+
+    expect(atSuppress).toBe(`Yes ${'\u25FB'} :blob:`);
+    stopGuard();
+    stopWatch();
+    view.unmount();
   });
 });

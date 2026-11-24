@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { fromJS } from 'immutable';
 import React from 'react';
 import { Provider } from 'react-redux';
@@ -41,8 +41,11 @@ jest.mock('react-intl', () => {
   };
 });
 
+import { EMOJI_MUTES_APPLY, EMOJI_MUTES_REVISION } from 'mastodon/actions/emoji_mutes';
+import { createUnverifiedEmojiGuard } from 'mastodon/features/emoji/emoji_mute_live_dom';
 import filtersReducer from 'mastodon/reducers/filters';
 import filterClockReducer from 'mastodon/reducers/filter_clock';
+import emojiMutesReducer from 'mastodon/reducers/emoji_mutes';
 import HashtagMuteModal from '../hashtag_mute_modal';
 
 function reducer(state = fromJS({ filters: {}, filterClock: 0 }), action) {
@@ -50,18 +53,26 @@ function reducer(state = fromJS({ filters: {}, filterClock: 0 }), action) {
     return state.set('closed', true);
   }
 
-  return state
-    .set('filters', filtersReducer(state.get('filters'), action))
-    .set('filterClock', filterClockReducer(state.get('filterClock'), action));
+  const emojiType = action && typeof action.type === 'string' && action.type.indexOf('EMOJI_MUTES_') === 0;
+  let next = state;
+
+  if (emojiType || next.has('emojiMutes')) {
+    next = next.set('emojiMutes', emojiMutesReducer(next.get('emojiMutes'), action));
+  }
+
+  return next
+    .set('filters', filtersReducer(next.get('filters'), action))
+    .set('filterClock', filterClockReducer(next.get('filterClock'), action));
 }
 
-function renderModal(hashtag = '番組') {
-  const store = createStore(reducer, undefined, applyMiddleware(thunk));
+function renderModal(hashtag = '番組', emojiMutes, imageRanges) {
+  const initial = emojiMutes ? fromJS({ filters: {}, filterClock: 0, emojiMutes }) : undefined;
+  const store = createStore(reducer, initial, applyMiddleware(thunk));
 
   render(
     <Provider store={store}>
       <MemoryRouter>
-        <HashtagMuteModal hashtag={hashtag} />
+        <HashtagMuteModal hashtag={hashtag} imageRanges={imageRanges} />
       </MemoryRouter>
     </Provider>,
   );
@@ -105,6 +116,254 @@ describe('HashtagMuteModal', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Mute' }));
 
     await waitFor(() => expect(mockPost).toHaveBeenCalledWith('/api/v1/hashtag_mutes', { name: '番組', expires_in: 10800 }));
+  });
+
+  it('projects an image shortcode in an open dialog when verification is lost', async () => {
+    const tag = 'party:blob:';
+    const store = renderModal(tag, {
+      revision: '1',
+      appliedRevision: '1',
+      phase: 'ready',
+      failure: null,
+      rules: [],
+      availability: 'enabled',
+      display: 'apply',
+    }, [[5, 11]]);
+
+    const title = () => document.getElementById('hashtag-mute-title');
+    const dialog = () => title().closest('[role="dialog"]');
+
+    await screen.findByRole('dialog');
+    expect(title().textContent).toBe('Mute #party:blob:?');
+    expect(dialog()).toHaveAttribute('aria-labelledby', 'hashtag-mute-title');
+
+    act(() => {
+      store.dispatch({ type: EMOJI_MUTES_REVISION, revision: '2' });
+    });
+
+    expect(title().textContent).toBe(`Mute #party${'\u25FB'}?`);
+    expect(dialog()).toHaveAttribute('aria-labelledby', 'hashtag-mute-title');
+    expect(dialog().textContent).not.toContain(':blob:');
+
+    act(() => {
+      store.dispatch({
+        type: EMOJI_MUTES_APPLY,
+        revision: '2',
+        availability: 'enabled',
+        mutes: [],
+      });
+    });
+    expect(title().textContent).toBe('Mute #party:blob:?');
+
+    act(() => {
+      store.dispatch({ type: EMOJI_MUTES_REVISION, revision: '3' });
+    });
+    expect(title().textContent).toBe(`Mute #party${'\u25FB'}?`);
+
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Mute' })).not.toBeDisabled());
+    fireEvent.click(screen.getByRole('button', { name: 'Mute' }));
+    await waitFor(() => expect(mockPost).toHaveBeenCalledWith('/api/v1/hashtag_mutes', { name: tag }));
+
+    cleanup();
+
+    const literal = renderModal('party:blob:', {
+      revision: '4',
+      appliedRevision: '4',
+      phase: 'stale',
+      failure: null,
+      rules: [],
+      availability: 'enabled',
+      display: 'suppress',
+    }, []);
+
+    await screen.findByRole('dialog');
+    expect(document.getElementById('hashtag-mute-title').textContent).toBe('Mute #party:blob:?');
+    expect(literal.getState().getIn(['emojiMutes', 'display'])).toBe('suppress');
+  });
+
+  it('conceals the dialog heading before React commits and leaves a typed shortcode', async () => {
+    const ready = {
+      revision: '1',
+      appliedRevision: '1',
+      phase: 'ready',
+      failure: null,
+      rules: [],
+      availability: 'enabled',
+      display: 'apply',
+    };
+    const store = renderModal('party:blob:', ready, [[5, 11]]);
+    const guard = createUnverifiedEmojiGuard();
+    const stopGuard = store.subscribe(() => guard(store.getState()));
+    let beforeCommit = null;
+    const stopWatch = store.subscribe(() => {
+      if (store.getState().getIn(['emojiMutes', 'display']) === 'suppress' && !beforeCommit) {
+        beforeCommit = document.getElementById('hashtag-mute-title').textContent;
+      }
+    });
+
+    await screen.findByRole('dialog');
+    expect(document.getElementById('hashtag-mute-title').textContent).toBe('Mute #party:blob:?');
+
+    act(() => {
+      store.dispatch({ type: EMOJI_MUTES_REVISION, revision: '2' });
+    });
+
+    expect(beforeCommit).toBe(`Mute #party${'\u25FB'}?`);
+    expect(beforeCommit).not.toContain(':blob:');
+    fireEvent.click(await screen.findByRole('button', { name: 'Mute' }));
+    await waitFor(() => expect(mockPost).toHaveBeenCalledWith('/api/v1/hashtag_mutes', { name: 'party:blob:' }));
+    stopGuard();
+    stopWatch();
+    cleanup();
+
+    const literalStore = renderModal('party:blob:', ready, []);
+    const literalGuard = createUnverifiedEmojiGuard();
+    const stopLiteralGuard = literalStore.subscribe(() => literalGuard(literalStore.getState()));
+    let literalBefore = null;
+    const stopLiteralWatch = literalStore.subscribe(() => {
+      if (literalStore.getState().getIn(['emojiMutes', 'display']) === 'suppress' && !literalBefore) {
+        literalBefore = document.getElementById('hashtag-mute-title').textContent;
+      }
+    });
+
+    await screen.findByRole('dialog');
+    act(() => {
+      literalStore.dispatch({ type: EMOJI_MUTES_REVISION, revision: '2' });
+    });
+
+    expect(literalBefore).toBe('Mute #party:blob:?');
+    expect(document.getElementById('hashtag-mute-title').textContent).toBe('Mute #party:blob:?');
+    stopLiteralGuard();
+    stopLiteralWatch();
+  });
+
+  it('restores one projection when a replaced dialog returns in the same batch', async () => {
+    const thumb = '👍';
+    const spark = '✨';
+    const tag = `party:blob::typed:${thumb}`;
+    const effects = { replace_in_text: true, hide_reactions: false, hide_in_picker: false, reject_reactions_to_own_posts: false };
+    const rules = [
+      { id: 'up', revision: '1', emoji: { kind: 'unicode', native: thumb }, replacement: spark, effects },
+      { id: 'spark', revision: '1', emoji: { kind: 'unicode', native: spark }, replacement: '[sparkles]', effects },
+    ];
+    const store = renderModal(tag, {
+      revision: '1',
+      appliedRevision: '1',
+      phase: 'ready',
+      failure: null,
+      rules,
+      availability: 'enabled',
+      display: 'apply',
+    }, [[5, 11]]);
+    const guard = createUnverifiedEmojiGuard();
+    const stopGuard = store.subscribe(() => guard(store.getState()));
+    let atSuppress = null;
+    let atRelease = null;
+    const stopWatch = store.subscribe(() => {
+      const display = store.getState().getIn(['emojiMutes', 'display']);
+      const title = document.getElementById('hashtag-mute-title');
+
+      if (display === 'suppress' && !atSuppress) {
+        atSuppress = title.textContent;
+      }
+
+      if (display === 'apply' && store.getState().getIn(['emojiMutes', 'revision']) === '2' && !atRelease) {
+        atRelease = title.textContent;
+      }
+    });
+
+    await screen.findByRole('dialog');
+    expect(document.getElementById('hashtag-mute-title').textContent).toBe(`Mute #party:blob::typed:${spark}?`);
+
+    act(() => {
+      store.dispatch({ type: EMOJI_MUTES_REVISION, revision: '2' });
+      store.dispatch({
+        type: EMOJI_MUTES_APPLY,
+        revision: '2',
+        availability: 'enabled',
+        mutes: rules,
+      });
+    });
+
+    expect(atSuppress).toBe(`Mute #party${'\u25FB'}:typed:${'\u25FB'}?`);
+    expect(atSuppress).not.toContain(':blob:');
+    expect(atRelease).toBe(`Mute #party:blob::typed:${spark}?`);
+    expect(atRelease).not.toContain('[sparkles]');
+    expect(document.getElementById('hashtag-mute-title').textContent).toBe(`Mute #party:blob::typed:${spark}?`);
+    fireEvent.click(await screen.findByRole('button', { name: 'Mute' }));
+    await waitFor(() => expect(mockPost).toHaveBeenCalledWith('/api/v1/hashtag_mutes', { name: tag }));
+    stopGuard();
+    stopWatch();
+  });
+
+  it('uses a neutral heading when the replacement is empty and saves the original tag', async () => {
+    const native = '👍';
+    renderModal(native, {
+      revision: '1',
+      appliedRevision: '1',
+      phase: 'ready',
+      failure: null,
+      rules: [{
+        id: 'empty',
+        revision: '1',
+        emoji: { kind: 'unicode', native },
+        replacement: '',
+        effects: { replace_in_text: true, hide_reactions: false, hide_in_picker: false, reject_reactions_to_own_posts: false },
+      }],
+      availability: 'enabled',
+      display: 'apply',
+    });
+    const dialog = await screen.findByRole('dialog', { name: `Mute #${'\u25FB'}?` });
+
+    expect(document.getElementById('hashtag-mute-title').textContent).toBe(`Mute #${'\u25FB'}?`);
+    expect(dialog.textContent).not.toContain(native);
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Mute' })).not.toBeDisabled());
+    fireEvent.click(screen.getByRole('button', { name: 'Mute' }));
+    await waitFor(() => expect(mockPost).toHaveBeenCalledWith('/api/v1/hashtag_mutes', { name: native }));
+  });
+
+  it('projects only the heading while the saved tag stays party👌', async () => {
+    const native = '👌';
+    const tag = `party${native}`;
+    const store = renderModal(tag, {
+      revision: '2',
+      appliedRevision: '1',
+      phase: 'stale',
+      failure: null,
+      rules: [],
+      availability: 'enabled',
+      display: 'suppress',
+    });
+
+    const dialog = await screen.findByRole('dialog', { name: `Mute #party${'\u25FB'}?` });
+    const title = document.getElementById('hashtag-mute-title');
+
+    expect(title.textContent).toBe(`Mute #party${'\u25FB'}?`);
+    expect(dialog).toHaveAttribute('aria-labelledby', 'hashtag-mute-title');
+    expect(dialog.textContent).not.toContain(native);
+
+    act(() => {
+      store.dispatch({
+        type: EMOJI_MUTES_APPLY,
+        revision: '3',
+        availability: 'enabled',
+        mutes: [{
+          id: 'm-ok',
+          revision: '3',
+          emoji: { kind: 'unicode', native },
+          replacement: '[ok]',
+          effects: { replace_in_text: true, hide_reactions: false, hide_in_picker: false, reject_reactions_to_own_posts: false },
+        }],
+      });
+    });
+
+    expect(screen.getByRole('dialog', { name: 'Mute #party[ok]?' })).toBeTruthy();
+    expect(screen.getByText('Mute #party[ok]?').textContent).not.toContain(native);
+
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Mute' })).not.toBeDisabled());
+    fireEvent.click(screen.getByRole('button', { name: 'Mute' }));
+
+    await waitFor(() => expect(mockPost).toHaveBeenCalledWith('/api/v1/hashtag_mutes', { name: tag }));
   });
 
   it('updates an existing mute in place and can remove it', async () => {

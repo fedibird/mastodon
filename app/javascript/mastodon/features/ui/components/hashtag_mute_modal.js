@@ -9,6 +9,10 @@ import { closeModal } from '../../../actions/modal';
 import { fetchFilters } from '../../../actions/filters';
 import { muteHashtag, unmuteHashtag, updateHashtagMute } from '../../../actions/hashtag_mutes';
 import { HASHTAG_MUTE_CONTEXTS, HASHTAG_MUTE_DURATIONS, findHashtagMute } from '../../../utils/hashtag_mute';
+import { projectHashtagLabel, registerHashtagDialogConcealer, replaceHashtagSlot } from 'mastodon/features/emoji/hashtag_menu_names';
+import { recordEmojiMuteText } from 'mastodon/features/emoji/emoji_mute_live_dom';
+import { rememberEmojiMuteHashtagSlot } from 'mastodon/features/emoji/emoji_mute_sources';
+import { emojiMuteTextIndexFromState, SUPPRESS_UNVERIFIED_INDEX, suppressUnicodeEmoji, UNVERIFIED_EMOJI_PLACEHOLDER } from 'mastodon/features/emoji/emoji_mute_text';
 
 const messages = defineMessages({
   minutes: { id: 'intervals.full.minutes', defaultMessage: '{number, plural, one {# minute} other {# minutes}}' },
@@ -71,6 +75,7 @@ const mapStateToProps = (state, { hashtag }) => ({
   // open dialog render again at the end time, while Date.now() still decides
   // whether the saved mute has ended.
   filterClock: state.get('filterClock') || 0,
+  emojiMuteTextIndex: emojiMuteTextIndexFromState(state),
 });
 
 const mapDispatchToProps = dispatch => ({
@@ -107,7 +112,87 @@ class HashtagMuteModal extends React.PureComponent {
     onMute: PropTypes.func.isRequired,
     onUpdate: PropTypes.func.isRequired,
     onUnmute: PropTypes.func.isRequired,
+    emojiMuteTextIndex: PropTypes.object,
+    imageRanges: PropTypes.array,
+    hashtagImages: PropTypes.array,
   };
+
+  imageRanges() {
+    const ranges = this.props.imageRanges;
+
+    if (!ranges) {
+      return [];
+    }
+
+    return typeof ranges.toJS === 'function' ? ranges.toJS() : ranges;
+  }
+
+  hashtagImages() {
+    const images = this.props.hashtagImages;
+
+    if (!images) {
+      return [];
+    }
+
+    return typeof images.toJS === 'function' ? images.toJS() : images;
+  }
+
+  concealForSuppress = sink => {
+    const heading = document.getElementById('hashtag-mute-title');
+
+    if (!heading || !heading.isConnected || !this.props.hashtag) {
+      return;
+    }
+
+    const ranges = this.imageRanges();
+    const images = this.hashtagImages();
+    const raw = this.props.hashtag;
+    const rendered = projectHashtagLabel(raw, ranges, this.props.emojiMuteTextIndex, images);
+    const shown = projectHashtagLabel(raw, ranges, SUPPRESS_UNVERIFIED_INDEX, images);
+    const label = shown !== '' ? shown : UNVERIFIED_EMOJI_PLACEHOLDER;
+    const forms = [rendered, raw, suppressUnicodeEmoji(rendered), suppressUnicodeEmoji(raw)].filter((value, index, list) => value && list.indexOf(value) === index);
+    const owner = heading.ownerDocument || document;
+    const walker = owner.createTreeWalker(heading, NodeFilter.SHOW_TEXT, null);
+    let node = walker.nextNode();
+
+    while (node) {
+      const value = node.nodeValue || '';
+      let next = value;
+      let logical = value;
+
+      forms.forEach(form => {
+        next = replaceHashtagSlot(next, form, label);
+        logical = replaceHashtagSlot(logical, form, raw);
+      });
+
+      if (next !== value) {
+        const noted = sink && sink.find(record => record.kind === 'text' && record.node === node);
+
+        rememberEmojiMuteHashtagSlot(node, { text: logical, name: raw, ranges, images });
+
+        if (noted) {
+          noted.value = logical;
+        } else {
+          recordEmojiMuteText(sink, node);
+        }
+
+        node.nodeValue = next;
+      }
+
+      node = walker.nextNode();
+    }
+  }
+
+  visibleHashtag() {
+    const shown = projectHashtagLabel(this.props.hashtag, this.imageRanges(), this.props.emojiMuteTextIndex, this.hashtagImages());
+
+    if (typeof shown !== 'string') {
+      return this.props.hashtag;
+    }
+
+    // An empty replacement is a real projection. Saving still uses the original tag.
+    return shown !== '' ? shown : UNVERIFIED_EMOJI_PLACEHOLDER;
+  }
 
   state = {
     duration: null,
@@ -117,7 +202,14 @@ class HashtagMuteModal extends React.PureComponent {
   };
 
   componentDidMount() {
+    this.unregisterDialogConcealer = registerHashtagDialogConcealer(this.concealForSuppress);
     return this.loadFilters();
+  }
+
+  componentWillUnmount() {
+    if (this.unregisterDialogConcealer) {
+      this.unregisterDialogConcealer();
+    }
   }
 
   componentDidUpdate(_prevProps, prevState) {
@@ -282,7 +374,7 @@ class HashtagMuteModal extends React.PureComponent {
   }
 
   render() {
-    const { hashtag, existing, intl, onClose } = this.props;
+    const { existing, intl, onClose } = this.props;
     const { loadState, submitting } = this.state;
     const ready = loadState === 'ready';
     const duration = this.resolvedDuration();
@@ -297,7 +389,7 @@ class HashtagMuteModal extends React.PureComponent {
       <div className='modal-root__modal mute-modal' role='dialog' aria-modal='true' aria-labelledby='hashtag-mute-title'>
         <div className='mute-modal__container'>
           <p id='hashtag-mute-title'>
-            <strong>{intl.formatMessage(messages.title, { name: hashtag })}</strong>
+            <strong>{intl.formatMessage(messages.title, { name: this.visibleHashtag() })}</strong>
           </p>
           <p className='mute-modal__explanation'>
             {intl.formatMessage(messages.explanation)}

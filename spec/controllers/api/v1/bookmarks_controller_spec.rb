@@ -71,6 +71,116 @@ RSpec.describe Api::V1::BookmarksController, type: :controller do
           expect(assigns(:statuses)).to match_array [bookmarked_by_user.status]
         end
 
+        context 'when registration and post chronology are reversed' do
+          let!(:older_status) { Fabricate(:status, account: user.account) }
+          let!(:newer_status) { Fabricate(:status, account: user.account) }
+          let!(:earlier_registration) { Fabricate(:bookmark, account: user.account, status: newer_status) }
+          let!(:later_registration) { Fabricate(:bookmark, account: user.account, status: older_status) }
+
+          it 'returns added order in compact WebUI responses' do
+            get :index, params: { compact: true }
+
+            expect(body_as_json[:statuses].map { |status| status[:id] }).to eq [older_status.id.to_s, newer_status.id.to_s]
+          end
+
+          it 'keeps registration ids as Link cursors in the first page' do
+            get :index, params: { compact: true, limit: 1 }
+
+            expect(body_as_json[:statuses].map { |status| status[:id] }).to eq [older_status.id.to_s]
+            next_link = response.headers['Link'].find_link(['rel', 'next']).href
+            expect(Rack::Utils.parse_query(URI(next_link).query)['max_id']).to eq later_registration.id.to_s
+          end
+
+          it 'can retrieve the next page after the later registration' do
+            get :index, params: { compact: true, limit: 1, max_id: later_registration.id }
+
+            expect(body_as_json[:statuses].map { |status| status[:id] }).to eq [newer_status.id.to_s]
+          end
+        end
+
+        context 'with post-date order' do
+          let!(:older_status) { Fabricate(:status, account: user.account) }
+          let!(:newer_status) { Fabricate(:status, account: user.account) }
+
+          let!(:newer_registration) { Fabricate(:bookmark, account: user.account, status: newer_status) }
+          let!(:older_registration) { Fabricate(:bookmark, account: user.account, status: older_status) }
+
+          it 'keeps the original added order when order is omitted' do
+            get :index
+
+            expect(assigns(:statuses).map(&:id)).to eq [older_status.id, newer_status.id]
+          end
+
+          it 'keeps added order in the compact API used by WebUI' do
+            get :index, params: { compact: true }
+
+            expect(body_as_json[:statuses].map { |status| status[:id] }).to eq [older_status.id.to_s, newer_status.id.to_s]
+          end
+
+          it 'uses the bookmark record id for the next-page cursor, not the status id' do
+            get :index, params: { limit: 1 }
+
+            expect(assigns(:statuses).map(&:id)).to eq [older_status.id]
+            next_link = response.headers['Link'].find_link(['rel', 'next']).href
+            expect(Rack::Utils.parse_query(URI(next_link).query)['max_id']).to eq older_registration.id.to_s
+          end
+
+          it 'does not skip the second page after an earlier post was bookmarked later' do
+            get :index, params: { max_id: older_registration.id, limit: 1 }
+
+            expect(assigns(:statuses).map(&:id)).to eq [newer_status.id]
+          end
+
+          it 'handles min_id and since_id in added order' do
+            get :index, params: { min_id: newer_registration.id }
+
+            expect(assigns(:statuses).map(&:id)).to eq [older_status.id]
+          end
+
+          it 'shows the newer status first when order=status is requested' do
+            get :index, params: { order: 'status' }
+
+            expect(assigns(:statuses).map(&:id)).to eq [newer_status.id, older_status.id]
+          end
+
+          it 'paginates status order using status ids and preserves the mode in Link headers' do
+            get :index, params: { order: 'status', limit: 1 }
+
+            expect(assigns(:statuses).map(&:id)).to eq [newer_status.id]
+            next_link = response.headers['Link'].find_link(['rel', 'next']).href
+            previous_link = response.headers['Link'].find_link(['rel', 'prev']).href
+            expect(Rack::Utils.parse_query(URI(next_link).query)).to include('order' => 'status', 'max_id' => newer_status.id.to_s)
+            expect(Rack::Utils.parse_query(URI(previous_link).query)).to include('order' => 'status', 'min_id' => newer_status.id.to_s)
+          end
+
+          it 'does not duplicate a status with multiple media in date order' do
+            Fabricate(:media_attachment, account: user.account, status: newer_status)
+            Fabricate(:media_attachment, account: user.account, status: newer_status)
+
+            get :index, params: { order: 'status', only_media: true }
+
+            expect(assigns(:statuses).map(&:id)).to eq [newer_status.id]
+          end
+
+          it 'paginates older statuses in date order' do
+            get :index, params: { order: 'status', max_id: newer_status.id }
+
+            expect(assigns(:statuses).map(&:id)).to eq [older_status.id]
+          end
+
+          it 'paginates from min_id in date order' do
+            get :index, params: { order: 'status', min_id: older_status.id }
+
+            expect(assigns(:statuses).map(&:id)).to eq [newer_status.id]
+          end
+
+          it 'paginates from since_id in date order' do
+            get :index, params: { order: 'status', since_id: older_status.id }
+
+            expect(assigns(:statuses).map(&:id)).to eq [newer_status.id]
+          end
+        end
+
         it 'adds pagination headers if necessary' do
           bookmark = Fabricate(:bookmark, account: user.account)
 

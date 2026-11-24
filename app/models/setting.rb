@@ -28,6 +28,8 @@ class Setting < RailsSettings::Base
       refresh_group_invite_default_cache
     elsif thing_type == 'User' && var == PersonalEmojiSets::PickerSize::KEY
       PersonalEmojiSets::PickerSize.refresh_cache(self)
+    elsif thing_type == 'User' && var == EmojiMutes::Preference::KEY
+      EmojiMutes::Preference.refresh_cache(self)
     else
       super
     end
