@@ -76,15 +76,23 @@ class GroupColumnLandmark extends React.Component {
   }
 
   componentWillUnmount() {
-    this.props.holdLabel(undefined);
+    this.props.holdLabel(undefined, null);
     this.write(undefined);
+  }
+
+  source() {
+    if (!this.props.project || typeof this.props.html !== 'string' || this.props.html === '') {
+      return null;
+    }
+
+    return { plain: this.props.plain, html: this.props.html };
   }
 
   write(label) {
     const column = this.props.column();
 
     if (column && typeof column.setLandmarkLabel === 'function') {
-      column.setLandmarkLabel(label);
+      column.setLandmarkLabel(label, label === undefined ? null : this.source());
     }
   }
 
@@ -94,7 +102,7 @@ class GroupColumnLandmark extends React.Component {
     // attached after this child's mount, so keep the label until bindColumn.
     const label = project ? emojiMutedPlainText(plain, html || '', emojiMuteTextIndex) : plain;
 
-    this.props.holdLabel(label);
+    this.props.holdLabel(label, this.source());
     this.write(label);
   }
 
@@ -326,14 +334,15 @@ class GroupTimeline extends React.PureComponent {
     // The landmark mounts before this ref. Apply the label it already computed
     // without rendering the timeline again.
     if (column && this.landmarkLabel !== undefined && typeof column.setLandmarkLabel === 'function') {
-      column.setLandmarkLabel(this.landmarkLabel);
+      column.setLandmarkLabel(this.landmarkLabel, this.landmarkSource);
     }
   }
 
   groupColumn = () => this.column;
 
-  holdLandmark = (label) => {
+  holdLandmark = (label, source) => {
     this.landmarkLabel = label;
+    this.landmarkSource = source || null;
   };
 
   composerIsMounted = (props) => groupPortableComposerMounted({

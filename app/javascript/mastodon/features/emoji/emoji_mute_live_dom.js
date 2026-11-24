@@ -1,7 +1,7 @@
 import { storedReactionHidden } from './emoji_mute_projection';
-import { emojiMuteAttributeSourceKind, logicalEmojiMuteAttribute, logicalEmojiMuteText, rememberEmojiMuteTextSource } from './emoji_mute_sources';
+import { emojiMuteAttributeDisplayHtml, emojiMuteAttributeSourceKind, logicalEmojiMuteAttribute, logicalEmojiMuteText, rememberEmojiMuteTextSource } from './emoji_mute_sources';
 import { bindHashtagMenuName, concealOpenHashtagDialogs, concealOpenHashtagMenus, hashtagMenuLabelIdentity, hashtagMenuStoredIdentity, projectConcealedHashtagText, projectHashtagLabel, replaceHashtagSlot } from './hashtag_menu_names';
-import { attributeNamesIdentity, displayTextForEmojiMuteHtml, emojiMuteTextIndexFromState, isUserEmojiImage, presentEmojiMutePlain, projectedEmojiImage, SUPPRESS_UNVERIFIED_INDEX, suppressUnicodeEmoji, UNVERIFIED_EMOJI_PLACEHOLDER } from './emoji_mute_text';
+import { attributeNamesIdentity, displayTextForEmojiMuteHtml, emojiMutedPlainText, emojiMuteTextIndexFromState, isUserEmojiImage, presentEmojiMutePlain, projectedEmojiImage, SUPPRESS_UNVERIFIED_INDEX, suppressUnicodeEmoji, UNVERIFIED_EMOJI_PLACEHOLDER } from './emoji_mute_text';
 
 // One selector for both the clear and the record. A host cleared here has to
 // be in the snapshot, or a same-batch success cannot put it back.
@@ -280,6 +280,15 @@ const writeRecordedAttribute = (record, index, raw) => {
   // is applied once from that original string.
   const kind = emojiMuteAttributeSourceKind(element, name);
   const logical = kind ? logicalEmojiMuteAttribute(element, name, value) : value;
+
+  if (kind === 'display') {
+    const html = emojiMuteAttributeDisplayHtml(element, name) || '';
+    const next = emojiMutedPlainText(typeof logical === 'string' ? logical : '', html, index);
+
+    element.setAttribute(name, next === undefined || next === null ? value : next);
+    return;
+  }
+
   const plainImage = element.tagName === 'IMG' && !record.emojiImage && kind !== 'plain';
   const readable = !raw && READABLE_ATTRIBUTES.indexOf(name) !== -1;
   // A photo alt stays the original markup. A link label is projected once
@@ -327,6 +336,13 @@ const releaseScrub = (records, state) => {
         const label = shown !== '' ? shown : UNVERIFIED_EMOJI_PLACEHOLDER;
 
         record.node.nodeValue = replaceHashtagSlot(slot.text, slot.name, label);
+        return;
+      }
+
+      if (source && typeof source === 'object' && source.displayName && typeof source.displayName.html === 'string') {
+        const next = emojiMutedPlainText(source.displayName.plain || '', source.displayName.html, index);
+
+        record.node.nodeValue = next === undefined || next === null ? (record.node.nodeValue || '') : next;
         return;
       }
 
@@ -647,6 +663,22 @@ export function scrubUnverifiedEmojiFrom(root, sink) {
 
   root.querySelectorAll('[alt], [title], [aria-label], [aria-description], [aria-valuetext]').forEach(element => {
     READABLE_ATTRIBUTES.forEach(name => {
+      const displayHtml = emojiMuteAttributeDisplayHtml(element, name);
+
+      if (typeof displayHtml === 'string') {
+        const plain = logicalEmojiMuteAttribute(element, name, element.getAttribute(name) || '');
+        const next = emojiMutedPlainText(typeof plain === 'string' ? plain : '', displayHtml, SUPPRESS_UNVERIFIED_INDEX);
+        const value = element.getAttribute(name);
+
+        if (typeof next !== 'string' || next === value) {
+          return;
+        }
+
+        noteAttribute(sink, element, name);
+        element.setAttribute(name, next);
+        return;
+      }
+
       const value = element.getAttribute(name);
 
       if (!value || suppressUnicodeEmoji(value) === value) {
@@ -672,6 +704,19 @@ export function scrubUnverifiedEmojiFrom(root, sink) {
     const parent = node.parentElement;
 
     if (!parent || SKIP_TEXT_PARENTS.has(parent.tagName)) {
+      return;
+    }
+
+    const source = logicalEmojiMuteText(node, null);
+
+    if (source && typeof source === 'object' && source.displayName && typeof source.displayName.html === 'string') {
+      const next = emojiMutedPlainText(source.displayName.plain || '', source.displayName.html, SUPPRESS_UNVERIFIED_INDEX);
+
+      if (typeof next === 'string' && next !== (node.nodeValue || '')) {
+        noteText(sink, node);
+        node.nodeValue = next;
+      }
+
       return;
     }
 

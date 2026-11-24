@@ -10,7 +10,7 @@ import RelativeTimestamp from './relative_timestamp';
 import DisplayName from './display_name';
 import EmojiMutedHtml, { EmojiMutedAria, EmojiMutedPlain, bindCustomEmojiClick, unbindCustomEmojiClick, customEmojiTarget, withEmojiMuteTextIndex } from './emoji_muted_html';
 import { countEmojiMuteParse, emojiMutedPlainText, presentEmojiMutePlain, replaceMutedEmojiInPlain, replaceUnicodeEmojiInPlainText } from 'mastodon/features/emoji/emoji_mute_text';
-import { bindEmojiMuteElementSource } from 'mastodon/features/emoji/emoji_mute_sources';
+import { bindEmojiMuteElementSource, forgetEmojiMuteAttributeSource, rememberEmojiMuteDisplayAttribute } from 'mastodon/features/emoji/emoji_mute_sources';
 import { attachInlineEmojiMenus, handleInlineEmojiClick } from 'mastodon/features/emoji/emoji_actions/inline_emoji';
 import ExternalSourceIdentity, { TimeLink } from './external_source_identity';
 import StatusContent from './status_content';
@@ -261,6 +261,51 @@ const projectReadableBody = (sourceBody, status, index, poll) => {
 // Binds the raw attachment description so a later restore projects that
 // string once. A display-name fallback is not a plain ALT: its identity is
 // the display HTML, which this plain binder would project again as text.
+class DisplayEmojiMuteSource extends React.PureComponent {
+
+  static propTypes = {
+    plain: PropTypes.string,
+    html: PropTypes.string,
+    children: PropTypes.element.isRequired,
+  };
+
+  bind = node => {
+    if (node) {
+      this.node = node;
+    }
+
+    if (!this.node) {
+      return;
+    }
+
+    ['alt', 'aria-label', 'title'].forEach(name => {
+      if (!this.node.hasAttribute(name)) {
+        return;
+      }
+
+      if (typeof this.props.html === 'string' && this.props.html !== '') {
+        rememberEmojiMuteDisplayAttribute(this.node, name, this.props.plain || '', this.props.html);
+        return;
+      }
+
+      forgetEmojiMuteAttributeSource(this.node, name);
+    });
+  };
+
+  componentDidMount() {
+    this.bind(this.node);
+  }
+
+  componentDidUpdate() {
+    this.bind(this.node);
+  }
+
+  render() {
+    return React.cloneElement(this.props.children, { ref: this.bind });
+  }
+
+}
+
 class PlainEmojiMuteSource extends React.PureComponent {
 
   static propTypes = {
@@ -1274,9 +1319,14 @@ class Status extends ImmutablePureComponent {
           let mediaTileContent;
           if (canPreview) {
             const image = <img src={preview} alt={alt} loading='lazy' />;
-            mediaTileContent = typeof plainSource === 'string'
-              ? <PlainEmojiMuteSource source={plainSource}>{image}</PlainEmojiMuteSource>
-              : image;
+
+            if (altHtml) {
+              mediaTileContent = <DisplayEmojiMuteSource plain={displayName || ''} html={altHtml}>{image}</DisplayEmojiMuteSource>;
+            } else if (typeof plainSource === 'string') {
+              mediaTileContent = <PlainEmojiMuteSource source={plainSource}>{image}</PlainEmojiMuteSource>;
+            } else {
+              mediaTileContent = image;
+            }
           } else if (blurred) {
             mediaTileContent = hash
               ? <Blurhash className='timeline-media-tile__blurhash' hash={hash} />
@@ -1315,9 +1365,11 @@ class Status extends ImmutablePureComponent {
             <div className='status__wrapper status__wrapper--media-tile' data-id={status.get('id')} ref={this.handleRef}>
               <div className='timeline-media-tile'>
                 <div className='timeline-media-tile__preview'>
-                  {typeof plainSource === 'string' ? (
+                  {altHtml ? (
+                    <DisplayEmojiMuteSource plain={displayName || ''} html={concealed ? '' : altHtml}>{openButton}</DisplayEmojiMuteSource>
+                  ) : (typeof plainSource === 'string' ? (
                     <PlainEmojiMuteSource source={concealed ? openLabel : plainSource}>{openButton}</PlainEmojiMuteSource>
-                  ) : openButton}
+                  ) : openButton)}
                   {description && <div className='media-gallery__item__badges'>
                     <AltTextBadge description={alt} rawOriginal={description} />
                   </div>}

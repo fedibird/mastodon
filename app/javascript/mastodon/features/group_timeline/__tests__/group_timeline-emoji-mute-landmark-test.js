@@ -9,6 +9,7 @@ import { combineReducers } from 'redux-immutable';
 import thunk from 'redux-thunk';
 
 import { EMOJI_MUTES_APPLY, EMOJI_MUTES_DISABLE, EMOJI_MUTES_FAIL, EMOJI_MUTES_IGNORE, EMOJI_MUTES_RESET, EMOJI_MUTES_REVISION } from 'mastodon/actions/emoji_mutes';
+import { createUnverifiedEmojiGuard } from 'mastodon/features/emoji/emoji_mute_live_dom';
 import { groupTimelineId } from 'mastodon/actions/timeline_ids';
 import { resetEmojiMuteTextForTests } from 'mastodon/features/emoji/emoji_mute_text';
 import emojiMutes from 'mastodon/reducers/emoji_mutes';
@@ -347,5 +348,63 @@ describe('group column emoji mute landmark', () => {
     expect(store.getState().getIn(['emojiMutes', 'display'])).toBe('show');
     expect(region(container).getAttribute('aria-label')).toBe(plain);
     expect(headingText()).toBe(plain);
+  });
+
+  it('hides a custom display name before React commits and does not reproject the replacement', () => {
+    const plain = ':blob: :blob:';
+    const html = `${localImg('10')} ${remoteImg('a.test')}`;
+    const store = buildStore(account('7', { display_name: plain, display_name_html: html }));
+    const guard = createUnverifiedEmojiGuard();
+    let during = null;
+
+    store.subscribe(() => guard(store.getState()));
+    store.subscribe(() => {
+      during = {
+        region: document.querySelector('.emoji-mutes-privacy-portal [role="region"]')?.getAttribute('aria-label'),
+        heading: document.querySelector('#tabs-bar__portal h1 button')?.textContent,
+      };
+    });
+
+    const privacy = document.createElement('div');
+    const mount = document.createElement('div');
+
+    privacy.className = 'emoji-mutes-privacy-portal';
+    privacy.appendChild(mount);
+    privacy.appendChild(document.getElementById('tabs-bar__portal'));
+    document.body.appendChild(privacy);
+
+    const { container } = render(
+      <Provider store={store}>
+        <GroupTimeline params={{ id: '7' }} multiColumn={false} location={{ key: 'loc-7', pathname: '/timelines/groups/7' }} />
+      </Provider>,
+      { container: mount },
+    );
+
+    apply(store, [
+      rule({ kind: 'unicode', native: '😺' }, '[cat]'),
+      rule({ kind: 'custom', scope: 'local', custom_emoji_id: '10', shortcode: 'blob' }, '😺'),
+      rule({ kind: 'custom', scope: 'remote', domain: 'b.test', shortcode: 'blob' }, '[other]'),
+    ], '2');
+
+    expect(headingText()).toBe('😺 :blob:');
+    expect(region(container).getAttribute('aria-label')).toBe('😺 :blob:');
+    expect(store.getState().getIn(['accounts', '7', 'display_name_html'])).toBe(html);
+
+    act(() => {
+      store.dispatch({ type: EMOJI_MUTES_REVISION, revision: '3' });
+      expect(during.region).not.toContain(':blob:');
+      expect(during.heading).not.toContain(':blob:');
+      expect(during.region).toBe(during.heading);
+      store.dispatch({ type: EMOJI_MUTES_APPLY, revision: '3', mutes: [
+        rule({ kind: 'unicode', native: '😺' }, '[cat]'),
+        rule({ kind: 'custom', scope: 'local', custom_emoji_id: '10', shortcode: 'blob' }, '😺'),
+      ], availability: 'enabled' });
+      expect(during.region).toBe('😺 :blob:');
+      expect(during.heading).toBe('😺 :blob:');
+      expect(during.region).not.toContain('[cat]');
+    });
+
+    expect(region(container).getAttribute('aria-label')).toBe('😺 :blob:');
+    expect(headingText()).toBe('😺 :blob:');
   });
 });

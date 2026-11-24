@@ -7,6 +7,7 @@ import { Provider } from 'react-redux';
 import { createStore } from 'redux';
 
 import { EMOJI_MUTES_APPLY, EMOJI_MUTES_FAIL, EMOJI_MUTES_IGNORE } from 'mastodon/actions/emoji_mutes';
+import { createUnverifiedEmojiGuard } from 'mastodon/features/emoji/emoji_mute_live_dom';
 import { resetEmojiMuteTextForTests } from 'mastodon/features/emoji/emoji_mute_text';
 import emojiMutes from 'mastodon/reducers/emoji_mutes';
 import { LocalMediaPlayer } from 'mastodon/components/status_media';
@@ -234,5 +235,81 @@ describe('emoji mute media tile labels', () => {
 
     expect(player.getAttribute('aria-label')).toBe('Clip [ok] :blob:');
     expect(player.getAttribute('data-source')).toBe(`Clip ${THUMB} :blob:`);
+  });
+
+  it('scrubs a display-name tile before React commits and leaves a written shortcode', () => {
+    const store = makeStore();
+    const guard = createUnverifiedEmojiGuard();
+    let during = null;
+
+    store.subscribe(() => guard(store.getState()));
+    store.subscribe(() => {
+      const buttons = document.querySelectorAll('.timeline-media-tile__open');
+
+      during = {
+        fallbackAlt: buttons[0] && buttons[0].querySelector('img') && buttons[0].querySelector('img').getAttribute('alt'),
+        fallbackLabel: buttons[0] && buttons[0].getAttribute('aria-label'),
+        writtenAlt: buttons[1] && buttons[1].querySelector('img') && buttons[1].querySelector('img').getAttribute('alt'),
+      };
+    });
+
+    const privacy = document.createElement('div');
+    privacy.className = 'emoji-mutes-privacy-portal';
+    document.body.appendChild(privacy);
+
+    const named = statusFor(null);
+    const written = statusFor('note :blob:');
+    render(
+      <Provider store={store}>
+        <React.Fragment>
+          <Status status={named} layoutMode='media' mediaIndex={0} mediaVisibility='show_all' />
+          <Status status={written} layoutMode='media' mediaIndex={0} mediaVisibility='show_all' />
+        </React.Fragment>
+      </Provider>,
+      { container: privacy },
+    );
+
+    const catRules = [
+      rule({ kind: 'unicode', native: '😺' }, '[cat]'),
+      rule({ kind: 'unicode', native: THUMB }, '😺'),
+      rule({ kind: 'custom', scope: 'local', custom_emoji_id: '10', shortcode: 'blob' }, '😺'),
+      rule({ kind: 'custom', scope: 'remote', domain: 'other.test', shortcode: 'blob' }, '[other]'),
+    ];
+
+    apply(store, catRules, '2');
+
+    const open = () => privacy.querySelectorAll('.timeline-media-tile__open');
+
+    expect(open()[0].querySelector('img').getAttribute('alt')).toBe('😺 😺');
+    expect(open()[0].getAttribute('aria-label')).toBe('😺 😺');
+    expect(open()[1].querySelector('img').getAttribute('alt')).toBe('note :blob:');
+    expect(named.getIn(['account', 'display_name_html'])).toBe(account.display_name_html);
+    expect(written.getIn(['media_attachments', 0, 'description'])).toBe('note :blob:');
+
+    act(() => {
+      store.dispatch({ type: 'EMOJI_MUTES_REVISION', revision: '3' });
+      expect(during.fallbackAlt).not.toContain(':blob:');
+      expect(during.fallbackLabel).not.toContain(':blob:');
+      expect(during.fallbackAlt).toBe(during.fallbackLabel);
+      expect(during.writtenAlt).toBe('note :blob:');
+      store.dispatch({ type: EMOJI_MUTES_APPLY, revision: '3', mutes: catRules, availability: 'enabled' });
+      expect(during.fallbackAlt).toBe('😺 😺');
+      expect(during.fallbackLabel).toBe('😺 😺');
+      expect(during.fallbackAlt).not.toContain('[cat]');
+      expect(during.writtenAlt).toBe('note :blob:');
+    });
+
+    expect(open()[0].querySelector('img').getAttribute('alt')).toBe('😺 😺');
+    expect(open()[0].getAttribute('aria-label')).toBe('😺 😺');
+    expect(open()[1].querySelector('img').getAttribute('alt')).toBe('note :blob:');
+
+    act(() => {
+      store.dispatch({ type: 'EMOJI_MUTES_REVISION', revision: '4' });
+      store.dispatch({ type: EMOJI_MUTES_IGNORE });
+    });
+
+    expect(open()[0].querySelector('img').getAttribute('alt')).toBe(`${THUMB} :blob:`);
+    expect(open()[1].querySelector('img').getAttribute('alt')).toBe('note :blob:');
+    privacy.remove();
   });
 });

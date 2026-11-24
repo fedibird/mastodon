@@ -2,7 +2,7 @@ import React from 'react';
 import PropTypes from 'prop-types';
 import { ReactReduxContext } from 'react-redux';
 import { emojiMutedPlainLabel, emojiMutedPlainText, emojiMuteTextIndexFromState, replaceEmojiInDisplayHtml, replaceUnicodeEmojiInPreviewHtml, UNVERIFIED_EMOJI_PLACEHOLDER } from 'mastodon/features/emoji/emoji_mute_text';
-import { bindEmojiMuteHtmlSources } from 'mastodon/features/emoji/emoji_mute_sources';
+import { bindEmojiMuteHtmlSources, rememberEmojiMuteDisplayName } from 'mastodon/features/emoji/emoji_mute_sources';
 
 // One Redux subscription per mounted display node. The shared account and
 // status records keep the emojify HTML. A rules change re-renders only these
@@ -259,12 +259,38 @@ class EmojiMutedPlainInner extends React.PureComponent {
     emojiMuteTextIndex: PropTypes.object,
   };
 
+  componentDidMount() {
+    this.bindDisplaySource();
+  }
+
+  componentDidUpdate() {
+    this.bindDisplaySource();
+  }
+
+  setNode = node => {
+    this.node = node;
+  };
+
+  bindDisplaySource() {
+    const html = this.props.html;
+
+    if (!this.node || typeof this.props.format === 'function' || typeof html !== 'string' || html === '') {
+      return;
+    }
+
+    const text = Array.from(this.node.childNodes).find(node => node.nodeType === Node.TEXT_NODE);
+
+    if (text) {
+      rememberEmojiMuteDisplayName(text, typeof this.props.plain === 'string' ? this.props.plain : '', html);
+    }
+  }
+
   render() {
     const { html, plain, className, format, tag: Tag = 'div', emojiMuteTextIndex } = this.props;
     const value = emojiMutedPlainText(plain, typeof html === 'string' ? html : '', emojiMuteTextIndex);
     const text = typeof format === 'function' ? format(value) : value;
 
-    return <Tag className={className}>{text}</Tag>;
+    return <Tag ref={this.setNode} className={className}>{text}</Tag>;
   }
 
 }

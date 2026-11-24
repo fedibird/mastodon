@@ -43,6 +43,17 @@ export function rememberEmojiMuteDisplayHtml(node, html) {
   textSources.set(node, { displayHtml: html });
 }
 
+// A flattened display name. plain is the shared string and html is the
+// emojify document that carries the emoji identity. Release projects this
+// pair once, so a replacement is not treated as another emoji.
+export function rememberEmojiMuteDisplayName(node, plain, html) {
+  if (!node || typeof plain !== 'string' || typeof html !== 'string') {
+    return;
+  }
+
+  textSources.set(node, { displayName: { plain, html } });
+}
+
 export function rememberEmojiMuteAttributeSource(element, name, source, kind = 'plain') {
   if (!element || typeof source !== 'string') {
     return;
@@ -56,6 +67,29 @@ export function rememberEmojiMuteAttributeSource(element, name, source, kind = '
   }
 
   sources.set(name, { value: source, kind: kind === 'html' ? 'html' : 'plain' });
+}
+
+export function rememberEmojiMuteDisplayAttribute(element, name, plain, html) {
+  if (!element || typeof plain !== 'string' || typeof html !== 'string' || html === '') {
+    return;
+  }
+
+  let sources = attributeSources.get(element);
+
+  if (!sources) {
+    sources = new Map();
+    attributeSources.set(element, sources);
+  }
+
+  sources.set(name, { value: plain, html, kind: 'display' });
+}
+
+export function forgetEmojiMuteAttributeSource(element, name) {
+  const sources = element && attributeSources.get(element);
+
+  if (sources) {
+    sources.delete(name);
+  }
 }
 
 export function logicalEmojiMuteText(node, fallback) {
@@ -89,7 +123,17 @@ export function emojiMuteAttributeSourceKind(element, name) {
     return null;
   }
 
-  return stored.kind === 'html' ? 'html' : 'plain';
+  if (stored.kind === 'html' || stored.kind === 'display') {
+    return stored.kind;
+  }
+
+  return 'plain';
+}
+
+export function emojiMuteAttributeDisplayHtml(element, name) {
+  const stored = storedAttribute(element, name);
+
+  return stored && typeof stored.html === 'string' ? stored.html : null;
 }
 
 export function hasEmojiMuteAttributeSource(element, name) {

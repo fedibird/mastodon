@@ -3,6 +3,7 @@ import PropTypes from 'prop-types';
 import { supportsPassiveEvents } from 'detect-passive-events';
 import { scrollTop } from '../scroll';
 import classNames from 'classnames';
+import { forgetEmojiMuteAttributeSource, rememberEmojiMuteDisplayAttribute } from 'mastodon/features/emoji/emoji_mute_sources';
 
 export default class Column extends React.PureComponent {
 
@@ -38,8 +39,9 @@ export default class Column extends React.PureComponent {
 
   // Group timelines publish a viewer-specific landmark without changing
   // `label`. A label prop change would re-render every child in the column.
-  setLandmarkLabel(label) {
+  setLandmarkLabel(label, source) {
     this.landmarkLabel = typeof label === 'string' ? label : undefined;
+    this.landmarkSource = source && typeof source.html === 'string' ? source : null;
     this.applyLandmarkLabel();
   }
 
@@ -50,11 +52,20 @@ export default class Column extends React.PureComponent {
 
     const label = this.landmarkLabel !== undefined ? this.landmarkLabel : this.props.label;
 
-    if (typeof label !== 'string' || this.node.getAttribute('aria-label') === label) {
+    if (typeof label === 'string' && this.node.getAttribute('aria-label') !== label) {
+      this.node.setAttribute('aria-label', label);
+    }
+
+    if (!this.node.hasAttribute('aria-label')) {
       return;
     }
 
-    this.node.setAttribute('aria-label', label);
+    if (this.landmarkSource) {
+      rememberEmojiMuteDisplayAttribute(this.node, 'aria-label', this.landmarkSource.plain || '', this.landmarkSource.html);
+      return;
+    }
+
+    forgetEmojiMuteAttributeSource(this.node, 'aria-label');
   }
 
   componentDidMount () {
