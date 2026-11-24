@@ -27,6 +27,7 @@ export {
   deleteEmojiMute,
   loadPersonalEmojiSetDocument,
   appendPersonalCategoryItem,
+  removePersonalCategoryItem,
 } from './api';
 export {
   DEFAULT_MUTE_REPLACEMENT,

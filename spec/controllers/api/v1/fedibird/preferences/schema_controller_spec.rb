@@ -36,6 +36,7 @@ RSpec.describe Api::V1::Fedibird::Preferences::SchemaController, type: :controll
         user.emoji_picker_disable_personal
         user.emoji_picker_disable_standard
         user.emoji_picker_disable_actions
+        user.emoji_actions_disable_personal_remove
         user.emoji_picker_lazy_load_standard
         user.emoji_reaction_fallback_policy
         user.preferred_posting_language
@@ -64,6 +65,7 @@ RSpec.describe Api::V1::Fedibird::Preferences::SchemaController, type: :controll
       expect(body[:schema].find { |item| item[:key] == 'user.emoji_picker_prefer_personal' }[:apply_hint]).to eq 'reload'
       expect(body[:schema].find { |item| item[:key] == 'user.emoji_picker_disable_standard' }[:apply_hint]).to eq 'reload'
       expect(body[:schema].find { |item| item[:key] == 'user.emoji_picker_lazy_load_standard' }[:apply_hint]).to eq 'reload'
+      expect(body[:schema].find { |item| item[:key] == 'user.emoji_actions_disable_personal_remove' }[:apply_hint]).to eq 'reload'
       expect(response.body).not_to include('source_refs')
       expect(response.body).not_to include('app/models')
       expect(response.body).not_to include(user.account.username)

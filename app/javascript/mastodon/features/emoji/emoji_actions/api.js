@@ -139,3 +139,15 @@ export function appendPersonalCategoryItem(categoryId, emoji, expectedRevision) 
     }),
   });
 }
+
+export function removePersonalCategoryItem(categoryId, emoji, expectedRevision) {
+  const reference = normalizeReference(emoji);
+
+  return emojiActionsRequest(`${personalEndpoint}/categories/${encodeURIComponent(categoryId)}/items`, {
+    method: 'DELETE',
+    body: JSON.stringify({
+      expected_revision: expectedRevision,
+      emoji: reference,
+    }),
+  });
+}

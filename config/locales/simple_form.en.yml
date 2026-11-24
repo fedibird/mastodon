@@ -91,6 +91,7 @@ en:
         setting_emoji_picker_disable_personal: Disable the personal picker and its data loading. If the standard picker is also disabled, hide all pickers and prevent new emoji reactions. Reload the page for changes to take effect.
         setting_emoji_picker_disable_standard: Disable the standard picker and its data loading; use only personal emoji sets. If personal sets are also disabled, hide all pickers and prevent new emoji reactions. Reload the page for changes to take effect.
         setting_emoji_picker_disable_actions: Disable the picker action controls and menu gestures (long press, right click, and keyboard) in both standard and personal emoji pickers. Normal emoji insertion and reactions continue to work. If the emoji picker behaves unexpectedly, try disabling this feature. Takes effect after a full reload.
+        setting_emoji_actions_disable_personal_remove: Prevent removing emojis from personal sets in the emoji action menu. Adding to a personal set and editing on the personal set settings page still work. Applies after a full reload.
         setting_emoji_preview_click_action: Choose what happens when the enlarged emoji preview, its label, or its surrounding area is clicked. Defaults to Emoji details. Clicks never pass through to elements behind it. Applies after a full reload.
         setting_emoji_mute_disable_actions: Block quick mute/unmute actions and make the mute management page read-only. Existing mute effects remain active; turn this option off to edit them. Applies after a full reload.
         setting_emoji_mute_enabled: Apply saved emoji mutes. Off leaves the rules in place but stops hiding emoji, refusing reactions, and loading the list when the WebUI starts. The first mute turns this on unless you have explicitly turned it off. Applies after a reload, or immediately in other open tabs.
@@ -366,6 +367,7 @@ en:
         setting_emoji_picker_disable_personal: Do not use personal emoji sets
         setting_emoji_picker_disable_standard: Do not use the standard picker
         setting_emoji_picker_disable_actions: Disable emoji picker action menus
+        setting_emoji_actions_disable_personal_remove: Disable removing emojis from personal sets
         setting_emoji_preview_click_action: Click action for enlarged emoji previews
         setting_emoji_preview_click_action_none: Do nothing
         setting_emoji_preview_click_action_close: Close

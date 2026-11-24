@@ -56,6 +56,7 @@ parameter. Read routes accept `read` or `read:accounts`; the update route accept
 | `GET /api/v1/emoji_sets/personal/stock` | Only resolved stock, definition revision, and shared display size |
 | `POST /api/v1/emoji_sets/personal/resolve` | Resolve a candidate before adding it to an editor draft; does not persist anything |
 | `POST /api/v1/emoji_sets/personal/categories/:category_id/items` | Append one emoji to an existing category under the same user lock and revision |
+| `DELETE /api/v1/emoji_sets/personal/categories/:category_id/items` | Remove one typed emoji from that category under the same lock and revision |
 
 ### Definition
 

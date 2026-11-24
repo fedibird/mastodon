@@ -223,4 +223,24 @@ describe('personal emoji stock source', () => {
     await firstResult;
     expect(get).toHaveBeenCalledTimes(2);
   });
+
+  it('does not roll stock or size back to an older save', () => {
+    const changed = jest.fn();
+
+    unsubscribers.push(source.subscribePersonalEmojiStock(changed));
+    source.notifySavedPersonalEmojiSet(documentFor(3, 32));
+    changed.mockClear();
+    source.notifySavedPersonalEmojiSet(documentFor(2, 22));
+
+    expect(source.getCachedPersonalEmojiStock().stock.categories[0].name).toBe('Category 3');
+    expect(source.getPickerEmojiSize()).toBe(32);
+    expect(changed).not.toHaveBeenCalled();
+
+    const epoch = source.personalEmojiStockGeneration();
+    source.notifySavedPersonalEmojiSet(documentFor(4, 40));
+    source.notifySavedPersonalEmojiSet(documentFor(5, 48), epoch);
+
+    expect(source.getCachedPersonalEmojiStock().stock.categories[0].name).toBe('Category 4');
+    expect(source.getPickerEmojiSize()).toBe(40);
+  });
 });

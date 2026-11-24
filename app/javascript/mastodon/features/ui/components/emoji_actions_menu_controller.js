@@ -5,11 +5,11 @@ import { connect } from 'react-redux';
 import { defineMessages, injectIntl } from 'react-intl';
 import Overlay from 'react-overlays/Overlay';
 import { DropdownMenu } from 'mastodon/components/dropdown_menu';
-import { emojiMuteDisableActions, emojiPickerDisableActions, emojiPickerDisablePersonal, emojiPreviewClickAction, me } from 'mastodon/initial_state';
+import { emojiActionsDisablePersonalRemove, emojiMuteDisableActions, emojiPickerDisableActions, emojiPickerDisablePersonal, emojiPreviewClickAction, me } from 'mastodon/initial_state';
 import { syncEmojiMutes } from 'mastodon/actions/emoji_mutes';
 import { addEmojiReaction, removeEmojiReaction } from 'mastodon/actions/interactions';
 import { currentEmojiMutes } from 'mastodon/features/emoji/emoji_mute_store';
-import { notifySavedPersonalEmojiSet } from 'mastodon/features/emoji/emoji_stock_source';
+import { notifySavedPersonalEmojiSet, personalEmojiStockGeneration } from 'mastodon/features/emoji/emoji_stock_source';
 import { closeModal, openModal } from 'mastodon/actions/modal';
 import { enableEmojiMuteLoading } from 'mastodon/actions/emoji_mutes';
 import { currentEmojiMuteBoot, emojiMuteConfirmation } from 'mastodon/features/emoji/emoji_mute_availability';
@@ -28,6 +28,7 @@ import {
   resolveEmojiReference,
   loadPersonalEmojiSetDocument,
   appendPersonalCategoryItem,
+  removePersonalCategoryItem,
 } from 'mastodon/features/emoji/emoji_actions/api';
 import {
   clearEmojiActionsSlideHighlight,
@@ -87,12 +88,15 @@ const messages = defineMessages({
   muted: { id: 'emoji_actions.muted', defaultMessage: 'Muted' },
   addToCategory: { id: 'emoji_actions.add_to_category', defaultMessage: 'Add to {name}' },
   alreadyInCategory: { id: 'emoji_actions.already_in_category', defaultMessage: 'Already in {name}' },
+  removeFromCategory: { id: 'emoji_actions.remove_from_category', defaultMessage: 'Remove from {name}' },
   noCategories: { id: 'emoji_actions.no_categories', defaultMessage: 'No personal categories yet' },
   loading: { id: 'emoji_actions.loading', defaultMessage: 'Loading…' },
   muteFailed: { id: 'emoji_actions.mute_failed', defaultMessage: 'Could not mute this emoji' },
   unmuteFailed: { id: 'emoji_actions.unmute_failed', defaultMessage: 'Could not unmute this emoji' },
   addFailed: { id: 'emoji_actions.add_failed', defaultMessage: 'Could not add this emoji' },
   addConflict: { id: 'emoji_actions.add_conflict', defaultMessage: 'Personal set changed. Try again.' },
+  removeFailed: { id: 'emoji_actions.remove_failed', defaultMessage: 'Could not remove this emoji' },
+  removeConflict: { id: 'emoji_actions.remove_conflict', defaultMessage: 'Personal set changed. Try again.' },
   muteSuccess: { id: 'emoji_actions.mute_success', defaultMessage: 'Muted {label}' },
   unmuteSuccess: { id: 'emoji_actions.unmute_success', defaultMessage: 'Unmuted {label}' },
   muteConfirm: { id: 'emoji_actions.mute_confirm', defaultMessage: 'Mute this emoji?' },
@@ -100,6 +104,7 @@ const messages = defineMessages({
   muteReenable: { id: 'emoji_actions.mute_reenable', defaultMessage: 'Emoji muting is turned off. Saving this mute turns it back on and applies your saved rules.' },
   unmuteConfirm: { id: 'emoji_actions.unmute_confirm', defaultMessage: 'Unmute this emoji? Saved rules stay until you remove them.' },
   addSuccess: { id: 'emoji_actions.add_success', defaultMessage: 'Added to {name}' },
+  removeSuccess: { id: 'emoji_actions.remove_success', defaultMessage: 'Removed from {name}' },
   openSettings: { id: 'emoji_actions.open_mute_settings', defaultMessage: 'Open mute settings' },
   retry: { id: 'emoji_actions.retry', defaultMessage: 'Try again' },
   resolveFailed: { id: 'emoji_actions.resolve_failed', defaultMessage: 'Could not load emoji actions' },
@@ -204,6 +209,8 @@ export function buildEmojiActionMenuItems({
   onMute,
   onUnmute,
   onAddToCategory,
+  onRemoveFromCategory,
+  personalRemoveDisabled = false,
   onRetry,
   onRetrySync,
 }) {
@@ -353,12 +360,28 @@ export function buildEmojiActionMenuItems({
             return referencesEqual(itemReference, reference);
           });
         const name = category.name || category.id;
+        let textId = messages.addToCategory;
+        let icon = 'plus-circle';
+        let action = () => onAddToCategory(category);
+        let disabled = busy;
+
+        if (present && personalRemoveDisabled) {
+          textId = messages.alreadyInCategory;
+          icon = 'check-circle';
+          action = null;
+          disabled = true;
+        } else if (present) {
+          textId = messages.removeFromCategory;
+          icon = 'minus-circle';
+          action = typeof onRemoveFromCategory === 'function' ? () => onRemoveFromCategory(category) : null;
+          disabled = busy || action === null;
+        }
 
         items.push({
-          text: intl.formatMessage(present ? messages.alreadyInCategory : messages.addToCategory, { name }),
-          icon: present ? 'check-circle' : 'plus-circle',
-          action: present ? null : () => onAddToCategory(category),
-          disabled: present || busy,
+          text: intl.formatMessage(textId, { name }),
+          icon,
+          action,
+          disabled,
         });
       });
     }
@@ -1100,6 +1123,8 @@ class EmojiActionsMenuController extends React.PureComponent {
       onMute: this.handleMute,
       onUnmute: this.handleUnmute,
       onAddToCategory: this.handleAddToCategory,
+      onRemoveFromCategory: this.handleRemoveFromCategory,
+      personalRemoveDisabled: emojiActionsDisablePersonalRemove,
       onRetry: this.handleRetry,
       onRetrySync: this.handleRetrySync,
     });
@@ -1470,15 +1495,19 @@ class EmojiActionsMenuController extends React.PureComponent {
     }
 
     const session = captureMenuSession(this.loadGeneration, reference);
+    const stockGeneration = personalEmojiStockGeneration();
 
     this.setState({ busy: true, error: null, notice: null });
 
     appendPersonalCategoryItem(category.id, reference, personalRevision).then(document => {
-      if (document && document.operation && document.operation.added) {
-        notifySavedPersonalEmojiSet(document);
+      const added = Boolean(document && document.operation && document.operation.added);
+      const stockCurrent = personalEmojiStockGeneration() === stockGeneration;
+
+      if (added && stockCurrent) {
+        notifySavedPersonalEmojiSet(document, stockGeneration);
       }
 
-      if (!isCurrentMenuSession(session, { loadGeneration: this.loadGeneration, reference: this.state.reference })) {
+      if (!isCurrentMenuSession(session, { loadGeneration: this.loadGeneration, reference: this.state.reference }) || !stockCurrent) {
         return;
       }
 
@@ -1504,6 +1533,84 @@ class EmojiActionsMenuController extends React.PureComponent {
         busy: false,
         error,
         notice: message,
+      });
+    });
+  };
+
+  handleRemoveFromCategory = category => {
+    const { intl } = this.props;
+    const { reference, personalRevision } = this.state;
+
+    if (emojiActionsDisablePersonalRemove || emojiPickerDisablePersonal || !category || !reference || this.state.busy) {
+      return;
+    }
+
+    const session = captureMenuSession(this.loadGeneration, reference);
+    const stockGeneration = personalEmojiStockGeneration();
+
+    this.setState({ busy: true, error: null, notice: null });
+
+    removePersonalCategoryItem(category.id, reference, personalRevision).then(document => {
+      const removed = Boolean(document && document.operation && document.operation.removed);
+      const stockCurrent = personalEmojiStockGeneration() === stockGeneration;
+
+      // A committed removal still reaches open pickers and other tabs when
+      // this menu has already closed or moved to another emoji.
+      if (removed && stockCurrent) {
+        notifySavedPersonalEmojiSet(document, stockGeneration);
+      }
+
+      if (!isCurrentMenuSession(session, { loadGeneration: this.loadGeneration, reference: this.state.reference }) || !stockCurrent) {
+        return;
+      }
+
+      this.setState({
+        busy: false,
+        personalRevision: document.revision,
+        categories: document.categories,
+        notice: intl.formatMessage(messages.removeSuccess, { name: category.name || category.id }),
+      });
+    }).catch(error => {
+      if (!isCurrentMenuSession(session, { loadGeneration: this.loadGeneration, reference: this.state.reference })) {
+        return;
+      }
+
+      const conflict = error && error.code === 'conflict';
+      const message = conflict
+        ? intl.formatMessage(messages.removeConflict)
+        : intl.formatMessage(messages.removeFailed);
+
+      if (!conflict) {
+        this.setState({
+          busy: false,
+          error,
+          notice: message,
+        });
+        return;
+      }
+
+      loadPersonalEmojiSetDocument().then(latest => {
+        if (!isCurrentMenuSession(session, { loadGeneration: this.loadGeneration, reference: this.state.reference })) {
+          return;
+        }
+
+        this.setState({
+          busy: false,
+          error,
+          notice: message,
+          personalRevision: latest ? latest.revision : personalRevision,
+          categories: latest && Array.isArray(latest.categories) ? latest.categories : this.state.categories,
+        });
+      }).catch(() => {
+        if (!isCurrentMenuSession(session, { loadGeneration: this.loadGeneration, reference: this.state.reference })) {
+          return;
+        }
+
+        this.setState({
+          busy: false,
+          error,
+          notice: message,
+        });
       });
     });
   };

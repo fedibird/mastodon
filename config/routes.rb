@@ -636,6 +636,7 @@ Rails.application.routes.draw do
           get :stock
           post :resolve
           post 'categories/:category_id/items', to: 'personal/items#create', constraints: { category_id: /[A-Za-z0-9_-]{1,64}/ }
+          delete 'categories/:category_id/items', to: 'personal/items#destroy', constraints: { category_id: /[A-Za-z0-9_-]{1,64}/ }
         end
       end
 

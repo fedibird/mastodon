@@ -142,6 +142,7 @@ class UserSettingsDecorator
     emoji_picker_disable_personal
     emoji_picker_disable_standard
     emoji_picker_disable_actions
+    emoji_actions_disable_personal_remove
     emoji_mute_disable_actions
     emoji_mute_enabled
     emoji_mute_modal

@@ -54,6 +54,7 @@ RSpec.describe Api::V1::Fedibird::PreferencesController, type: :controller do
         :'user.emoji_picker_disable_personal',
         :'user.emoji_picker_disable_standard',
         :'user.emoji_picker_disable_actions',
+        :'user.emoji_actions_disable_personal_remove',
         :'user.emoji_picker_lazy_load_standard',
         :'user.emoji_reaction_fallback_policy'
       )
@@ -313,6 +314,7 @@ RSpec.describe Api::V1::Fedibird::PreferencesController, type: :controller do
         :'user.emoji_picker_disable_personal',
         :'user.emoji_picker_disable_standard',
         :'user.emoji_picker_disable_actions',
+        :'user.emoji_actions_disable_personal_remove',
         :'user.emoji_picker_lazy_load_standard',
         :'user.emoji_reaction_fallback_policy'
       )
@@ -352,7 +354,7 @@ RSpec.describe Api::V1::Fedibird::PreferencesController, type: :controller do
 
       expect(response).to have_http_status(200)
       expect(stored(user, 'default_sensitive').value).to be false
-      expect(body_as_json[:preferences].keys.size).to eq 16
+      expect(body_as_json[:preferences].keys.size).to eq 17
     end
 
     it 'updates policy and the translation bar together, and policy alone leaves the bar row' do
@@ -513,6 +515,24 @@ RSpec.describe Api::V1::Fedibird::PreferencesController, type: :controller do
       expect(body_as_json[:errors]).to include(key: 'user.emoji_reaction_fallback_policy', code: 'unknown_key')
       expect(stored(user, 'emoji_reaction_fallback_policy').value).to eq 'deny'
       expect(stored(user, 'reduce_motion')).to be_nil
+    end
+
+    it 'stores explicit false and true for personal-set removal without treating them as absent' do
+      patch_json(preferences: { 'user.emoji_actions_disable_personal_remove' => false })
+
+      expect(response).to have_http_status(200)
+      expect(body_as_json[:preferences][:'user.emoji_actions_disable_personal_remove']).to include(
+        state: 'present', configured: false, effective: false, public_value: false, public_valid: true
+      )
+      expect(stored(user, 'emoji_actions_disable_personal_remove').value).to be false
+
+      patch_json(preferences: { 'user.emoji_actions_disable_personal_remove' => true })
+
+      expect(response).to have_http_status(200)
+      expect(body_as_json[:preferences][:'user.emoji_actions_disable_personal_remove']).to include(
+        state: 'present', configured: true, effective: true, public_value: true
+      )
+      expect(stored(user, 'emoji_actions_disable_personal_remove').value).to be true
     end
 
     it 'rejects reset of the fallback policy' do

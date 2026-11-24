@@ -227,11 +227,27 @@ export function subscribePickerEmojiSize(listener) {
 // Only call after a successful atomic save. Drafts never replace the live
 // stock. A tiny change marker reaches other tabs and embedded settings frames;
 // definitions and access tokens are never stored in localStorage.
-export function notifySavedPersonalEmojiSet(document) {
+export function personalEmojiStockGeneration() {
+  return generation;
+}
+
+// capturedGeneration is the generation observed before an in-flight save.
+// A newer save or another tab invalidates it. An older revision must not
+// replace stock that is already newer.
+export function notifySavedPersonalEmojiSet(document, capturedGeneration) {
   if (personalStockDisabled) {
     return;
   }
+  if (capturedGeneration !== undefined && capturedGeneration !== generation) {
+    return;
+  }
   const saved = validateDocument(document);
+  const savedRevision = saved.revision;
+  const cachedRevision = cachedDocument && cachedDocument.revision;
+
+  if (Number.isInteger(savedRevision) && Number.isInteger(cachedRevision) && savedRevision < cachedRevision) {
+    return;
+  }
 
   generation += 1;
   request = null;
