@@ -18,7 +18,7 @@ import { translationPairStatus } from '../../../utils/translation_languages';
 import { selectAcceptedTranslationPreferences } from '../../../selectors/user_preferences';
 import { translationBarEffectivelyVisible, viewerTranslationPair } from '../../../utils/translation_view';
 import { emojiReactionsForStatus } from '../../../utils/emoji_reactions';
-import { armReboostClock, reboostMenuItems, reboostRemainingSeconds, reboostWaitMinutes } from '../../reboost/menu';
+import { armReboostClock, reboostMenuItems, reboostOperationId, reboostRemainingSeconds, reboostWaitMinutes } from '../../reboost/menu';
 
 const messages = defineMessages({
   edit: { id: 'status.edit', defaultMessage: 'Edit' },
@@ -250,7 +250,9 @@ class ActionBar extends React.PureComponent {
   renderBoostButton = ({ intl, status, reblogged, publicStatus, reblogPrivate, expired, externalContent, disableReactions, reblogTitle }) => {
     const minutes = reboostWaitMinutes(reboostRemainingSeconds(status));
     const waiting = !reblogged && minutes > 0;
-    const menu = enableReboost && reblogged && me && !externalContent && !expired && (publicStatus || reblogPrivate);
+    const operationId = reboostOperationId(status);
+    const reboostMenu = enableReboost && reblogged && me && !externalContent && !expired && (publicStatus || reblogPrivate);
+    const menu = reboostMenu || Boolean(operationId && me && !externalContent && !expired);
     let title = reblogTitle;
 
     if (menu) {
@@ -268,7 +270,7 @@ class ActionBar extends React.PureComponent {
       <DropdownMenuContainer
         status={status}
         menuRole='menu'
-        items={reboostMenuItems({ intl, messages, status, onReboost: this.handleReboost, onUnreblog: this.handleUnreblog, onCheck: this.handleCheckReboost, busy: this.props.reboosting })}
+        items={reboostMenuItems({ intl, messages, status, onReboost: this.handleReboost, onUnreblog: this.handleUnreblog, onCheck: this.handleCheckReboost, busy: this.props.reboosting, pendingOnly: !reboostMenu })}
         direction='right'
       >
         <IconButton className={classNames({ reblogPrivate })} disabled={disableReactions || expired} active={reblogged} title={title} icon='retweet' />

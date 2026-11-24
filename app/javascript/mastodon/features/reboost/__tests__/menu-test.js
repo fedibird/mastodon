@@ -66,6 +66,9 @@ describe('reboost menu', () => {
     };
     const checked = reboostMenuItems({ intl, messages: messagesWithCheck, status: pending, onReboost: jest.fn(), onUnreblog: jest.fn(), onCheck: jest.fn(), busy: true });
     expect(checked.map(item => item.text)).toContain('Check status');
+
+    const pendingOnly = reboostMenuItems({ intl, messages: messagesWithCheck, status: pending, onReboost: jest.fn(), onUnreblog: jest.fn(), onCheck: jest.fn(), pendingOnly: true });
+    expect(pendingOnly.map(item => item.text)).toEqual(['Check status', 'Unboost']);
     jest.useRealTimers();
   });
 });

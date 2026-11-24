@@ -241,10 +241,15 @@ function settleReboost(dispatch, getState, status, operationId) {
 
 function applyReboostResult(dispatch, getState, status, operationId, operation) {
   const statusId = status.get('id');
+  const trackedId = getState().getIn(['statuses', statusId, 'reboost_operation', 'id']);
 
-  if (!operation) {
+  if ((trackedId && String(trackedId) !== String(operationId)) || (operation?.id && String(operation.id) !== String(operationId))) {
+    return null;
+  }
+
+  if (!operation || operation.state === 'pending' || operation.state === 'federating') {
     dispatch(showAlert(reboostMessages.stillPendingTitle, reboostMessages.stillPending));
-    dispatch(setReboostOperation(statusId, { id: operationId, state: 'pending' }));
+    dispatch(setReboostOperation(statusId, { id: operationId, state: operation?.state || 'pending' }));
     return null;
   }
 

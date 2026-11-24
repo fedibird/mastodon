@@ -256,6 +256,38 @@ describe('reboost', () => {
     expect(harness.getState().getIn(['statuses', '1', 'reboost_operation'])).toBeUndefined();
   });
 
+  it('keeps a pending check and applies the same operation when it completes', async () => {
+    api.post.mockResolvedValue({ status: 202, data: { operation_id: '9', state: 'pending' } });
+    followReboostOperation.mockRejectedValue(new Error('timeout'));
+    const harness = setup();
+
+    await reboost(status)(harness.dispatch, harness.getState);
+    api.post.mockClear();
+    api.get.mockResolvedValueOnce({ data: { id: '9', state: 'pending' } });
+
+    await checkReboostOperation(status)(harness.dispatch, harness.getState);
+
+    expect(api.post).not.toHaveBeenCalled();
+    expect(harness.getState().getIn(['statuses', '1', 'reboost_operation']).toJS()).toEqual({ id: '9', state: 'pending' });
+    expect(harness.actions.some(action => action.type === 'ALERT_SHOW' && action.title.id === 'reboost.failed_title')).toBe(false);
+
+    api.get.mockResolvedValueOnce({ data: { id: '8', state: 'failed' } });
+    await checkReboostOperation(status)(harness.dispatch, harness.getState);
+    expect(harness.getState().getIn(['statuses', '1', 'reboost_operation']).toJS()).toEqual({ id: '9', state: 'pending' });
+
+    api.get.mockResolvedValueOnce({ data: { id: '9', state: 'federating' } });
+    await checkReboostOperation(status)(harness.dispatch, harness.getState);
+    expect(harness.getState().getIn(['statuses', '1', 'reboost_operation']).toJS()).toEqual({ id: '9', state: 'federating' });
+
+    api.get.mockResolvedValueOnce({ data: { id: '9', state: 'completed', new_status_id: '50' } });
+    api.get.mockResolvedValueOnce({ data: { id: '50', reblog: { id: '1', reblogged: true } } });
+    await checkReboostOperation(status)(harness.dispatch, harness.getState);
+
+    expect(api.post).not.toHaveBeenCalled();
+    expect(harness.actions.some(action => action.type === REBLOG_SUCCESS)).toBe(true);
+    expect(harness.getState().getIn(['statuses', '1', 'reboost_operation'])).toBeUndefined();
+  });
+
   it('keeps the in-flight operation when a status payload is imported', () => {
     let state = ImmutableMap({ '1': ImmutableMap({ id: '1', reblogged: true }) });
     state = statuses(state, { type: REBOOST_OPERATION, statusId: '1', operation: { id: '9', state: 'pending' } });

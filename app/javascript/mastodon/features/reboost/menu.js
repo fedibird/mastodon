@@ -34,10 +34,40 @@ export function armReboostClock (status, onFire) {
   return setTimeout(onFire, seconds * 1000);
 }
 
-export function reboostMenuItems ({ intl, messages, status, onReboost, onUnreblog, onCheck, busy }) {
-  const minutes = reboostWaitMinutes(reboostRemainingSeconds(status));
+export function reboostOperationId (status) {
   const operation = status.get('reboost_operation');
-  const operationId = operation && operation.get ? operation.get('id') : operation?.id;
+
+  if (!operation) {
+    return null;
+  }
+
+  const id = operation.get ? operation.get('id') : operation.id;
+
+  return id || null;
+}
+
+export function reboostMenuItems ({ intl, messages, status, onReboost, onUnreblog, onCheck, busy, pendingOnly }) {
+  const operationId = reboostOperationId(status);
+
+  if (pendingOnly) {
+    const pendingItems = [];
+
+    if (operationId && onCheck) {
+      pendingItems.push({
+        text: intl.formatMessage(messages.reboost_check),
+        action: onCheck,
+      });
+    }
+
+    pendingItems.push({
+      text: intl.formatMessage(messages.cancel_reblog_private),
+      action: onUnreblog,
+    });
+
+    return pendingItems;
+  }
+
+  const minutes = reboostWaitMinutes(reboostRemainingSeconds(status));
   const items = [
     {
       text: minutes > 0 ? intl.formatMessage(messages.reboost_wait, { minutes }) : intl.formatMessage(messages.reboost),

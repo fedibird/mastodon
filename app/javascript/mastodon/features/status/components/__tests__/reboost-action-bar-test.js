@@ -325,4 +325,63 @@ describe('detailed status reboost menu', () => {
     expect(screen.getByRole('button', { name: 'Boost' })).toBeEnabled();
     jest.useRealTimers();
   });
+
+  it('offers a status check while a normal boost is still pending', () => {
+    const store = createStore(root, applyMiddleware(thunk));
+    const onCheckReboost = jest.fn();
+    const onReboost = jest.fn();
+    const status = fromJS({
+      id: 's1',
+      account: { id: 'other', acct: 'bob', username: 'bob', url: 'https://example.test/bob' },
+      visibility: 'public',
+      muted: false,
+      reblogged: false,
+      favourited: false,
+      bookmarked: false,
+      reblogs_count: 0,
+      favourites_count: 0,
+      replies_count: 0,
+      status_referred_by_count: 0,
+      emoji_reactions: [],
+      reboost_operation: { id: '9', state: 'pending' },
+      url: 'https://example.test/s1',
+    });
+
+    render(
+      <Provider store={store}>
+        <RouterProvider>
+          <ActionBar
+            status={status}
+            onReply={jest.fn()}
+            onFavourite={jest.fn()}
+            onReblog={jest.fn()}
+            onReboost={onReboost}
+            onCheckReboost={onCheckReboost}
+            onUnreblog={jest.fn()}
+            onQuote={jest.fn()}
+            onBookmark={jest.fn()}
+            onDelete={jest.fn()}
+            onExpire={jest.fn()}
+            onDirect={jest.fn()}
+            onMemberList={jest.fn()}
+            onMention={jest.fn()}
+            onMute={jest.fn()}
+            onBlock={jest.fn()}
+            onReport={jest.fn()}
+            onEmbed={jest.fn()}
+            onMuteConversation={jest.fn()}
+            onPin={jest.fn()}
+            addEmojiReaction={jest.fn()}
+            removeEmojiReaction={jest.fn()}
+          />
+        </RouterProvider>
+      </Provider>,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Boost actions' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Check status' }));
+    expect(onCheckReboost).toHaveBeenCalledTimes(1);
+    expect(onReboost).not.toHaveBeenCalled();
+    expect(screen.queryByRole('button', { name: 'Reboost' })).toBeNull();
+  });
 });
