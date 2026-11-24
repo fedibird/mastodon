@@ -247,3 +247,101 @@ RSpec.describe 'feed delivery rollout process and database checks', type: :model
     end
   end
 end
+
+RSpec.describe 'feed delivery rollout mode evidence', type: :model do
+  def environ_with(assignment)
+    "#{assignment}\0PATH=/usr/bin\0"
+  end
+
+  it 'reads an explicit initial value and does not call a blank or invalid value unknown' do
+    expect(FeedDeliveryReasonRollout.classify_process_mode(environ_with('FEED_DELIVERY_REASON_MODE=Shadow'))).to include('mode' => 'shadow')
+    expect(FeedDeliveryReasonRollout.classify_process_mode(environ_with('FEED_DELIVERY_REASON_MODE='))).to include('mode' => 'off')
+    expect(FeedDeliveryReasonRollout.classify_process_mode(environ_with('FEED_DELIVERY_REASON_MODE=YES'))).to include('mode' => 'off')
+    expect(FeedDeliveryReasonRollout.classify_process_mode("PATH=/usr/bin\0")).to include('mode' => 'unknown')
+  end
+
+  it 'reports the explicit mode of another process and ignores this process environment' do
+    previous = ENV.fetch('FEED_DELIVERY_REASON_MODE', nil)
+    ENV['FEED_DELIVERY_REASON_MODE'] = 'enforce'
+    pid = Process.spawn({ 'FEED_DELIVERY_REASON_MODE' => 'shadow' }, 'sleep', '30')
+    sleep 0.2
+    stdout, _stderr, status = Open3.capture3(
+      RbConfig.ruby,
+      Rails.root.join('script/feed_delivery_reason_rollout.rb').to_s,
+      'process-modes', '--pid', pid.to_s, '--expect', 'shadow'
+    )
+
+    expect(status.exitstatus).to eq 0
+    expect(stdout).to include("pid=#{pid} FEED_DELIVERY_REASON_MODE=shadow")
+    expect(stdout).not_to include('=enforce')
+  ensure
+    if previous.nil?
+      ENV.delete('FEED_DELIVERY_REASON_MODE')
+    else
+      ENV['FEED_DELIVERY_REASON_MODE'] = previous
+    end
+    if pid
+      Process.kill('TERM', pid)
+      Process.wait(pid)
+    end
+  end
+end
+
+RSpec.describe 'feed delivery rollout effective mode limits', type: :model do
+  it 'does not treat a mode that exists only after Dotenv.load as off or enforce' do
+    pid = nil
+    Dir.mktmpdir do |directory|
+      env_file = File.join(directory, '.env')
+      ready = File.join(directory, 'ready')
+      File.write(env_file, "FEED_DELIVERY_REASON_MODE=enforce\n")
+      pid = Process.spawn(
+        { 'FEED_DELIVERY_REASON_MODE' => nil },
+        'bundle', 'exec', 'ruby', '-e', <<~'RUBY', env_file, ready,
+          require 'dotenv'
+          Dotenv.load(ARGV[0])
+          File.write(ARGV[1], ENV.fetch('FEED_DELIVERY_REASON_MODE', 'missing'))
+          sleep 30
+        RUBY
+        chdir: Rails.root.to_s
+      )
+      loaded = nil
+      30.times do
+        loaded = File.read(ready) if File.exist?(ready)
+        break if loaded
+        sleep 0.1
+      end
+      stdout, stderr, status = Open3.capture3(
+        RbConfig.ruby,
+        Rails.root.join('script/feed_delivery_reason_rollout.rb').to_s,
+        'process-modes', '--pid', pid.to_s, '--expect', 'off'
+      )
+
+      expect(loaded).to eq 'enforce'
+      expect(status.exitstatus).to eq 3
+      expect(stdout).to include("pid=#{pid} FEED_DELIVERY_REASON_MODE=unknown")
+      expect(stdout).not_to include('=off')
+      expect(stdout).not_to include('=enforce')
+      expect(stderr).to include('missing initial variable is not off')
+    end
+  ensure
+    if pid
+      Process.kill('TERM', pid)
+      Process.wait(pid)
+    end
+  end
+end
+
+RSpec.describe 'feed delivery rollout pg-baseline arguments', type: :model do
+  it 'exits 2 for a missing pg-baseline path before Rails is loaded' do
+    stdout, stderr, status = Open3.capture3(
+      RbConfig.ruby,
+      Rails.root.join('script/feed_delivery_reason_rollout.rb').to_s,
+      'pg-baseline'
+    )
+
+    expect(status.exitstatus).to eq 2
+    expect(stderr).to include('ERROR: --out PATH is required')
+    expect(stderr).not_to include('uninitialized constant')
+    expect(stdout).to eq ''
+  end
+end

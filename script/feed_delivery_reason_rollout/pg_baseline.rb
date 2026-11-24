@@ -12,17 +12,24 @@ module FeedDeliveryReasonRollout
     raise Error, 'unexpected arguments' unless argv.empty?
     raise Error, '--out PATH is required' if options[:out].to_s.empty?
 
+    write_pg_baseline(options[:out])
+  end
+
+  def write_pg_baseline(path)
     require File.join(APP_ROOT, 'config/environment')
     expected = ActiveRecord::Base.connection_db_config.database.to_s
     raise Error, 'Rails database name is unset' if expected.empty?
 
     selects = select_statements(File.read(File.join(APP_ROOT, 'script/feed_delivery_reason_pg_baseline.sql')))
-    body = read_only_baseline(expected, selects)
-    write_new_file(options[:out], body)
-    puts "Saved read-only PostgreSQL baseline: #{options[:out]} (database=#{expected}; credentials not printed)"
+    body = nil
+    begin
+      body = read_only_baseline(expected, selects)
+    rescue ActiveRecord::ActiveRecordError, PG::Error
+      raise Error, 'read-only baseline could not use the Rails database'
+    end
+    write_new_file(path, body)
+    puts "Saved read-only PostgreSQL baseline: #{path} (database=#{expected}; credentials not printed)"
     0
-  rescue ActiveRecord::ActiveRecordError, PG::Error
-    raise Error, 'read-only baseline could not use the Rails database'
   end
 
   def select_statements(sql)

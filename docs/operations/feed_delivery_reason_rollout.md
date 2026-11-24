@@ -12,7 +12,7 @@
 
 ## 提供ツール
 
-- `script/feed_delivery_reason_rollout.rb process-modes`: 指定 Linux PID / systemd unit の機能フラグだけを `/proc/<pid>/environ` から確認。その他の環境変数（秘密を含む）は出力しない。unit は MainPID のみなので他のunit/子プロセス/ホストも別途確認
+- `script/feed_delivery_reason_rollout.rb process-modes`: 指定 Linux PID / systemd unit の**起動時**環境にある `FEED_DELIVERY_REASON_MODE` だけを `/proc/<pid>/environ` から確認する。その他の環境変数（秘密を含む）は出力しない。変数が無い場合は `unknown` で、`off` とは扱わない。`config/application.rb` の `Dotenv::Railtie.load` は起動後に実効 `ENV` を足し、その値は `/proc` に残らない。`--expect` は `unknown` を不一致として終了コード3にする。別プロセスの `rails runner` や snapshot の `runner_mode` は稼働ワーカーの証明ではない。unit は MainPID のみなので他のunit/子プロセス/ホストも別途確認する。起動前に unit の Environment / EnvironmentFile へ明示値を置くこと
 - `... snapshot`: アプリと同じRedis接続を使い、既知の時間別 `feed_delivery_reason:v1:YYYYMMDDHH` ハッシュを HGETALL pipeline で読み、JSON保存。既定48時間キー。`--hours` は1..73。72時間ちょうどの区間は始点のUTC時と72時間後のUTC時の両方に触れるため、キーは最大73個必要。出力は0600、上書き禁止
 - `... compare`: 同じフェーズの2枚からUTC時間境界をまたぐ差分を計算。`BLOCKED` / `INSUFFICIENT` / `REVIEW_REQUIRED` を表示、JSON出力可能。`--min-coverage NAME=N` でシナリオ別の最小件数を指定する。未達は `INSUFFICIENT`。`--strict` はBLOCKED/INSUFFICIENT時に終了コード3を返す。要約には `reply_evidence` / `ignore_block_evidence` と fallback との比を出す。**REVIEW_REQUIREDはGO判定ではない**
 - `... pg-baseline`: Rails の接続で読取専用の PostgreSQL 累積統計を保存する。`current_database()` が Rails の database 名と一致しない、または database 名が空なら失敗する。接続URL・ユーザー・パスワードは出さない。統計リセット/EXPLAIN ANALYZEなし
@@ -141,7 +141,7 @@ enforceでは `kw|...|result=evidence` と `list|result=reuse` が省略実施�
 
 ## 4. 停止・ロールバック
 
-停止条件: shadowのdisagree、listの不整合、Redis persist失敗、可視性/Block/Mute違反、通知・配送の欠落や重複、DB/Redis/Sidekiqの負荷急増・キュー悪化。運営者の既定手順で全対象プロセスをoffへ戻し、必要な安全な再起動後 `process-modes --expect off` を全unit/ホストで確認。Sidekiqのキューを破棄しない。Redisのkey削除/統計リセット/DB変更はしない。コードのロールバックは別途判断。
+停止条件: shadowのdisagree、listの不整合、Redis persist失敗、可視性/Block/Mute違反、通知・配送の欠落や重複、DB/Redis/Sidekiqの負荷急増・キュー悪化。運営者の既定手順で全対象プロセスをoffへ戻し、必要な安全な再起動後 `process-modes --expect off` を全unit/ホストで確認する。初期環境に変数が無い `unknown` は off の確認にならない。Sidekiqのキューを破棄しない。Redisのkey削除/統計リセット/DB変更はしない。コードのロールバックは別途判断。
 
 ## 5. 記録と判断
 

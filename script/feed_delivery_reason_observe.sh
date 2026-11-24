@@ -11,6 +11,8 @@ Checks listed units' MainPID environment, snapshots Redis counters, samples for
 N seconds, and compares. Without --unit, the user MUST verify all workers.
 --pg reads pg_stat through the Rails connection for RAILS_ENV and refuses a
 different database. It does not print the connection URL or credentials.
+A listed process with no initial FEED_DELIVERY_REASON_MODE is unknown, not
+off, and this command exits non-zero. Dotenv can set the mode after exec.
 Requires RAILS_ENV (defaults to production) and an existing application setup.
 Does not restart services, change modes, or delete any Redis/DB data.
 EOF

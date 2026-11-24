@@ -27,25 +27,43 @@ module FeedDeliveryReasonRollout
       options[:pids] << pid
       puts "unit=#{unit} main_pid=#{pid} (verify additional worker units/processes separately)"
     end
+    unresolved = false
     mismatch = false
     options[:pids].uniq.each do |pid|
       raise Error, "invalid PID: #{pid}" unless pid.positive?
 
-      entry = File.binread("/proc/#{pid}/environ").split("\0").find { |item| item.start_with?("#{MODE_ENV}=") }
-      raw = entry&.split('=', 2)&.last
-      normalized = raw.to_s.strip.downcase
-      effective = PHASES.include?(normalized) ? normalized : 'off'
-      note = if raw.nil? || normalized.empty?
-               ' (unset/blank)'
-             elsif PHASES.include?(normalized)
-               ''
-             else
-               ' (invalid value, normalized to off)'
-             end
-      puts "pid=#{pid} #{MODE_ENV}=#{effective}#{note}"
-      mismatch ||= effective != options[:expect] if options[:expect]
+      # /proc shows the environment passed at exec. Dotenv::Railtie.load runs
+      # later inside the process and does not update this file, so a missing
+      # variable is not evidence of off.
+      reading = classify_process_mode(File.binread("/proc/#{pid}/environ"))
+      note = reading['note'] ? " (#{reading['note']})" : ''
+      puts "pid=#{pid} #{MODE_ENV}=#{reading['mode']}#{note}"
+      if reading['mode'] == 'unknown'
+        unresolved = true
+        warn "pid=#{pid} effective mode is unknown; a missing initial variable is not off"
+      end
+      mismatch ||= reading['mode'] != options[:expect] if options[:expect]
     end
-    mismatch ? 3 : 0
+    unresolved || mismatch ? 3 : 0
+  end
+
+  def classify_process_mode(environ)
+    entry = environ.to_s.split("\0").find { |item| item.start_with?("#{MODE_ENV}=") }
+    if entry.nil?
+      return {
+        'mode' => 'unknown',
+        'note' => 'not in the initial environment; Dotenv may set the effective mode after exec',
+      }
+    end
+
+    normalized = entry.split('=', 2).last.to_s.strip.downcase
+    if normalized.empty?
+      { 'mode' => 'off', 'note' => 'blank in the initial environment' }
+    elsif PHASES.include?(normalized)
+      { 'mode' => normalized, 'note' => nil }
+    else
+      { 'mode' => 'off', 'note' => 'invalid value, normalized to off' }
+    end
   end
 
   def check_pids_command(argv)
