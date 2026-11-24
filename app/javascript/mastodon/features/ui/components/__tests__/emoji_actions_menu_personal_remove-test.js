@@ -136,6 +136,34 @@ describe('personal set removal from the emoji action menu', () => {
     return { controller, anchor };
   }
 
+  it('drops a failed refresh when another emoji opens without closing', async () => {
+    notifySavedPersonalEmojiSet.mockReturnValue(false);
+    personalEmojiDocumentIsCurrent.mockReturnValue(false);
+    loadPersonalEmojiSetDocument
+      .mockResolvedValueOnce(presentDocument)
+      .mockRejectedValueOnce(new Error('offline'))
+      .mockResolvedValueOnce({
+        revision: 3,
+        categories: [{ id: 'favorites', name: 'Favorites', items: [] }],
+      });
+    removePersonalCategoryItem.mockResolvedValue(removedDocument);
+    const { anchor } = renderMenu();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Remove from Favorites' }));
+    expect(await screen.findByRole('button', { name: 'Refresh personal set' })).toBeInTheDocument();
+
+    const next = document.createElement('button');
+    document.body.appendChild(next);
+    act(() => {
+      openEmojiActions({ kind: 'unicode', native: '🎉' }, { anchor: next, source: 'inline_status' });
+    });
+
+    expect(await screen.findByRole('button', { name: 'Add to Favorites' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Refresh personal set' })).not.toBeInTheDocument();
+    anchor.remove();
+    next.remove();
+  });
+
   it('removes one category, notifies saved stock, and leaves the other category registered', async () => {
     removePersonalCategoryItem.mockResolvedValue(removedDocument);
     const { anchor } = renderMenu();

@@ -22,6 +22,10 @@ let queuedSave = null;
 // The next stock read resolves a marker invalidation. Listener type does not
 // matter: stock-only, size-only, and a later load with no listener all share it.
 let protectNextRead = false;
+// Stays set until an authoritative GET succeeds. A failed read must not make
+// the next save response eligible to fill the cache.
+let invalidationPending = false;
+let announcedRevision = null;
 let listening = false;
 let currentSize = Number(pickerEmojiSize) || 22;
 
@@ -97,6 +101,28 @@ function revisionIsOlder(revision) {
   return Number.isInteger(revision) && Number.isInteger(knownRevision) && revision < knownRevision;
 }
 
+// Tell other tabs that a commit happened. The marker carries no snapshot, so
+// it does not publish stock or the picker size, and it does not bump generation.
+function announceCommit(revision) {
+  if (!Number.isInteger(revision)) {
+    return;
+  }
+
+  if (Number.isInteger(announcedRevision) && revision <= announcedRevision) {
+    return;
+  }
+
+  announcedRevision = revision;
+
+  try {
+    lastChange = `commit:${revision}:${Date.now()}:${Math.random()}`;
+    localStorage.setItem(changeKey, lastChange);
+  } catch (error) {
+    // The local cache decision already happened. A missing marker only skips
+    // the cross-tab hint.
+  }
+}
+
 function watchRevalidation(promise) {
   revalidationPromise = promise;
   promise.then(result => {
@@ -108,12 +134,26 @@ function watchRevalidation(promise) {
     const queued = queuedSave;
     queuedSave = null;
     const applied = cachedDocument && cachedDocument.revision;
+    const succeeded = Boolean(result && result.status === 'ready' && Number.isInteger(applied));
 
-    // A failed or non-authoritative read must not publish the queued snapshot.
-    // A queued save is applied only when the read succeeded and this commit is
-    // newer than the document that read just stored.
-    if (result && result.status === 'ready' && queued && Number.isInteger(queued.revision) && Number.isInteger(applied) && queued.revision > applied) {
-      notifySavedPersonalEmojiSet(queued);
+    if (!succeeded) {
+      invalidationPending = true;
+      protectNextRead = true;
+
+      if (queued && !revisionIsOlder(queued.revision)) {
+        announceCommit(queued.revision);
+      }
+
+      return;
+    }
+
+    invalidationPending = false;
+
+    // The read already stored this revision or a newer one. Notify the commit
+    // without replacing that stock or size. A queued revision the read did not
+    // include was refused by the read itself.
+    if (queued && Number.isInteger(queued.revision) && queued.revision >= applied) {
+      announceCommit(queued.revision);
     }
   }, () => {
     if (revalidationPromise !== promise) {
@@ -121,7 +161,14 @@ function watchRevalidation(promise) {
     }
 
     revalidationPromise = null;
+    const queued = queuedSave;
     queuedSave = null;
+    invalidationPending = true;
+    protectNextRead = true;
+
+    if (queued && !revisionIsOlder(queued.revision)) {
+      announceCommit(queued.revision);
+    }
   }).catch(() => {});
 }
 
@@ -141,6 +188,7 @@ function noteUnseenMarker() {
   }
 
   lastChange = marker;
+  invalidationPending = true;
   protectNextRead = true;
   generation += 1;
   request = null;
@@ -203,7 +251,7 @@ export function loadPersonalEmojiStock() {
     if (response.status !== 304) {
       const incoming = validateDocument(response.data);
 
-      if (revisionIsOlder(incoming.revision)) {
+      if (revisionIsOlder(incoming.revision) || (queuedSave && Number.isInteger(queuedSave.revision) && incoming.revision < queuedSave.revision)) {
         if (cachedDocument) {
           return ready(cachedDocument);
         }
@@ -254,6 +302,7 @@ function handleStorage(event) {
   // the event payload so a later save does not see a second, unseen marker.
   const marker = changeMarker();
   lastChange = marker === null ? event.newValue : marker;
+  invalidationPending = true;
   protectNextRead = true;
   generation += 1;
   request = null;
@@ -335,7 +384,7 @@ export function personalEmojiStockGeneration() {
 // including after the cache was cleared. An older revision never replaces stock
 // or the shared picker size, and does not write another tab marker.
 export function personalEmojiDocumentIsCurrent(document) {
-  if (!document || !Number.isInteger(document.revision) || revalidationPromise) {
+  if (!document || !Number.isInteger(document.revision) || revalidationPromise || invalidationPending) {
     return false;
   }
 
@@ -361,6 +410,16 @@ export function notifySavedPersonalEmojiSet(document) {
     return false;
   }
 
+  // The marker read has not succeeded yet. Do not fill the cache from this
+  // response; the next explicit read is still protected.
+  if (invalidationPending) {
+    if (!revisionIsOlder(saved.revision)) {
+      announceCommit(saved.revision);
+    }
+
+    return false;
+  }
+
   // Same revision after another tab cleared the cache is not a newer commit.
   // Leave the cache empty so the next read revalidates instead of broadcasting
   // the copy we already knew.
@@ -369,6 +428,7 @@ export function notifySavedPersonalEmojiSet(document) {
   }
 
   noteRevision(saved.revision);
+  announcedRevision = saved.revision;
   generation += 1;
   request = null;
   latestRequest = null;

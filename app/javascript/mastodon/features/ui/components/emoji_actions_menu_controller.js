@@ -740,6 +740,8 @@ class EmojiActionsMenuController extends React.PureComponent {
       pendingSyncRevision: pending ? pending.revision : null,
       // In-flight POST/DELETE survives close; keep busy so Mute cannot re-fire.
       busy: Boolean(flight),
+      personalRefreshFailed: false,
+      personalRefreshReason: null,
       statusId: detail.status_id || null,
       accountId: detail.account_id || null,
       source: detail.source || null,
