@@ -23,20 +23,20 @@ class Reboost::Placement
     duplicate = idempotent_result
     return duplicate if duplicate
 
-    with_redis_lock(lock_name) do
-      duplicate = idempotent_result
-      return duplicate if duplicate
+    begin
+      with_redis_lock(lock_name) do
+        duplicate = idempotent_result
+        return duplicate if duplicate
 
-      place!
+        place!
+      end
+    ensure
+      enqueue_deferred_resume!
     end
   end
 
   def self.fail_open!(operation, code)
-    return if operation.nil? || operation.terminal?
-
-    Reboost::UndoDelivery.mark!(operation)
-    operation.fail!(code)
-    Reboost::UndoDelivery.deliver!(operation)
+    Reboost::PendingTransition.fail!(operation, code)
   end
 
   def self.cancel_pending!(account, status_id)
@@ -70,6 +70,12 @@ class Reboost::Placement
 
     operation.reload
     return if operation.terminal?
+
+    if operation.state == 'federating'
+      Reboost::DeliveryResume.resume!(operation)
+      return Status.find_by(id: operation.new_status_id)
+    end
+    return unless operation.state == 'pending'
 
     account = operation.account
     original = Status.find_by(id: operation.reblog_of_id)
@@ -105,6 +111,9 @@ class Reboost::Placement
   attr_reader :account, :original, :options
 
   def place!
+    gate = Reboost::PendingTransition.resumed_result(resumed_operation)
+    return gate if gate.is_a?(Status)
+    return if gate != :continue
     return if resumed_cancelled?
 
     joined = Reboost::OpenOperation.join!(account: account, original_id: original.id, resumed_operation_id: options[:resumed_operation_id])
@@ -235,13 +244,13 @@ class Reboost::Placement
       options: {
         'visibility_explicit' => options[:visibility_explicit] == true,
         'circle_explicit' => options[:circle_explicit] == true,
-        'audience' => Array(audience).map { |account_id, silent| [account_id, silent == true] },
+        'audience' => Reboost::RecoveryRecord.audience_for(audience, operation.options, @resolved_circle, discarded),
       }
     )
     Reboost::OpenOperation.save!(operation)
     @recovery = operation
     remember_idempotency!(operation)
-    Reboost::ResumeWorker.perform_in(2.seconds, operation.id)
+    @deferred_resume_id = operation.id
     Reboost::Log.emit('pending', operation_id: operation.id, account_id: account.id, status_id: original.id)
     raise Mastodon::ReboostPendingError, operation
   end
@@ -471,5 +480,15 @@ class Reboost::Placement
 
   def lock_name
     "reboost:#{account.id}:#{options[:lock_status_id] || original.id}"
+  end
+
+  # Sidekiq inline runs the worker immediately. Queue it only after this
+  # request has released the placement lock.
+  def enqueue_deferred_resume!
+    operation_id = @deferred_resume_id
+    return if operation_id.nil?
+
+    @deferred_resume_id = nil
+    Reboost::ResumeWorker.perform_in(2.seconds, operation_id)
   end
 end

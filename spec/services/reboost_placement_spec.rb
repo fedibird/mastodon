@@ -393,6 +393,55 @@ RSpec.describe ReblogService do
       end
     end
 
+    it 'keeps one federating reboost when resume runs again without an idempotency key' do
+      expect(second_resume_keeps_the_federating_boost(nil).state).to eq 'federating'
+    end
+
+    it 'keeps one federating reboost when resume runs again with an idempotency key' do
+      expect(second_resume_keeps_the_federating_boost('k1').state).to eq 'federating'
+    end
+
+    it 'keeps the explicit circle snapshot when removal stays locked and membership changes' do
+      member = Fabricate(:account)
+      member.follow!(account)
+      circle = Fabricate(:circle, account: account, title: 'Locked')
+      circle.accounts << member
+      locked_original = Fabricate(:status, account: account, visibility: 'public')
+      allow(Reboost::ResumeWorker).to receive(:perform_in)
+      described_class.new.call(account, locked_original)
+      attempts = 0
+      allow_any_instance_of(RemoveStatusService).to receive(:call).and_wrap_original do |method, *args, **kwargs|
+        attempts += 1
+        if attempts < 3
+          args.first.discard if args.first.respond_to?(:discard) && args.first.deleted_at.nil?
+          raise Mastodon::RaceConditionError
+        end
+        method.call(*args, **kwargs)
+      end
+
+      travel 301.seconds do
+        expect do
+          described_class.new.call(account, locked_original, reboost: true, visibility: 'limited', circle: circle, visibility_explicit: true, circle_explicit: true)
+        end.to raise_error(Mastodon::ReboostPendingError)
+        operation = ReboostOperation.open.find_by!(account: account, reblog_of: locked_original)
+        expect(operation.options['audience']).to include([member.id, true])
+
+        extra = Fabricate(:account)
+        extra.follow!(account)
+        circle.accounts << extra
+
+        expect { Reboost::Placement.resume!(operation) }.to raise_error(Mastodon::ReboostPendingError)
+        expect(operation.reload.options['audience']).to include([member.id, true])
+        expect(operation.options['audience']).not_to include([extra.id, true])
+
+        resumed = Reboost::Placement.resume!(operation)
+
+        expect(resumed.visibility).to eq 'limited'
+        expect(resumed.mentions.pluck(:account_id)).to contain_exactly(member.id)
+        expect(account.statuses.where(reblog_of_id: locked_original.id).count).to eq 1
+      end
+    end
+
     it 'cancels a stranded pending reboost when the feature is turned off' do
       allow(ActivityPub::DeliveryWorker).to receive(:push_bulk)
       operation = stranded_operation
@@ -628,6 +677,33 @@ RSpec.describe ReblogService do
       expect(operation.new_status_id).to be_nil
       expect(Reboost::FederationWorker).to have_received(:perform_async).with(operation.id)
       expect(Status.find_by(id: first.id)).to be_nil
+    end
+
+    def second_resume_keeps_the_federating_boost(idempotency)
+      allow(Reboost::ResumeWorker).to receive(:perform_in)
+      blocked = true
+      allow_any_instance_of(RemoveStatusService).to receive(:call).and_wrap_original do |method, *args, **kwargs|
+        raise Mastodon::RaceConditionError if blocked
+
+        method.call(*args, **kwargs)
+      end
+
+      travel 301.seconds do
+        expect { described_class.new.call(account, original, { reboost: true, idempotency: idempotency }.compact) }.to raise_error(Mastodon::ReboostPendingError)
+        operation = ReboostOperation.open.find_by!(account: account, reblog_of: original)
+        blocked = false
+
+        Reboost::ResumeWorker.new.perform(operation.id)
+        created_id = operation.reload.new_status_id
+        expect(operation.state).to eq 'federating'
+
+        Reboost::ResumeWorker.new.perform(operation.id)
+
+        expect(operation.reload).to have_attributes(state: 'federating', new_status_id: created_id)
+        expect(account.statuses.where(reblog_of_id: original.id).pluck(:id)).to eq [created_id]
+        expect(Reboost::FederationWorker).to have_received(:perform_in).with(Reboost::FEDERATION_GAP, operation.id).once
+        operation
+      end
     end
 
     def stop_after_removing!(status)

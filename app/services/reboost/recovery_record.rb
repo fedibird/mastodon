@@ -16,7 +16,7 @@ class Reboost::RecoveryRecord
       options: {
         'visibility_explicit' => options[:visibility_explicit] == true,
         'circle_explicit' => options[:circle_explicit] == true,
-        'audience' => pairs(audience.presence || circle_pairs(circle) || mention_pairs(existing)),
+        'audience' => audience_for(audience, operation&.options, circle, existing),
       },
     }
 
@@ -32,6 +32,16 @@ class Reboost::RecoveryRecord
         )
       )
     end
+  end
+
+  # A blank new list keeps a snapshot already stored on the operation.
+  # An explicit circle whose members are not in that list is read once.
+  def self.audience_for(audience, stored_options, circle, existing)
+    stored = stored_options.is_a?(Hash) ? stored_options['audience'] : nil
+    return pairs(audience) if audience.present?
+    return stored if stored.is_a?(Array)
+
+    pairs(circle_pairs(circle) || mention_pairs(existing))
   end
 
   def self.pairs(rows)
