@@ -297,6 +297,79 @@ describe('reboost', () => {
     expect(state.getIn(['1', 'reboost_operation']).toJS()).toEqual({ id: '9', state: 'pending' });
   });
 
+  it('ignores a late poll after a manual check already finished', async () => {
+    api.post.mockResolvedValue({ status: 202, data: { operation_id: '9', state: 'pending' } });
+    let finishFollow;
+    let reportUpdate;
+    followReboostOperation.mockImplementation(({ onUpdate }) => {
+      reportUpdate = onUpdate;
+      return new Promise((resolve, reject) => {
+        finishFollow = { resolve, reject };
+      });
+    });
+    const harness = setup();
+    const running = reboost(status)(harness.dispatch, harness.getState);
+    await Promise.resolve();
+
+    api.get.mockResolvedValueOnce({ data: { id: '9', state: 'completed', new_status_id: '50' } });
+    api.get.mockResolvedValueOnce({ data: { id: '50', reblog: { id: '1', reblogged: true } } });
+    await checkReboostOperation(status)(harness.dispatch, harness.getState);
+
+    expect(harness.getState().getIn(['statuses', '1', 'reboost_operation'])).toBeUndefined();
+    expect(harness.actions.some(action => action.type === REBLOG_SUCCESS)).toBe(true);
+
+    reportUpdate({ id: '9', state: 'pending' });
+    finishFollow.resolve({ id: '9', state: 'pending' });
+    await running;
+
+    expect(harness.getState().getIn(['statuses', '1', 'reboost_operation'])).toBeUndefined();
+  });
+
+  it('ignores a late poll timeout after a manual check already finished', async () => {
+    api.post.mockResolvedValue({ status: 202, data: { operation_id: '9', state: 'pending' } });
+    let finishFollow;
+    followReboostOperation.mockImplementation(() => new Promise((resolve, reject) => {
+      finishFollow = { resolve, reject };
+    }));
+    const harness = setup();
+    const running = reboost(status)(harness.dispatch, harness.getState);
+    await Promise.resolve();
+
+    api.get.mockResolvedValueOnce({ data: { id: '9', state: 'completed', new_status_id: '50' } });
+    api.get.mockResolvedValueOnce({ data: { id: '50', reblog: { id: '1', reblogged: true } } });
+    await checkReboostOperation(status)(harness.dispatch, harness.getState);
+
+    finishFollow.reject(new Error('timeout'));
+    await running;
+
+    expect(harness.getState().getIn(['statuses', '1', 'reboost_operation'])).toBeUndefined();
+  });
+
+  it('does not let a late status fetch clear a newer operation', async () => {
+    api.post.mockResolvedValue({ status: 202, data: { operation_id: '9', state: 'pending' } });
+    followReboostOperation.mockResolvedValue({ id: '9', state: 'completed', new_status_id: '50' });
+    let finishStatus;
+    api.get.mockImplementation((url) => {
+      if (url === '/api/v1/statuses/50') {
+        return new Promise((resolve) => {
+          finishStatus = resolve;
+        });
+      }
+      return Promise.resolve({ data: { id: '1' } });
+    });
+    const harness = setup();
+    const running = reboost(status)(harness.dispatch, harness.getState);
+    await Promise.resolve();
+    await Promise.resolve();
+
+    harness.dispatch({ type: REBOOST_OPERATION, statusId: '1', operation: { id: '10', state: 'pending' } });
+    finishStatus({ data: { id: '50', reblog: { id: '1', reblogged: true } } });
+    await running;
+
+    expect(harness.getState().getIn(['statuses', '1', 'reboost_operation']).toJS()).toEqual({ id: '10', state: 'pending' });
+    expect(harness.actions.some(action => action.type === REBLOG_SUCCESS)).toBe(false);
+  });
+
   it('turns a cooldown into a deadline that expires', () => {
     jest.useFakeTimers('modern');
     jest.setSystemTime(new Date('2026-11-24T00:00:00Z'));

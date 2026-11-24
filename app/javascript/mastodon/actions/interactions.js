@@ -197,6 +197,53 @@ export function reboost(status) {
   };
 }
 
+const reboostWatch = new Map();
+let reboostWatchSerial = 0;
+
+function watchReboost(statusId, operationId) {
+  const current = reboostWatch.get(String(statusId));
+  if (current && String(current.operationId) === String(operationId) && !current.committed) {
+    return current.token;
+  }
+
+  const token = ++reboostWatchSerial;
+  reboostWatch.set(String(statusId), { token, operationId, committed: false });
+  return token;
+}
+
+function reboostWatchOpen(statusId, token) {
+  const current = reboostWatch.get(String(statusId));
+  return !!(current && current.token === token && !current.committed);
+}
+
+function commitReboostWatch(statusId, token) {
+  const current = reboostWatch.get(String(statusId));
+  if (!current || current.token !== token || current.committed) {
+    return false;
+  }
+
+  current.committed = true;
+  return true;
+}
+
+function reboostWatchOwned(statusId, token) {
+  const current = reboostWatch.get(String(statusId));
+  return !!(current && current.token === token);
+}
+
+function bumpReboostWatch(statusId, token) {
+  const current = reboostWatch.get(String(statusId));
+  if (current && current.token === token) {
+    current.token = ++reboostWatchSerial;
+    current.committed = true;
+  }
+}
+
+function trackedOperationMatches(getState, statusId, operationId) {
+  const trackedId = getState().getIn(['statuses', statusId, 'reboost_operation', 'id']);
+  return !trackedId || String(trackedId) === String(operationId);
+}
+
 function acceptReboostResponse(dispatch, getState, status, response) {
   const operationId = response.data?.operation_id;
 
@@ -214,9 +261,15 @@ export function checkReboostOperation(status) {
       return Promise.resolve();
     }
 
+    const token = watchReboost(statusId, operationId);
+
     return api(getState).get(`/api/v1/statuses/${statusId}/reboost_operation`, {
       params: { operation_id: operationId },
-    }).then((response) => applyReboostResult(dispatch, getState, status, operationId, response.data)).catch(() => {
+    }).then((response) => applyReboostResult(dispatch, getState, status, operationId, response.data, token)).catch(() => {
+      if (!reboostWatchOpen(statusId, token)) {
+        return null;
+      }
+
       dispatch(showAlert(reboostMessages.stillPendingTitle, reboostMessages.stillPending));
       dispatch(setReboostOperation(statusId, { id: operationId, state: 'pending' }));
       return null;
@@ -226,20 +279,43 @@ export function checkReboostOperation(status) {
 
 function settleReboost(dispatch, getState, status, operationId) {
   const statusId = status.get('id');
+  const token = watchReboost(statusId, operationId);
 
   return followReboostOperation({
     get: (url, config) => api(getState).get(url, config),
     statusId,
     operationId,
-    onUpdate: (operation) => dispatch(setReboostOperation(statusId, { id: operation.id, state: operation.state })),
-  }).then((operation) => applyReboostResult(dispatch, getState, status, operationId, operation)).catch(() => {
+    onUpdate: (operation) => {
+      if (!reboostWatchOpen(statusId, token) || (operation?.id && String(operation.id) !== String(operationId))) {
+        return;
+      }
+
+      dispatch(setReboostOperation(statusId, { id: operation.id, state: operation.state }));
+    },
+  }).then((operation) => applyReboostResult(dispatch, getState, status, operationId, operation, token)).catch(() => {
+    if (!reboostWatchOpen(statusId, token)) {
+      return null;
+    }
+
     dispatch(showAlert(reboostMessages.stillPendingTitle, reboostMessages.stillPending));
     dispatch(setReboostOperation(statusId, { id: operationId, state: 'pending' }));
     return null;
   });
 }
 
-function applyReboostResult(dispatch, getState, status, operationId, operation) {
+function releaseReboostWatch(dispatch, getState, status, operationId, token) {
+  const statusId = status.get('id');
+  if (!reboostWatchOwned(statusId, token) || !trackedOperationMatches(getState, statusId, operationId)) {
+    return null;
+  }
+
+  reboostIdempotencyKeys.delete(statusId);
+  dispatch(setReboostOperation(statusId, null));
+  bumpReboostWatch(statusId, token);
+  return null;
+}
+
+function applyReboostResult(dispatch, getState, status, operationId, operation, token) {
   const statusId = status.get('id');
   const trackedId = getState().getIn(['statuses', statusId, 'reboost_operation', 'id']);
 
@@ -247,24 +323,40 @@ function applyReboostResult(dispatch, getState, status, operationId, operation) 
     return null;
   }
 
+  if (!reboostWatchOwned(statusId, token)) {
+    return null;
+  }
+
   if (!operation || operation.state === 'pending' || operation.state === 'federating') {
+    if (!reboostWatchOpen(statusId, token)) {
+      return null;
+    }
+
     dispatch(showAlert(reboostMessages.stillPendingTitle, reboostMessages.stillPending));
     dispatch(setReboostOperation(statusId, { id: operationId, state: operation?.state || 'pending' }));
     return null;
   }
 
+  if (!commitReboostWatch(statusId, token)) {
+    return null;
+  }
+
   if (operation.state === 'completed' && operation.new_status_id) {
     return api(getState).get(`/api/v1/statuses/${operation.new_status_id}`).then((response) => {
+      if (!reboostWatchOwned(statusId, token) || !trackedOperationMatches(getState, statusId, operationId)) {
+        return null;
+      }
+
       dispatch(importFetchedStatus(response.data));
       dispatch(reblogSuccess(status));
-      reboostIdempotencyKeys.delete(statusId);
-      dispatch(setReboostOperation(statusId, null));
-      return null;
+      return releaseReboostWatch(dispatch, getState, status, operationId, token);
     }).catch((error) => {
-      reboostIdempotencyKeys.delete(statusId);
-      dispatch(setReboostOperation(statusId, null));
+      if (!reboostWatchOwned(statusId, token) || !trackedOperationMatches(getState, statusId, operationId)) {
+        return null;
+      }
+
       dispatch(showAlertForError(error));
-      return null;
+      return releaseReboostWatch(dispatch, getState, status, operationId, token);
     });
   }
 
@@ -274,16 +366,16 @@ function applyReboostResult(dispatch, getState, status, operationId, operation) 
   ));
 
   return api(getState).get(`/api/v1/statuses/${statusId}`).then((response) => {
-    dispatch(importFetchedStatus(response.data));
+    if (reboostWatchOwned(statusId, token) && trackedOperationMatches(getState, statusId, operationId)) {
+      dispatch(importFetchedStatus(response.data));
+    }
     return null;
   }).catch((error) => {
-    dispatch(showAlertForError(error));
+    if (reboostWatchOwned(statusId, token) && trackedOperationMatches(getState, statusId, operationId)) {
+      dispatch(showAlertForError(error));
+    }
     return null;
-  }).then(() => {
-    reboostIdempotencyKeys.delete(statusId);
-    dispatch(setReboostOperation(statusId, null));
-    return null;
-  });
+  }).then(() => releaseReboostWatch(dispatch, getState, status, operationId, token));
 }
 
 export function unreblog(status) {
