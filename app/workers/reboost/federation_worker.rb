@@ -17,6 +17,7 @@ class Reboost::FederationWorker
     with_redis_lock("reboost:federation:#{operation_id}") do
       operation = ReboostOperation.find_by(id: operation_id)
       return if operation.nil? || operation.state == 'completed'
+      return unless deliver?(operation)
 
       status = Status.find_by(id: operation.new_status_id)
       if undo_only?(operation, status)
@@ -45,6 +46,17 @@ class Reboost::FederationWorker
   end
 
   private
+
+  # A row still removing the old wrapper is pending, or federating without
+  # removal_finished_at. Undo-only delivery waits until that removal is done,
+  # except a create that already failed and saved an Undo.
+  def deliver?(operation)
+    return true if operation.state == 'cancelled' || operation.state == 'failed'
+    return false unless operation.state == 'federating'
+    return true if operation.error_code == 'create_failed'
+
+    operation.removal_finished_at.present?
+  end
 
   def undo_only?(operation, status)
     operation.state == 'cancelled' || operation.state == 'failed' || !status&.local?

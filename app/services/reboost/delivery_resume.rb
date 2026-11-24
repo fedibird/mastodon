@@ -19,11 +19,15 @@ class Reboost::DeliveryResume
   # A federating row is the record that delivery was not finished. The
   # timestamps are written only after the matching enqueue returns, so a
   # raised enqueue stays eligible for this pass.
+  def self.deliverable_replacement?(operation)
+    operation&.state == 'federating' && operation.new_status_id.present? && operation.removal_finished_at.present?
+  end
+
   def resume!(operation)
     return if operation.nil?
 
     operation.reload
-    return unless operation.state == 'federating'
+    return unless self.class.deliverable_replacement?(operation)
 
     status = Status.find_by(id: operation.new_status_id)
     enqueue_home!(operation, status) if status
@@ -31,9 +35,23 @@ class Reboost::DeliveryResume
     enqueue_federation!(operation)
   end
 
+  # find_each walks every matching row, 100 at a time. One row that cannot
+  # take its lock does not stop the rows after it.
   def resume_outstanding!
-    ReboostOperation.where(state: 'federating').where('local_enqueued_at IS NULL OR notification_enqueued_at IS NULL OR federation_enqueued_at IS NULL').find_each(batch_size: 100) do |operation|
+    ready = ReboostOperation.where(state: 'federating').where.not(new_status_id: nil).where.not(removal_finished_at: nil)
+    ready.where('local_enqueued_at IS NULL OR notification_enqueued_at IS NULL OR federation_enqueued_at IS NULL').find_each(batch_size: 100) do |operation|
       resume!(operation)
+    rescue StandardError
+      next
+    end
+    resume_stranded_pending!
+  end
+
+  def resume_stranded_pending!
+    ReboostOperation.where(state: 'pending').where('updated_at < ?', 30.seconds.ago).find_each(batch_size: 100) do |operation|
+      Reboost::Placement.resume!(operation)
+    rescue StandardError
+      next
     end
   end
 
@@ -72,6 +90,7 @@ class Reboost::DeliveryResume
     with_redis_lock("reboost:federation_enqueue:#{operation.id}") do
       operation.reload
       return if operation.federation_enqueued_at.present? || operation.terminal?
+      return unless self.class.deliverable_replacement?(operation)
 
       Reboost::FederationWorker.perform_in(Reboost::FEDERATION_GAP, operation.id)
       operation.update!(federation_enqueued_at: Time.current)

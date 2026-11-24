@@ -232,6 +232,83 @@ RSpec.describe ReblogService do
       end
     end
 
+    it 'keeps the same pending operation when removal is still locked on the first resume' do
+      attempts = 0
+      allow(Reboost::ResumeWorker).to receive(:perform_in)
+      allow_any_instance_of(RemoveStatusService).to receive(:call).and_wrap_original do |method, *args, **kwargs|
+        attempts += 1
+        if attempts < 3
+          args.first.discard if args.first.respond_to?(:discard) && args.first.deleted_at.nil?
+          raise Mastodon::RaceConditionError
+        end
+
+        method.call(*args, **kwargs)
+      end
+
+      travel 301.seconds do
+        expect { described_class.new.call(account, original, reboost: true, idempotency: 'k1') }.to raise_error(Mastodon::ReboostPendingError)
+        operation = ReboostOperation.open.find_by!(account: account, reblog_of: original)
+
+        expect { Reboost::Placement.resume!(operation) }.to raise_error(Mastodon::ReboostPendingError)
+        expect(ReboostOperation.where(account: account, reblog_of: original).pluck(:id)).to eq [operation.id]
+        expect(operation.reload.state).to eq 'pending'
+
+        resumed = Reboost::Placement.resume!(operation)
+
+        expect(resumed).to be_present
+        expect(account.statuses.where(reblog_of_id: original.id).count).to eq 1
+        expect(operation.reload.id).to eq operation.id
+        expect(operation.state).not_to eq 'pending'
+      end
+    end
+
+    it 'resumes a pending operation whose worker was never queued' do
+      blocked = true
+      allow(Reboost::ResumeWorker).to receive(:perform_in)
+      allow_any_instance_of(RemoveStatusService).to receive(:call).and_wrap_original do |method, *args, **kwargs|
+        raise Mastodon::RaceConditionError if blocked
+
+        method.call(*args, **kwargs)
+      end
+
+      travel 301.seconds do
+        expect { described_class.new.call(account, original, reboost: true) }.to raise_error(Mastodon::ReboostPendingError)
+        operation = ReboostOperation.open.find_by!(account: account, reblog_of: original)
+        operation.update_column(:updated_at, 31.seconds.ago)
+        blocked = false
+
+        Scheduler::ReboostDeliveryScheduler.new.perform
+
+        expect(operation.reload.state).not_to eq 'pending'
+        expect(account.statuses.where(reblog_of_id: original.id).count).to eq 1
+      end
+    end
+
+    it 'does not deliver while the old boost is still being removed' do
+      started = false
+      allow(ActivityPub::DeliveryWorker).to receive(:push_bulk)
+      allow_any_instance_of(RemoveStatusService).to receive(:call).and_wrap_original do |method, *args, **kwargs|
+        unless started
+          started = true
+          operation = ReboostOperation.find_by!(account: account, reblog_of: original)
+          expect(operation).to have_attributes(state: 'pending', new_status_id: nil, removal_finished_at: nil)
+          Scheduler::ReboostDeliveryScheduler.new.perform
+          Reboost::FederationWorker.new.perform(operation.id)
+          expect(ActivityPub::DeliveryWorker).not_to have_received(:push_bulk)
+          expect(operation.reload.state).to eq 'pending'
+        end
+        method.call(*args, **kwargs)
+      end
+
+      travel 301.seconds do
+        replacement = described_class.new.call(account, original, reboost: true)
+        operation = ReboostOperation.find_by!(new_status_id: replacement.id)
+        expect(operation.removal_finished_at).to be_present
+        expect(operation.state).to eq 'federating'
+        expect(Reboost::FederationWorker).to have_received(:perform_in).with(Reboost::FEDERATION_GAP, operation.id)
+      end
+    end
+
     it 'retries a notification enqueue that failed after the wrapper was saved' do
       calls = 0
       allow(LocalNotificationWorker).to receive(:perform_async) do

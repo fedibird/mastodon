@@ -222,7 +222,7 @@ class Reboost::Placement
   end
 
   def raise_pending!(discarded, visibility, audience = nil)
-    operation = @recovery || ReboostOperation.new
+    operation = @recovery || resumed_operation || ReboostOperation.new
     operation.assign_attributes(
       account: account,
       reblog_of_id: original.id,
@@ -363,7 +363,7 @@ class Reboost::Placement
     operation = resumed_operation
     attributes = {
       old_status_id: existing.id,
-      state: 'federating',
+      state: 'pending',
       reboost: true,
       undo_payload: @undo_payload,
       undo_inboxes: @undo_inboxes || [],
