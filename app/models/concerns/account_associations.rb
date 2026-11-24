@@ -29,8 +29,8 @@ module AccountAssociations
     has_many :account_pins, inverse_of: :account, dependent: :destroy
     has_many :endorsed_accounts, through: :account_pins, class_name: 'Account', source: :target_account
 
-    # Drafts are removed before media so a draft reference does not block
-    # deletion of this account's own files.
+    # DeleteAccountService deletes these before media. This order covers
+    # an account-row destroy that still has drafts left.
     has_many :post_drafts, inverse_of: :account, dependent: :destroy
 
     # Media
