@@ -322,4 +322,59 @@ RSpec.describe 'Personal emoji category item API', type: :request do
     expect(parsed.dig('categories', 0, 'items')).to eq []
     expect(parsed.dig('categories', 0, 'id')).to eq category_id
   end
+
+  it 'keeps every saved field except the removed placement and its representative heading' do
+    kept = Fabricate(:custom_emoji, shortcode: 'current_name')
+    categories = [
+      {
+        'id' => category_id,
+        'name' => 'よく選ぶ',
+        'heading' => { 'mode' => 'emoji', 'item_id' => 'thumb' },
+        'items' => [
+          { 'id' => 'thumb', 'kind' => 'unicode', 'native' => native, 'emoji_id' => 'stored-plus', 'label' => 'kept-label' },
+          { 'id' => 'stay', 'kind' => 'unicode', 'native' => '👍🏻', 'emoji_id' => 'stored-light' },
+        ],
+      },
+      {
+        'id' => 'renamed',
+        'name' => '改名',
+        'heading' => { 'mode' => 'emoji', 'item_id' => 'custom-a' },
+        'items' => [
+          { 'id' => 'custom-a', 'kind' => 'custom', 'custom_emoji_id' => kept.id.to_s, 'shortcode' => 'saved_old' },
+        ],
+      },
+      {
+        'id' => 'deleted',
+        'name' => '削除済み',
+        'heading' => { 'mode' => 'first' },
+        'items' => [
+          { 'id' => 'ghost-a', 'kind' => 'custom', 'custom_emoji_id' => '424242', 'shortcode' => 'ghost_left' },
+          { 'id' => 'ghost-b', 'kind' => 'custom', 'custom_emoji_id' => '424242', 'shortcode' => 'ghost_right' },
+        ],
+      },
+    ]
+    PersonalEmojiSet.create!(user: user, revision: 4, categories: categories)
+    kept.update!(shortcode: 'after_save')
+
+    remove({ kind: 'unicode', native: native }, revision: 4)
+
+    expect(response).to have_http_status(:ok)
+    stored = PersonalEmojiSet.find_by!(user: user)
+    expected = [
+      {
+        'id' => category_id,
+        'name' => 'よく選ぶ',
+        'heading' => { 'mode' => 'first' },
+        'items' => [
+          { 'id' => 'stay', 'kind' => 'unicode', 'native' => '👍🏻', 'emoji_id' => 'stored-light' },
+        ],
+      },
+      categories[1],
+      categories[2],
+    ]
+    expect(stored.revision).to eq 5
+    expect(stored.categories).to eq expected
+    expect(parsed.fetch('categories')).to eq expected
+    expect(kept.reload.shortcode).to eq 'after_save'
+  end
 end

@@ -4,8 +4,9 @@
 /* eslint-disable react/prop-types */
 
 import React from 'react';
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import {
+  appendPersonalCategoryItem,
   loadPersonalEmojiSetDocument,
   removePersonalCategoryItem,
   resolveEmojiReference,
@@ -93,6 +94,7 @@ describe('personal set removal from the emoji action menu', () => {
     resetEmojiActionsBusForTests();
     resolveEmojiReference.mockReset();
     loadPersonalEmojiSetDocument.mockReset();
+    appendPersonalCategoryItem.mockReset();
     removePersonalCategoryItem.mockReset();
     notifySavedPersonalEmojiSet.mockReset();
     personalEmojiStockGeneration.mockReset();
@@ -108,6 +110,7 @@ describe('personal set removal from the emoji action menu', () => {
   });
 
   afterEach(() => {
+    cleanup();
     resetEmojiActionsBusForTests();
   });
 
@@ -140,7 +143,7 @@ describe('personal set removal from the emoji action menu', () => {
       expect.objectContaining({ kind: 'unicode', native: '😀' }),
       4,
     ));
-    expect(notifySavedPersonalEmojiSet).toHaveBeenCalledWith(removedDocument, 0);
+    expect(notifySavedPersonalEmojiSet).toHaveBeenCalledWith(removedDocument);
     expect(await screen.findByRole('button', { name: 'Add to Favorites' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Remove from Other' })).toBeInTheDocument();
     expect(screen.getByText('Removed from Favorites')).toBeInTheDocument();
@@ -161,7 +164,7 @@ describe('personal set removal from the emoji action menu', () => {
       resolveRemove(removedDocument);
     });
 
-    expect(notifySavedPersonalEmojiSet).toHaveBeenCalledWith(removedDocument, 0);
+    expect(notifySavedPersonalEmojiSet).toHaveBeenCalledWith(removedDocument);
     expect(screen.queryByText('Removed from Favorites')).not.toBeInTheDocument();
     anchor.remove();
   });
@@ -190,17 +193,127 @@ describe('personal set removal from the emoji action menu', () => {
     anchor.remove();
   });
 
-  it('drops a delayed removal that is older than a newer stock generation', async () => {
-    personalEmojiStockGeneration.mockReturnValueOnce(1).mockReturnValue(2);
-    removePersonalCategoryItem.mockResolvedValue(removedDocument);
+  it('reloads after a deferred removal when stock generation moves, then retries with that revision', async () => {
+    let resolveRemove;
+    removePersonalCategoryItem.mockImplementation(() => new Promise(resolve => {
+      resolveRemove = resolve;
+    }));
+    personalEmojiStockGeneration.mockReturnValueOnce(1).mockReturnValue(4);
+    loadPersonalEmojiSetDocument
+      .mockResolvedValueOnce(presentDocument)
+      .mockResolvedValueOnce({
+        revision: 9,
+        categories: [
+          { id: 'favorites', name: 'Favorites', items: [] },
+          { id: 'other', name: 'Other', items: [] },
+        ],
+      });
     const { anchor } = renderMenu();
 
     fireEvent.click(await screen.findByRole('button', { name: 'Remove from Favorites' }));
     await waitFor(() => expect(removePersonalCategoryItem).toHaveBeenCalledTimes(1));
+    await act(async () => {
+      resolveRemove(removedDocument);
+    });
 
-    expect(notifySavedPersonalEmojiSet).not.toHaveBeenCalled();
-    expect(screen.getByRole('button', { name: 'Remove from Favorites' })).toBeInTheDocument();
-    expect(screen.queryByText('Removed from Favorites')).not.toBeInTheDocument();
+    const addFavorites = await screen.findByRole('button', { name: 'Add to Favorites' });
+    expect(addFavorites).not.toHaveAttribute('aria-disabled', 'true');
+    expect(screen.getByRole('button', { name: 'Add to Other' })).not.toHaveAttribute('aria-disabled', 'true');
+    expect(notifySavedPersonalEmojiSet).toHaveBeenCalledWith(removedDocument);
+
+    appendPersonalCategoryItem.mockResolvedValue({
+      revision: 10,
+      categories: presentDocument.categories,
+      stock: { categories: [] },
+      operation: { added: true },
+    });
+    fireEvent.click(addFavorites);
+    await waitFor(() => expect(appendPersonalCategoryItem).toHaveBeenCalledWith(
+      'favorites',
+      expect.objectContaining({ kind: 'unicode', native: '😀' }),
+      9,
+    ));
+    anchor.remove();
+  });
+
+  it('clears busy when refreshing after a removal fails, so the same row can be tried again', async () => {
+    personalEmojiStockGeneration.mockReturnValueOnce(1).mockReturnValue(4);
+    loadPersonalEmojiSetDocument.mockResolvedValueOnce(presentDocument).mockRejectedValueOnce(new Error('offline'));
+    removePersonalCategoryItem.mockResolvedValue(removedDocument);
+    const { anchor } = renderMenu();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Remove from Favorites' }));
+    expect(await screen.findByText('Could not remove this emoji')).toBeInTheDocument();
+    const retry = screen.getByRole('button', { name: 'Remove from Favorites' });
+    expect(retry).not.toHaveAttribute('aria-disabled', 'true');
+
+    personalEmojiStockGeneration.mockReturnValue(4);
+    removePersonalCategoryItem.mockResolvedValue({
+      ...removedDocument,
+      revision: 6,
+    });
+    fireEvent.click(retry);
+    await waitFor(() => expect(removePersonalCategoryItem).toHaveBeenCalledTimes(2));
+    expect(removePersonalCategoryItem).toHaveBeenLastCalledWith(
+      'favorites',
+      expect.objectContaining({ kind: 'unicode', native: '😀' }),
+      4,
+    );
+    anchor.remove();
+  });
+
+  it('reloads after a deferred add when stock generation moves, then uses the reloaded revision', async () => {
+    const initial = {
+      revision: 4,
+      categories: [
+        { id: 'favorites', name: 'Favorites', items: [] },
+        { id: 'other', name: 'Other', items: [{ id: 'smile-2', kind: 'unicode', native: '😀' }] },
+      ],
+    };
+    let resolveAdd;
+    appendPersonalCategoryItem.mockImplementation(() => new Promise(resolve => {
+      resolveAdd = resolve;
+    }));
+    personalEmojiStockGeneration.mockReturnValueOnce(2).mockReturnValue(5);
+    loadPersonalEmojiSetDocument.mockResolvedValueOnce(initial).mockResolvedValueOnce({
+      revision: 7,
+      categories: [
+        { id: 'favorites', name: 'Favorites', items: [{ id: 'smile', kind: 'unicode', native: '😀' }] },
+        initial.categories[1],
+      ],
+    });
+    const { anchor } = renderMenu();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Add to Favorites' }));
+    await waitFor(() => expect(appendPersonalCategoryItem).toHaveBeenCalledTimes(1));
+    await act(async () => {
+      resolveAdd({
+        revision: 5,
+        categories: initial.categories,
+        stock: { categories: [] },
+        operation: { added: true, category_id: 'favorites', item_id: 'smile' },
+      });
+    });
+
+    const removeFavorites = await screen.findByRole('button', { name: 'Remove from Favorites' });
+    expect(removeFavorites).not.toHaveAttribute('aria-disabled', 'true');
+    expect(notifySavedPersonalEmojiSet).toHaveBeenCalledWith(expect.objectContaining({
+      revision: 5,
+      operation: expect.objectContaining({ added: true }),
+    }));
+
+    removePersonalCategoryItem.mockResolvedValue({
+      revision: 8,
+      categories: initial.categories,
+      stock: { categories: [] },
+      operation: { removed: true },
+    });
+    fireEvent.click(removeFavorites);
+    await waitFor(() => expect(removePersonalCategoryItem).toHaveBeenCalledWith(
+      'favorites',
+      expect.objectContaining({ kind: 'unicode', native: '😀' }),
+      7,
+    ));
     anchor.remove();
   });
 });

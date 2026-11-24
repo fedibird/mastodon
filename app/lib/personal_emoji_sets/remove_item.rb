@@ -6,6 +6,8 @@
 # shortcode or image URL is never sufficient. Other categories, placement
 # order, unavailable rows, and the picker size stay in place. Removing the
 # representative placement falls back to the editor's first-emoji heading.
+# Every other stored field is kept as saved. This path does not re-resolve
+# shortcodes or Unicode catalog ids.
 class PersonalEmojiSets::RemoveItem
   FIELDS = %w(expected_revision emoji).freeze
 
@@ -106,9 +108,8 @@ class PersonalEmojiSets::RemoveItem
       @category['heading'] = { 'mode' => 'first' }
     end
 
-    validated = PersonalEmojiSets::Definition.new(@categories, previous: @record&.categories || []).validate!
-    @record.update!(categories: validated, revision: @revision + 1)
-    result_for(@record.revision, validated, removed_ids, removed: true)
+    @record.update!(categories: @categories, revision: @revision + 1)
+    result_for(@record.revision, @categories, removed_ids, removed: true)
   end
 
   def unchanged_result

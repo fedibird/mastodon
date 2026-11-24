@@ -14,6 +14,9 @@ let etag = null;
 let request = null;
 let latestRequest = null;
 let generation = 0;
+// Highest revision applied or observed. Storage invalidation clears the cache
+// but must not forget this, or a delayed older save could refill it.
+let knownRevision = null;
 let listening = false;
 let currentSize = Number(pickerEmojiSize) || 22;
 
@@ -73,6 +76,22 @@ function validateDocument(document) {
   return document;
 }
 
+function noteRevision(revision) {
+  if (!Number.isInteger(revision)) {
+    return;
+  }
+
+  if (!Number.isInteger(knownRevision) || revision > knownRevision) {
+    knownRevision = revision;
+  }
+}
+
+// Generation counts invalidations. It does not order saves. Only a smaller
+// revision is an older document.
+function revisionIsOlder(revision) {
+  return Number.isInteger(revision) && Number.isInteger(knownRevision) && revision < knownRevision;
+}
+
 // Each open revalidates with the server. Revision protects writes; ETag also
 // reflects custom image, availability and search metadata changes. Concurrent
 // pickers share the request, never a full custom or Unicode catalog request.
@@ -122,7 +141,18 @@ export function loadPersonalEmojiStock() {
     }
 
     if (response.status !== 304) {
-      cachedDocument = validateDocument(response.data);
+      const incoming = validateDocument(response.data);
+
+      if (revisionIsOlder(incoming.revision)) {
+        if (cachedDocument) {
+          return ready(cachedDocument);
+        }
+
+        return { status: 'error', error: new Error('Personal emoji stock was superseded') };
+      }
+
+      noteRevision(incoming.revision);
+      cachedDocument = incoming;
       prepareEmojiStock(cachedDocument.stock);
       etag = response.headers?.etag || null;
     }
@@ -231,24 +261,28 @@ export function personalEmojiStockGeneration() {
   return generation;
 }
 
-// capturedGeneration is the generation observed before an in-flight save.
-// A newer save or another tab invalidates it. An older revision must not
-// replace stock that is already newer.
-export function notifySavedPersonalEmojiSet(document, capturedGeneration) {
+// A committed save publishes even if a storage event already moved generation.
+// That counter only invalidates reads. Revision decides which document is newer,
+// including after the cache was cleared. An older revision never replaces stock
+// or the shared picker size, and does not write another tab marker.
+export function notifySavedPersonalEmojiSet(document) {
   if (personalStockDisabled) {
-    return;
-  }
-  if (capturedGeneration !== undefined && capturedGeneration !== generation) {
-    return;
+    return false;
   }
   const saved = validateDocument(document);
-  const savedRevision = saved.revision;
-  const cachedRevision = cachedDocument && cachedDocument.revision;
 
-  if (Number.isInteger(savedRevision) && Number.isInteger(cachedRevision) && savedRevision < cachedRevision) {
-    return;
+  if (revisionIsOlder(saved.revision)) {
+    return false;
   }
 
+  // Same revision after another tab cleared the cache is not a newer commit.
+  // Leave the cache empty so the next read revalidates instead of broadcasting
+  // the copy we already knew.
+  if (!cachedDocument && Number.isInteger(saved.revision) && saved.revision === knownRevision) {
+    return false;
+  }
+
+  noteRevision(saved.revision);
   generation += 1;
   request = null;
   latestRequest = null;
@@ -265,4 +299,6 @@ export function notifySavedPersonalEmojiSet(document, capturedGeneration) {
     // Storage may be disabled. Same-page updates and next-open revalidation
     // still work and the successful server save must not become a UI failure.
   }
+
+  return true;
 }

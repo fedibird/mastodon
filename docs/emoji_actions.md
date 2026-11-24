@@ -149,7 +149,8 @@ different emoji.
 
 A removal drops only the matching placements in the named category. Other
 categories, remaining order, unavailable rows, and `picker_emoji_size` stay.
-An explicit representative heading whose placement was removed becomes
+Stored shortcodes and Unicode `emoji_id` values are not re-resolved. An
+explicit representative heading whose placement was removed becomes
 `{ "mode": "first" }`, the same fallback as the personal-set editor. An
 empty category is kept. The response is the editor document plus:
 

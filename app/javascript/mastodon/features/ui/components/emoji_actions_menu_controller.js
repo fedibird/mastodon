@@ -1486,6 +1486,75 @@ class EmojiActionsMenuController extends React.PureComponent {
     });
   };
 
+  // Session identity and stock freshness are separate. A storage event does
+  // not mean this response is older, and it must not leave the open menu busy.
+  // A committed change is always offered to the stock source. The open menu
+  // adopts that document only when nothing else invalidated stock during the
+  // request; otherwise it reloads and clears busy even if that reload fails.
+  finishPersonalCategoryMutation = ({
+    session,
+    stockGeneration,
+    document,
+    changed,
+    successMessage,
+    failureMessage,
+  }) => {
+    const stockMoved = personalEmojiStockGeneration() !== stockGeneration;
+
+    if (changed) {
+      notifySavedPersonalEmojiSet(document);
+    }
+
+    const sessionCurrent = () => isCurrentMenuSession(session, {
+      loadGeneration: this.loadGeneration,
+      reference: this.state.reference,
+    });
+
+    if (!sessionCurrent()) {
+      return;
+    }
+
+    if (!stockMoved && document) {
+      this.setState({
+        busy: false,
+        error: null,
+        personalRevision: document.revision,
+        categories: Array.isArray(document.categories) ? document.categories : this.state.categories,
+        notice: successMessage,
+      });
+      return;
+    }
+
+    loadPersonalEmojiSetDocument().then(latest => {
+      if (!sessionCurrent()) {
+        return;
+      }
+
+      if (!latest || !Array.isArray(latest.categories)) {
+        this.setState({ busy: false, error: new Error('Could not refresh personal set'), notice: failureMessage });
+        return;
+      }
+
+      this.setState({
+        busy: false,
+        error: null,
+        personalRevision: latest.revision,
+        categories: latest.categories,
+        notice: successMessage,
+      });
+    }).catch(() => {
+      if (!sessionCurrent()) {
+        return;
+      }
+
+      this.setState({
+        busy: false,
+        error: new Error('Could not refresh personal set'),
+        notice: failureMessage,
+      });
+    });
+  };
+
   handleAddToCategory = category => {
     const { intl } = this.props;
     const { reference, personalRevision } = this.state;
@@ -1500,25 +1569,18 @@ class EmojiActionsMenuController extends React.PureComponent {
     this.setState({ busy: true, error: null, notice: null });
 
     appendPersonalCategoryItem(category.id, reference, personalRevision).then(document => {
-      const added = Boolean(document && document.operation && document.operation.added);
-      const stockCurrent = personalEmojiStockGeneration() === stockGeneration;
+      const changed = Boolean(document && document.operation && document.operation.added);
 
-      if (added && stockCurrent) {
-        notifySavedPersonalEmojiSet(document, stockGeneration);
-      }
-
-      if (!isCurrentMenuSession(session, { loadGeneration: this.loadGeneration, reference: this.state.reference }) || !stockCurrent) {
-        return;
-      }
-
-      this.setState({
-        busy: false,
-        personalRevision: document.revision,
-        categories: document.categories,
-        notice: intl.formatMessage(
-          document.operation && document.operation.added === false ? messages.alreadyInCategory : messages.addSuccess,
+      this.finishPersonalCategoryMutation({
+        session,
+        stockGeneration,
+        document,
+        changed,
+        successMessage: intl.formatMessage(
+          document && document.operation && document.operation.added === false ? messages.alreadyInCategory : messages.addSuccess,
           { name: category.name || category.id },
         ),
+        failureMessage: intl.formatMessage(messages.addFailed),
       });
     }).catch(error => {
       if (!isCurrentMenuSession(session, { loadGeneration: this.loadGeneration, reference: this.state.reference })) {
@@ -1551,24 +1613,13 @@ class EmojiActionsMenuController extends React.PureComponent {
     this.setState({ busy: true, error: null, notice: null });
 
     removePersonalCategoryItem(category.id, reference, personalRevision).then(document => {
-      const removed = Boolean(document && document.operation && document.operation.removed);
-      const stockCurrent = personalEmojiStockGeneration() === stockGeneration;
-
-      // A committed removal still reaches open pickers and other tabs when
-      // this menu has already closed or moved to another emoji.
-      if (removed && stockCurrent) {
-        notifySavedPersonalEmojiSet(document, stockGeneration);
-      }
-
-      if (!isCurrentMenuSession(session, { loadGeneration: this.loadGeneration, reference: this.state.reference }) || !stockCurrent) {
-        return;
-      }
-
-      this.setState({
-        busy: false,
-        personalRevision: document.revision,
-        categories: document.categories,
-        notice: intl.formatMessage(messages.removeSuccess, { name: category.name || category.id }),
+      this.finishPersonalCategoryMutation({
+        session,
+        stockGeneration,
+        document,
+        changed: Boolean(document && document.operation && document.operation.removed),
+        successMessage: intl.formatMessage(messages.removeSuccess, { name: category.name || category.id }),
+        failureMessage: intl.formatMessage(messages.removeFailed),
       });
     }).catch(error => {
       if (!isCurrentMenuSession(session, { loadGeneration: this.loadGeneration, reference: this.state.reference })) {

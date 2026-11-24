@@ -236,11 +236,39 @@ describe('personal emoji stock source', () => {
     expect(source.getPickerEmojiSize()).toBe(32);
     expect(changed).not.toHaveBeenCalled();
 
-    const epoch = source.personalEmojiStockGeneration();
     source.notifySavedPersonalEmojiSet(documentFor(4, 40));
-    source.notifySavedPersonalEmojiSet(documentFor(5, 48), epoch);
-
     expect(source.getCachedPersonalEmojiStock().stock.categories[0].name).toBe('Category 4');
     expect(source.getPickerEmojiSize()).toBe(40);
+  });
+
+  it('publishes a newer save after another tab marker and ignores an older one', () => {
+    const changed = jest.fn();
+
+    unsubscribers.push(source.subscribePersonalEmojiStock(changed));
+    expect(source.notifySavedPersonalEmojiSet(documentFor(5, 32))).toBe(true);
+    const markerAfter5 = localStorage.getItem('mastodon:personal-emoji-set:account-1');
+
+    window.dispatchEvent(new StorageEvent('storage', {
+      key: 'mastodon:personal-emoji-set:account-1',
+      newValue: 'tab-a-rev5',
+    }));
+    expect(source.getCachedPersonalEmojiStock()).toBeNull();
+    expect(source.personalEmojiStockGeneration()).toBeGreaterThan(0);
+
+    changed.mockClear();
+    expect(source.notifySavedPersonalEmojiSet(documentFor(6, 40))).toBe(true);
+    expect(source.getCachedPersonalEmojiStock().stock.categories[0].name).toBe('Category 6');
+    expect(source.getPickerEmojiSize()).toBe(40);
+    expect(changed).toHaveBeenCalledWith({ status: 'ready', stock: documentFor(6, 40).stock });
+    const markerAfter6 = localStorage.getItem('mastodon:personal-emoji-set:account-1');
+    expect(markerAfter6).not.toBe(markerAfter5);
+    expect(markerAfter6).not.toBe('tab-a-rev5');
+
+    changed.mockClear();
+    expect(source.notifySavedPersonalEmojiSet(documentFor(5, 22))).toBe(false);
+    expect(source.getCachedPersonalEmojiStock().stock.categories[0].name).toBe('Category 6');
+    expect(source.getPickerEmojiSize()).toBe(40);
+    expect(localStorage.getItem('mastodon:personal-emoji-set:account-1')).toBe(markerAfter6);
+    expect(changed).not.toHaveBeenCalled();
   });
 });
