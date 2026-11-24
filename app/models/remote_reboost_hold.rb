@@ -24,9 +24,19 @@ class RemoteReboostHold < ApplicationRecord
       row.schedule_apply! if row.apply_enqueued_at.nil?
       return row
     end
-    return row if published_at.nil? || (row.published_at && published_at <= row.published_at)
 
-    row.update!(activity_uri: uri, published_at: published_at, payload: payload, delivery_options: normalize_delivery_options(delivery_options))
+    # The caller holds the actor+original announce lock. An id that loses to
+    # the held Announce must not be acceptable after that hold is gone.
+    if published_at.nil? || (row.published_at && published_at <= row.published_at)
+      ReboostAnnounceState.supersede!(account_id, uri, reblog_of_id: reblog_of_id)
+      return row
+    end
+
+    replaced = row.activity_uri
+    transaction do
+      row.update!(activity_uri: uri, published_at: published_at, payload: payload, delivery_options: normalize_delivery_options(delivery_options))
+      ReboostAnnounceState.supersede!(account_id, replaced, reblog_of_id: reblog_of_id) if replaced.present?
+    end
     row.schedule_apply! if row.apply_enqueued_at.nil?
     row
   end

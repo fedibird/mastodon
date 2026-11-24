@@ -206,6 +206,46 @@ RSpec.describe ActivityPub::Activity::Announce do
     end
   end
 
+  it 'does not revive an Announce that a newer hold already replaced' do
+    announce('https://example.com/announce/a', 10.minutes.ago.iso8601)
+
+    hold = nil
+    travel 60.seconds do
+      announce('https://example.com/announce/b', 30.seconds.ago.iso8601)
+      announce('https://example.com/announce/c', Time.current.iso8601)
+      hold = RemoteReboostHold.find_by(account: sender, reblog_of: status)
+      expect(hold.activity_uri).to eq 'https://example.com/announce/c'
+      expect(sender.statuses.where(reblog_of_id: status.id).pick(:uri)).to eq 'https://example.com/announce/a'
+      expect(ReboostAnnounceState.superseded?(sender.id, 'https://example.com/announce/b')).to be true
+
+      announce('https://example.com/announce/b', 30.seconds.ago.iso8601)
+      undated = announce_json('https://example.com/announce/b-undated', nil)
+      undated.delete('published')
+      described_class.new(undated, sender).perform
+      expect(hold.reload.activity_uri).to eq 'https://example.com/announce/c'
+      expect(ReboostAnnounceState.superseded?(sender.id, 'https://example.com/announce/b-undated')).to be true
+    end
+
+    travel 301.seconds do
+      Reboost::RemoteApplyWorker.new.perform(hold.id)
+      expect(sender.statuses.where(reblog_of_id: status.id).pick(:uri)).to eq 'https://example.com/announce/c'
+    end
+
+    ActivityPub::Activity::Undo.new({
+      id: 'https://example.com/undo/c',
+      type: 'Undo',
+      actor: sender.uri,
+      object: { id: 'https://example.com/announce/c', type: 'Announce', object: object_uri },
+    }.with_indifferent_access, sender).perform
+    expect(sender.statuses.where(reblog_of_id: status.id)).to be_empty
+
+    travel 700.seconds do
+      announce('https://example.com/announce/b', 30.seconds.ago.iso8601)
+      expect(sender.statuses.where(reblog_of_id: status.id)).to be_empty
+      expect(ReboostAnnounceState.superseded?(sender.id, 'https://example.com/announce/b')).to be true
+    end
+  end
+
   it 'holds a new Announce id after Undo until the cooldown from the removed boost ends' do
     announce('https://example.com/announce/a', Time.current.iso8601)
     ActivityPub::Activity::Undo.new({
