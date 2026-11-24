@@ -20,7 +20,7 @@ describe('followReboostOperation', () => {
 
     expect(operation.state).toBe('completed');
     expect(updates).toEqual(['pending', 'federating', 'completed']);
-    expect(get).toHaveBeenCalledWith('/api/v1/statuses/1/reboost_operation');
+    expect(get).toHaveBeenCalledWith('/api/v1/statuses/1/reboost_operation', { params: { operation_id: '9' } });
     expect(get.mock.calls.length).toBe(3);
   });
 
@@ -39,6 +39,22 @@ describe('followReboostOperation', () => {
 
     expect(operation).toBeNull();
     expect(get).toHaveBeenCalledTimes(REBOOST_POLL_LIMIT);
+  });
+
+  it('ignores a different operation id', async () => {
+    const get = jest.fn()
+      .mockResolvedValueOnce({ data: { id: '10', state: 'completed', new_status_id: '50' } })
+      .mockResolvedValueOnce({ data: { id: '9', state: 'cancelled' } });
+
+    const operation = await followReboostOperation({
+      get,
+      statusId: '1',
+      operationId: '9',
+      wait: immediate,
+    });
+
+    expect(operation).toEqual({ id: '9', state: 'cancelled' });
+    expect(get).toHaveBeenCalledWith('/api/v1/statuses/1/reboost_operation', { params: { operation_id: '9' } });
   });
 
   it('returns a failed operation so the caller can refresh the status', async () => {

@@ -161,4 +161,109 @@ describe('detailed status reboost menu', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Boost actions' }));
     expect(screen.getByRole('button', { name: 'Reboost' })).toHaveAttribute('aria-disabled', 'true');
   });
+
+  it('shows the cooldown when the detail status includes reboost_retry_after', () => {
+    const store = createStore(root, applyMiddleware(thunk));
+    const status = fromJS({
+      id: 's1',
+      account: { id: 'other', acct: 'bob', username: 'bob', url: 'https://example.test/bob' },
+      visibility: 'public',
+      muted: false,
+      reblogged: true,
+      favourited: false,
+      bookmarked: false,
+      reblogs_count: 1,
+      favourites_count: 0,
+      replies_count: 0,
+      status_referred_by_count: 0,
+      emoji_reactions: [],
+      reboost_retry_after: 240,
+      url: 'https://example.test/s1',
+    });
+
+    render(
+      <Provider store={store}>
+        <RouterProvider>
+          <ActionBar
+            status={status}
+            onReply={jest.fn()}
+            onFavourite={jest.fn()}
+            onReblog={jest.fn()}
+            onReboost={jest.fn()}
+            onUnreblog={jest.fn()}
+            onQuote={jest.fn()}
+            onBookmark={jest.fn()}
+            onDelete={jest.fn()}
+            onExpire={jest.fn()}
+            onDirect={jest.fn()}
+            onMemberList={jest.fn()}
+            onMention={jest.fn()}
+            onMute={jest.fn()}
+            onBlock={jest.fn()}
+            onReport={jest.fn()}
+            onEmbed={jest.fn()}
+            onMuteConversation={jest.fn()}
+            onPin={jest.fn()}
+            addEmojiReaction={jest.fn()}
+            removeEmojiReaction={jest.fn()}
+          />
+        </RouterProvider>
+      </Provider>,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Boost actions' }));
+    expect(screen.getByRole('button', { name: 'Reboost (about 4 min left)' })).toHaveAttribute('aria-disabled', 'true');
+  });
+
+  it('disables a new boost on the detail view while the cooldown is running', () => {
+    const store = createStore(root, applyMiddleware(thunk));
+    const status = fromJS({
+      id: 's1',
+      account: { id: 'other', acct: 'bob', username: 'bob', url: 'https://example.test/bob' },
+      visibility: 'public',
+      muted: false,
+      reblogged: false,
+      favourited: false,
+      bookmarked: false,
+      reblogs_count: 1,
+      favourites_count: 0,
+      replies_count: 0,
+      status_referred_by_count: 0,
+      emoji_reactions: [],
+      reboost_retry_after: 240,
+      url: 'https://example.test/s1',
+    });
+
+    render(
+      <Provider store={store}>
+        <RouterProvider>
+          <ActionBar
+            status={status}
+            onReply={jest.fn()}
+            onFavourite={jest.fn()}
+            onReblog={jest.fn()}
+            onReboost={jest.fn()}
+            onUnreblog={jest.fn()}
+            onQuote={jest.fn()}
+            onBookmark={jest.fn()}
+            onDelete={jest.fn()}
+            onExpire={jest.fn()}
+            onDirect={jest.fn()}
+            onMemberList={jest.fn()}
+            onMention={jest.fn()}
+            onMute={jest.fn()}
+            onBlock={jest.fn()}
+            onReport={jest.fn()}
+            onEmbed={jest.fn()}
+            onMuteConversation={jest.fn()}
+            onPin={jest.fn()}
+            addEmojiReaction={jest.fn()}
+            removeEmojiReaction={jest.fn()}
+          />
+        </RouterProvider>
+      </Provider>,
+    );
+
+    expect(screen.getByRole('button', { name: 'Reboost (about 4 min left)' })).toBeDisabled();
+  });
 });

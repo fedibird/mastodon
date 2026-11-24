@@ -65,7 +65,9 @@ describe('reboost', () => {
 
     await reboost(status)(dispatch, getState);
 
-    expect(api.post).toHaveBeenCalledWith('/api/v1/statuses/1/reblog', { reboost: true });
+    expect(api.post).toHaveBeenCalledWith('/api/v1/statuses/1/reblog', { reboost: true }, {
+      headers: { 'Idempotency-Key': expect.any(String) },
+    });
     expect(importFetchedStatus).toHaveBeenCalledWith({ id: '50', reblog: { id: '1', reblogged: true } });
     expect(actions.some(action => action.type === REBLOG_SUCCESS)).toBe(true);
     expect(getState().getIn(['statuses', '1', 'reboost_operation'])).toBeUndefined();
@@ -115,7 +117,45 @@ describe('reboost', () => {
     await reboost(status)(dispatch, getState);
 
     expect(actions.some(action => action.type === 'ALERT_SHOW' && action.title.id === 'reboost.still_pending_title')).toBe(true);
+    expect(getState().getIn(['statuses', '1', 'reboost_operation']).toJS()).toEqual({ id: '9', state: 'pending' });
+  });
+
+  it('does not mark the post boosted when the operation completes without a new status', async () => {
+    api.post.mockResolvedValue({ status: 202, data: { operation_id: '9', state: 'pending' } });
+    followReboostOperation.mockResolvedValue({ id: '9', state: 'completed', new_status_id: null });
+    api.get.mockResolvedValue({ data: { id: '1', reblogged: false } });
+    const { actions, dispatch, getState } = setup();
+
+    await reboost(status)(dispatch, getState);
+
+    expect(actions.some(action => action.type === REBLOG_SUCCESS)).toBe(false);
+    expect(actions.some(action => action.type === 'ALERT_SHOW' && action.title.id === 'reboost.failed_title')).toBe(true);
     expect(getState().getIn(['statuses', '1', 'reboost_operation'])).toBeUndefined();
+  });
+
+  it('does not mark the post boosted when the operation is cancelled', async () => {
+    api.post.mockResolvedValue({ status: 202, data: { operation_id: '9', state: 'pending' } });
+    followReboostOperation.mockResolvedValue({ id: '9', state: 'cancelled', new_status_id: null });
+    api.get.mockResolvedValue({ data: { id: '1', reblogged: false } });
+    const { actions, dispatch, getState } = setup();
+
+    await reboost(status)(dispatch, getState);
+
+    expect(actions.some(action => action.type === REBLOG_SUCCESS)).toBe(false);
+    expect(actions.some(action => action.type === 'ALERT_SHOW' && action.title.id === 'reboost.cancelled_title')).toBe(true);
+  });
+
+  it('reuses the idempotency key when the reboost request never receives a response', async () => {
+    api.post.mockRejectedValueOnce(new Error('network'));
+    const { dispatch, getState } = setup();
+
+    await reboost(status)(dispatch, getState);
+    const firstKey = api.post.mock.calls[0][2].headers['Idempotency-Key'];
+
+    api.post.mockResolvedValue({ status: 200, data: { id: '50', reblog: { id: '1', reblogged: true } } });
+    await reboost(status)(dispatch, getState);
+
+    expect(api.post.mock.calls[1][2].headers['Idempotency-Key']).toBe(firstKey);
   });
 
   it('shows the remaining seconds on 429 and does not start another request while one is open', async () => {
