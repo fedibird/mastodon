@@ -19,6 +19,9 @@ let generation = 0;
 let knownRevision = null;
 let revalidationPromise = null;
 let queuedSave = null;
+// The next stock read resolves a marker invalidation. Listener type does not
+// matter: stock-only, size-only, and a later load with no listener all share it.
+let protectNextRead = false;
 let listening = false;
 let currentSize = Number(pickerEmojiSize) || 22;
 
@@ -96,7 +99,7 @@ function revisionIsOlder(revision) {
 
 function watchRevalidation(promise) {
   revalidationPromise = promise;
-  promise.finally(() => {
+  promise.then(result => {
     if (revalidationPromise !== promise) {
       return;
     }
@@ -104,10 +107,21 @@ function watchRevalidation(promise) {
     revalidationPromise = null;
     const queued = queuedSave;
     queuedSave = null;
+    const applied = cachedDocument && cachedDocument.revision;
 
-    if (queued) {
+    // A failed or non-authoritative read must not publish the queued snapshot.
+    // A queued save is applied only when the read succeeded and this commit is
+    // newer than the document that read just stored.
+    if (result && result.status === 'ready' && queued && Number.isInteger(queued.revision) && Number.isInteger(applied) && queued.revision > applied) {
       notifySavedPersonalEmojiSet(queued);
     }
+  }, () => {
+    if (revalidationPromise !== promise) {
+      return;
+    }
+
+    revalidationPromise = null;
+    queuedSave = null;
   }).catch(() => {});
 }
 
@@ -127,12 +141,13 @@ function noteUnseenMarker() {
   }
 
   lastChange = marker;
+  protectNextRead = true;
   generation += 1;
   request = null;
   latestRequest = null;
   cachedDocument = null;
   etag = null;
-  watchRevalidation(loadPersonalEmojiStock().catch(() => {}));
+  loadPersonalEmojiStock().catch(() => {});
 }
 
 // Each open revalidates with the server. Revision protects writes; ETag also
@@ -161,6 +176,8 @@ export function loadPersonalEmojiStock() {
     return request;
   }
 
+  const protect = protectNextRead;
+  protectNextRead = false;
   const requestedGeneration = generation;
   const headers = {};
   const accessToken = initialState?.meta?.access_token;
@@ -220,6 +237,11 @@ export function loadPersonalEmojiStock() {
 
   request = pending;
   latestRequest = pending;
+
+  if (protect) {
+    watchRevalidation(pending);
+  }
+
   return pending;
 }
 
@@ -232,6 +254,7 @@ function handleStorage(event) {
   // the event payload so a later save does not see a second, unseen marker.
   const marker = changeMarker();
   lastChange = marker === null ? event.newValue : marker;
+  protectNextRead = true;
   generation += 1;
   request = null;
   latestRequest = null;
@@ -239,11 +262,10 @@ function handleStorage(event) {
   etag = null;
   stockListeners.forEach(listener => listener(null));
 
-  // A standard picker may also be open. Refresh its shared size without
-  // mounting Nimble or accepting preference values from localStorage.
-  // This read stays authoritative: a delayed save must not cancel it.
-  if (sizeListeners.size > 0) {
-    watchRevalidation(loadPersonalEmojiStock().catch(() => {}));
+  // One read for an open picker, whether it subscribed to stock or to size.
+  // With no listener, the next loadPersonalEmojiStock still consumes protectNextRead.
+  if (stockListeners.size > 0 || sizeListeners.size > 0) {
+    loadPersonalEmojiStock().catch(() => {});
   }
 }
 

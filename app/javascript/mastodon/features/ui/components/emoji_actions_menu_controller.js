@@ -106,6 +106,7 @@ const messages = defineMessages({
   addSuccess: { id: 'emoji_actions.add_success', defaultMessage: 'Added to {name}' },
   removeSuccess: { id: 'emoji_actions.remove_success', defaultMessage: 'Removed from {name}' },
   personalRefreshFailed: { id: 'emoji_actions.personal_refresh_failed', defaultMessage: 'Saved, but the personal set could not refresh' },
+  personalConflictRefresh: { id: 'emoji_actions.personal_conflict_refresh', defaultMessage: 'The personal set changed. Reload it before trying again.' },
   retryPersonalRefresh: { id: 'emoji_actions.retry_personal_refresh', defaultMessage: 'Refresh personal set' },
   openSettings: { id: 'emoji_actions.open_mute_settings', defaultMessage: 'Open mute settings' },
   retry: { id: 'emoji_actions.retry', defaultMessage: 'Try again' },
@@ -509,6 +510,7 @@ class EmojiActionsMenuController extends React.PureComponent {
     pendingSyncRevision: null,
     busy: false,
     personalRefreshFailed: false,
+    personalRefreshReason: null,
     statusId: null,
     accountId: null,
     source: null,
@@ -780,6 +782,7 @@ class EmojiActionsMenuController extends React.PureComponent {
       pendingSyncRevision: null,
       busy: false,
       personalRefreshFailed: false,
+      personalRefreshReason: null,
       statusId: null,
       accountId: null,
       source: null,
@@ -1515,6 +1518,7 @@ class EmojiActionsMenuController extends React.PureComponent {
       busy: false,
       error: null,
       personalRefreshFailed: false,
+      personalRefreshReason: null,
       personalRevision: document.revision,
       categories: document.categories,
       notice,
@@ -1548,27 +1552,28 @@ class EmojiActionsMenuController extends React.PureComponent {
     this.reloadPersonalDocument(session, {
       notice: successMessage,
       allowDocument: published ? document : null,
+      reason: 'saved',
     });
   };
 
-  reloadPersonalDocument = (session, { notice, allowDocument }) => {
+  reloadPersonalDocument = (session, { notice, allowDocument, reason }) => {
     loadPersonalEmojiSetDocument().then(latest => {
       if (!this.sessionCurrent(session)) {
         return;
       }
 
       if (!latest || !Array.isArray(latest.categories)) {
-        this.failPersonalRefresh(session, allowDocument, notice);
+        this.failPersonalRefresh(session, allowDocument, notice, reason);
         return;
       }
 
       this.applyPersonalDocument(session, latest, notice);
     }).catch(() => {
-      this.failPersonalRefresh(session, allowDocument, notice);
+      this.failPersonalRefresh(session, allowDocument, notice, reason);
     });
   };
 
-  failPersonalRefresh = (session, allowDocument, notice) => {
+  failPersonalRefresh = (session, allowDocument, notice, reason) => {
     if (!this.sessionCurrent(session)) {
       return;
     }
@@ -1577,16 +1582,18 @@ class EmojiActionsMenuController extends React.PureComponent {
       return;
     }
 
+    const conflict = reason === 'conflict' || this.state.personalRefreshReason === 'conflict';
     this.setState({
       busy: false,
       personalRefreshFailed: true,
-      notice: this.props.intl.formatMessage(messages.personalRefreshFailed),
+      personalRefreshReason: conflict ? 'conflict' : 'saved',
+      notice: this.props.intl.formatMessage(conflict ? messages.personalConflictRefresh : messages.personalRefreshFailed),
       error: new Error('Could not refresh personal set'),
     });
   };
 
   recoverPersonalConflict = (session, message) => {
-    this.reloadPersonalDocument(session, { notice: message, allowDocument: null });
+    this.reloadPersonalDocument(session, { notice: message, allowDocument: null, reason: 'conflict' });
   };
 
   handleRetryPersonalRefresh = () => {
@@ -1595,16 +1602,17 @@ class EmojiActionsMenuController extends React.PureComponent {
     }
 
     const session = captureMenuSession(this.loadGeneration, this.state.reference);
+    const reason = this.state.personalRefreshReason === 'conflict' ? 'conflict' : 'saved';
 
     this.setState({ busy: true, error: null });
-    this.reloadPersonalDocument(session, { notice: null, allowDocument: null });
+    this.reloadPersonalDocument(session, { notice: null, allowDocument: null, reason });
   };
 
   handleAddToCategory = category => {
     const { intl } = this.props;
     const { reference, personalRevision } = this.state;
 
-    if (emojiPickerDisablePersonal || !category || !reference || this.state.busy) {
+    if (emojiPickerDisablePersonal || this.state.personalRefreshFailed || !category || !reference || this.state.busy) {
       return;
     }
 
@@ -1649,7 +1657,7 @@ class EmojiActionsMenuController extends React.PureComponent {
     const { intl } = this.props;
     const { reference, personalRevision } = this.state;
 
-    if (emojiActionsDisablePersonalRemove || emojiPickerDisablePersonal || !category || !reference || this.state.busy) {
+    if (emojiActionsDisablePersonalRemove || emojiPickerDisablePersonal || this.state.personalRefreshFailed || !category || !reference || this.state.busy) {
       return;
     }
 

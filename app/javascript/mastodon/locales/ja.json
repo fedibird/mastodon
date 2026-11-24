@@ -1474,6 +1474,7 @@
   "emoji_actions.add_success": "{name} に追加しました",
   "emoji_actions.remove_success": "{name} から登録解除しました",
   "emoji_actions.personal_refresh_failed": "保存しましたが、個人セットの表示を更新できませんでした",
+  "emoji_actions.personal_conflict_refresh": "個人セットが変更されました。再読み込みしてください。",
   "emoji_actions.retry_personal_refresh": "個人セットを再読み込み",
   "emoji_actions.open_mute_settings": "ミュート設定を開く",
   "emoji_actions.manage": "絵文字の操作",

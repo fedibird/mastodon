@@ -315,6 +315,55 @@ describe('personal set removal from the emoji action menu', () => {
     anchor.remove();
   });
 
+  it('keeps a failed conflict reload distinct from a saved refresh until the latest revision loads', async () => {
+    const error = new Error('Personal emoji set changed');
+    error.code = 'conflict';
+    const latest = {
+      revision: 11,
+      categories: [
+        { id: 'favorites', name: 'Favorites', items: [] },
+        { id: 'other', name: 'Other', items: [] },
+      ],
+    };
+    removePersonalCategoryItem.mockRejectedValue(error);
+    loadPersonalEmojiSetDocument
+      .mockResolvedValueOnce(presentDocument)
+      .mockRejectedValueOnce(new Error('offline'))
+      .mockRejectedValueOnce(new Error('offline'))
+      .mockResolvedValueOnce(latest);
+    const { controller, anchor } = renderMenu();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Remove from Favorites' }));
+    expect(await screen.findByText('The personal set changed. Reload it before trying again.')).toBeInTheDocument();
+    expect(screen.queryByText('Saved, but the personal set could not refresh')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Remove from Favorites' })).not.toBeInTheDocument();
+
+    act(() => {
+      controller.current.handleRemoveFromCategory({ id: 'favorites', name: 'Favorites' });
+    });
+    expect(removePersonalCategoryItem).toHaveBeenCalledTimes(1);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh personal set' }));
+    expect(await screen.findByText('The personal set changed. Reload it before trying again.')).toBeInTheDocument();
+    expect(screen.queryByText('Saved, but the personal set could not refresh')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh personal set' }));
+    const addFavorites = await screen.findByRole('button', { name: 'Add to Favorites' });
+    appendPersonalCategoryItem.mockResolvedValue({
+      revision: 12,
+      categories: latest.categories,
+      stock: { categories: [] },
+      operation: { added: true },
+    });
+    fireEvent.click(addFavorites);
+    await waitFor(() => expect(appendPersonalCategoryItem).toHaveBeenCalledWith(
+      'favorites',
+      expect.objectContaining({ kind: 'unicode', native: '😀' }),
+      11,
+    ));
+    anchor.remove();
+  });
+
   it('reloads a conflicting add and uses that revision for the next removal', async () => {
     const error = new Error('Personal emoji set changed');
     error.code = 'conflict';

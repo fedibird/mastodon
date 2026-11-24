@@ -1472,6 +1472,7 @@
   "emoji_actions.add_success": "Added to {name}",
   "emoji_actions.remove_success": "Removed from {name}",
   "emoji_actions.personal_refresh_failed": "Saved, but the personal set could not refresh",
+  "emoji_actions.personal_conflict_refresh": "The personal set changed. Reload it before trying again.",
   "emoji_actions.retry_personal_refresh": "Refresh personal set",
   "emoji_actions.open_mute_settings": "Open mute settings",
   "emoji_actions.manage": "Emoji actions",
