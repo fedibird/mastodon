@@ -12,7 +12,7 @@ class RemoteReboostHold < ApplicationRecord
         published_at: published_at,
         available_at: available_at,
         payload: payload,
-        delivery_options: delivery_options
+        delivery_options: normalize_delivery_options(delivery_options)
       )
       row.save!
       row.schedule_apply!
@@ -26,7 +26,7 @@ class RemoteReboostHold < ApplicationRecord
     end
     return row if published_at.nil? || (row.published_at && published_at <= row.published_at)
 
-    row.update!(activity_uri: uri, published_at: published_at, payload: payload, delivery_options: merge_delivery_options(row.delivery_options, delivery_options))
+    row.update!(activity_uri: uri, published_at: published_at, payload: payload, delivery_options: normalize_delivery_options(delivery_options))
     row.schedule_apply! if row.apply_enqueued_at.nil?
     row
   end
@@ -39,13 +39,33 @@ class RemoteReboostHold < ApplicationRecord
     update!(apply_enqueued_at: Time.current)
   end
 
+  # Same Announce id only. A later fetch cannot downgrade a delivery or drop
+  # an inbox that already received this id. A different id stores its own options.
   def self.merge_delivery_options(current, incoming)
-    current = current.is_a?(Hash) ? current.stringify_keys : {}
-    incoming = incoming.is_a?(Hash) ? incoming.stringify_keys : {}
+    current = stringify_options(current)
+    incoming = stringify_options(incoming)
     merged = current.merge(incoming)
     merged['delivery'] = true if current['delivery'] == true || incoming['delivery'] == true
     merged['override_timestamps'] = true if current['override_timestamps'] == true || incoming['override_timestamps'] == true
+    merged['delivered_to_account_ids'] = recipient_ids(current, incoming)
+    merged.delete('delivered_to_account_id')
+    merged['relayed_through_account_id'] = incoming['relayed_through_account_id'].presence || current['relayed_through_account_id']
     merged
+  end
+
+  def self.normalize_delivery_options(incoming)
+    incoming = stringify_options(incoming)
+    incoming['delivered_to_account_ids'] = recipient_ids(incoming)
+    incoming.delete('delivered_to_account_id')
+    incoming
+  end
+
+  def self.recipient_ids(*hashes)
+    hashes.flat_map { |hash| Array(hash['delivered_to_account_ids']) + Array(hash['delivered_to_account_id']) }.compact.uniq
+  end
+
+  def self.stringify_options(options)
+    options.is_a?(Hash) ? options.stringify_keys : {}
   end
 
   def self.schedule_outstanding!(now = Time.current)

@@ -42,7 +42,11 @@ class Reboost::RemoteApplyWorker
       delivery: stored.fetch('delivery', true),
       override_timestamps: stored.fetch('override_timestamps', true),
     }
-    options[:delivered_to_account_id] = stored['delivered_to_account_id'] if stored['delivered_to_account_id']
+    recipient_ids = Array(stored['delivered_to_account_ids'])
+    recipient_ids << stored['delivered_to_account_id'] if stored['delivered_to_account_id'].present?
+    recipient_ids = recipient_ids.compact.uniq
+    options[:delivered_to_account_ids] = recipient_ids if recipient_ids.any?
+    options[:delivered_to_account_id] = recipient_ids.first if recipient_ids.any?
     relay_id = stored['relayed_through_account_id']
     options[:relayed_through_account] = Account.find_by(id: relay_id) if relay_id
     options

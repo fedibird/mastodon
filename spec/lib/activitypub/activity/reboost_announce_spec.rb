@@ -386,6 +386,37 @@ RSpec.describe ActivityPub::Activity::Announce do
     end
   end
 
+  it 'keeps each Announce id on its own delivery and inboxes' do
+    inbox_x = Fabricate(:account)
+    inbox_y = Fabricate(:account)
+    announce('https://example.com/announce/a', 10.minutes.ago.iso8601)
+    published = Time.current.iso8601
+    newer = 1.second.from_now.iso8601
+
+    described_class.new(announce_json('https://example.com/announce/b', published), sender, delivery: true, override_timestamps: true, delivered_to_account_id: inbox_x.id).perform
+    described_class.new(announce_json('https://example.com/announce/b', published), sender, delivery: true, override_timestamps: true, delivered_to_account_id: inbox_y.id).perform
+    described_class.new(announce_json('https://example.com/announce/b', published), sender, delivery: false).perform
+
+    hold = RemoteReboostHold.find_by!(account: sender, reblog_of: status)
+    expect(hold.activity_uri).to eq 'https://example.com/announce/b'
+    expect(hold.delivery_options['delivery']).to be true
+    expect(hold.delivery_options['delivered_to_account_ids']).to contain_exactly(inbox_x.id, inbox_y.id)
+
+    described_class.new(announce_json('https://example.com/announce/c', newer), sender, delivery: false).perform
+
+    expect(hold.reload.activity_uri).to eq 'https://example.com/announce/c'
+    expect(hold.delivery_options['delivery']).to be false
+    expect(hold.delivery_options['delivered_to_account_ids']).to eq []
+
+    travel 301.seconds do
+      Reboost::RemoteApplyWorker.new.perform(hold.id)
+    end
+
+    boost = sender.statuses.find_by!(reblog_of_id: status.id)
+    expect(boost.uri).to eq 'https://example.com/announce/c'
+    expect(boost.mentions.where(account_id: [inbox_x.id, inbox_y.id])).to be_empty
+  end
+
   it 'upgrades a held fetch when the same Announce arrives as a delivery' do
     announce('https://example.com/announce/a', 10.minutes.ago.iso8601)
     published = Time.current.iso8601
