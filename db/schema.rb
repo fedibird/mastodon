@@ -10,7 +10,11 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
+<<<<<<< HEAD
 ActiveRecord::Schema.define(version: 2026_11_24_200000) do
+=======
+ActiveRecord::Schema.define(version: 2026_11_24_203000) do
+>>>>>>> c3581b3efb (Keep one open reboost and recover a missed boost notification.)
   # These are extensions that must be enabled in order to support this database
   enable_extension "plpgsql"
 
@@ -2273,10 +2277,13 @@ create_table "managed_groups", force: :cascade do |t|
     t.datetime "undo_enqueued_at", precision: 6
     t.datetime "local_enqueued_at", precision: 6
     t.datetime "federation_enqueued_at", precision: 6
+    t.datetime "notification_enqueued_at", precision: 6
     t.datetime "created_at", precision: 6, null: false
     t.datetime "updated_at", precision: 6, null: false
     t.index ["account_id", "idempotency_key"], name: "index_reboost_operations_on_idempotency", unique: true, where: "(idempotency_key IS NOT NULL)"
+    t.index ["account_id", "reblog_of_id"], name: "index_reboost_operations_one_open", unique: true, where: "((state)::text = ANY ((ARRAY['pending'::character varying, 'federating'::character varying])::text[]))"
     t.index ["account_id", "reblog_of_id", "state"], name: "index_reboost_operations_on_account_status_and_state"
+    t.index ["local_enqueued_at", "notification_enqueued_at", "federation_enqueued_at"], name: "index_reboost_operations_federating_delivery", where: "((state)::text = 'federating'::text)"
     t.index ["account_id"], name: "index_reboost_operations_on_account_id"
     t.index ["reblog_of_id"], name: "index_reboost_operations_on_reblog_of_id"
   end

@@ -202,6 +202,57 @@ RSpec.describe ReblogService do
       end
     end
 
+    it 'keeps a second request on the open operation' do
+      blocked = true
+      allow(Reboost::ResumeWorker).to receive(:perform_in)
+      allow_any_instance_of(RemoveStatusService).to receive(:call).and_wrap_original do |method, *args, **kwargs|
+        raise Mastodon::RaceConditionError if blocked
+
+        method.call(*args, **kwargs)
+      end
+
+      travel 301.seconds do
+        expect { described_class.new.call(account, original, reboost: true, idempotency: 'k1') }.to raise_error(Mastodon::ReboostPendingError)
+        operation = ReboostOperation.open.find_by!(account: account, reblog_of: original)
+
+        expect { described_class.new.call(account, original, reboost: true, idempotency: 'k2') }.to raise_error(Mastodon::ReboostPendingError) do |error|
+          expect(error.operation.id).to eq operation.id
+        end
+        expect { described_class.new.call(account, original) }.to raise_error(Mastodon::ReboostPendingError) do |error|
+          expect(error.operation.id).to eq operation.id
+        end
+        expect(ReboostOperation.open.where(account: account, reblog_of: original).count).to eq 1
+
+        blocked = false
+        resumed = Reboost::Placement.resume!(operation)
+
+        expect(resumed).to be_present
+        expect(account.statuses.where(reblog_of_id: original.id).count).to eq 1
+        expect(operation.reload.state).not_to eq 'pending'
+      end
+    end
+
+    it 'retries a notification enqueue that failed after the wrapper was saved' do
+      calls = 0
+      allow(LocalNotificationWorker).to receive(:perform_async) do
+        calls += 1
+        raise Redis::BaseConnectionError if calls == 1
+      end
+
+      travel 301.seconds do
+        expect { described_class.new.call(account, original, reboost: true) }.to raise_error(Redis::BaseConnectionError)
+        operation = ReboostOperation.order(:id).last
+        expect(operation.notification_enqueued_at).to be_nil
+        expect(operation.local_enqueued_at).to be_present
+
+        Scheduler::ReboostDeliveryScheduler.new.perform
+
+        expect(calls).to eq 2
+        expect(operation.reload.notification_enqueued_at).to be_present
+        expect(account.statuses.where(reblog_of_id: original.id).count).to eq 1
+      end
+    end
+
     it 'resumes an unenqueued replacement without the same idempotency key' do
       calls = 0
       allow(Reboost::FederationWorker).to receive(:perform_in) do

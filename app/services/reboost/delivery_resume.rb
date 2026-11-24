@@ -27,11 +27,12 @@ class Reboost::DeliveryResume
 
     status = Status.find_by(id: operation.new_status_id)
     enqueue_home!(operation, status) if status
+    enqueue_notification!(operation, status) if status
     enqueue_federation!(operation)
   end
 
   def resume_outstanding!
-    ReboostOperation.where(state: 'federating').where('local_enqueued_at IS NULL OR federation_enqueued_at IS NULL').find_each do |operation|
+    ReboostOperation.where(state: 'federating').where('local_enqueued_at IS NULL OR notification_enqueued_at IS NULL OR federation_enqueued_at IS NULL').find_each(batch_size: 100) do |operation|
       resume!(operation)
     end
   end
@@ -45,6 +46,23 @@ class Reboost::DeliveryResume
 
       DistributionWorker.perform_async(status.id)
       operation.update!(local_enqueued_at: Time.current)
+    end
+  end
+
+  # The timestamp is written only after the enqueue returns, so a raised
+  # notification call stays eligible for the next pass and is not sent twice.
+  def enqueue_notification!(operation, reblog)
+    return if operation.nil?
+
+    original = Status.find_by(id: operation.reblog_of_id)
+    notify = reblog.present? && original&.account&.local? && !reblog.account.group?
+
+    with_redis_lock("reboost:notification_enqueue:#{operation.id}") do
+      operation.reload
+      return if operation.notification_enqueued_at.present?
+
+      LocalNotificationWorker.perform_async(original.account_id, reblog.id, reblog.class.name, 'reblog') if notify
+      operation.update!(notification_enqueued_at: Time.current)
     end
   end
 

@@ -107,6 +107,9 @@ class Reboost::Placement
   def place!
     return if resumed_cancelled?
 
+    joined = Reboost::OpenOperation.join!(account: account, original_id: original.id, resumed_operation_id: options[:resumed_operation_id])
+    return ensure_joined!(joined) if joined
+
     if options[:reboost] && !reboost_allowed?
       raise Mastodon::ReboostDisabledError, I18n.t('statuses.errors.reboost_disabled')
     end
@@ -164,6 +167,11 @@ class Reboost::Placement
         raise_pending!(existing, visibility, audience)
       end
     end
+  end
+
+  def ensure_joined!(status)
+    ensure_federating!(status)
+    status
   end
 
   def reboost_allowed?
@@ -232,7 +240,7 @@ class Reboost::Placement
         'audience' => Array(audience).map { |account_id, silent| [account_id, silent == true] },
       }
     )
-    operation.save!
+    Reboost::OpenOperation.save!(operation)
     @recovery = operation
     remember_idempotency!(operation)
     Reboost::ResumeWorker.perform_in(2.seconds, operation.id)
@@ -294,12 +302,16 @@ class Reboost::Placement
   end
 
   def distribute_locally!(reblog, federate:, operation: nil)
-    Reboost::DeliveryResume.new.enqueue_home!(operation, reblog) if operation
-    DistributionWorker.perform_async(reblog.id) if operation.nil?
+    if operation
+      Reboost::DeliveryResume.new.enqueue_home!(operation, reblog)
+      Reboost::DeliveryResume.new.enqueue_notification!(operation, reblog)
+    else
+      DistributionWorker.perform_async(reblog.id)
+    end
     ActivityPub::DistributionWorker.perform_async(reblog.id) if federate
     return if reblog.account.group?
 
-    LocalNotificationWorker.perform_async(original.account_id, reblog.id, reblog.class.name, 'reblog') if original.account.local?
+    LocalNotificationWorker.perform_async(original.account_id, reblog.id, reblog.class.name, 'reblog') if operation.nil? && original.account.local?
     ActivityTracker.increment('activity:interactions')
     PotentialFriendshipTracker.record(account.id, original.account_id, :reblog) unless account.following?(original.account_id)
     record_use!(reblog)

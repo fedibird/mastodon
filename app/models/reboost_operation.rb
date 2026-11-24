@@ -25,6 +25,7 @@
 #  undo_enqueued_at         :datetime
 #  local_enqueued_at        :datetime
 #  federation_enqueued_at   :datetime
+#  notification_enqueued_at :datetime
 #  created_at               :datetime         not null
 #  updated_at               :datetime         not null
 #
