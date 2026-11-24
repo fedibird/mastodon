@@ -312,4 +312,139 @@ describe('emoji mute media tile labels', () => {
     expect(open()[1].querySelector('img').getAttribute('alt')).toBe('note :blob:');
     privacy.remove();
   });
+
+  it('drops a display-name source when the name becomes a username', () => {
+    const store = makeStore();
+    const guard = createUnverifiedEmojiGuard();
+    let during = null;
+
+    store.subscribe(() => guard(store.getState()));
+    store.subscribe(() => {
+      during = document.querySelector('.timeline-media-tile__source')?.textContent;
+    });
+
+    const privacy = document.createElement('div');
+    privacy.className = 'emoji-mutes-privacy-portal';
+    document.body.appendChild(privacy);
+    const named = statusFor('photo');
+    const cleared = named.setIn(['account', 'display_name'], '').setIn(['account', 'display_name_html'], '');
+    const view = render(
+      <Provider store={store}>
+        <Status status={named} layoutMode='media' mediaIndex={0} mediaVisibility='show_all' />
+      </Provider>,
+      { container: privacy },
+    );
+
+    apply(store, [
+      rule({ kind: 'custom', scope: 'local', custom_emoji_id: '10', shortcode: 'blob' }, '[local]'),
+    ]);
+    view.rerender(
+      <Provider store={store}>
+        <Status status={cleared} layoutMode='media' mediaIndex={0} mediaVisibility='show_all' />
+      </Provider>,
+    );
+
+    expect(privacy.querySelector('.timeline-media-tile__source').textContent).toBe('alice');
+
+    act(() => {
+      store.dispatch({ type: 'EMOJI_MUTES_REVISION', revision: '3' });
+      expect(during).toBe('alice');
+      expect(during).not.toContain(':blob:');
+      expect(during).not.toContain('[local]');
+      store.dispatch({ type: EMOJI_MUTES_APPLY, revision: '3', mutes: [
+        rule({ kind: 'custom', scope: 'local', custom_emoji_id: '10', shortcode: 'blob' }, '[local]'),
+      ], availability: 'enabled' });
+      expect(during).toBe('alice');
+    });
+
+    expect(privacy.querySelector('.timeline-media-tile__source').textContent).toBe('alice');
+    privacy.remove();
+  });
+
+  it('keeps Open media when an empty replacement is restored', () => {
+    const store = makeStore();
+    const guard = createUnverifiedEmojiGuard();
+    let during = null;
+
+    store.subscribe(() => guard(store.getState()));
+    store.subscribe(() => {
+      const named = document.querySelectorAll('.timeline-media-tile__open')[0];
+      const written = document.querySelectorAll('.timeline-media-tile__open')[1];
+
+      during = {
+        namedAlt: named && named.querySelector('img') && named.querySelector('img').getAttribute('alt'),
+        namedLabel: named && named.getAttribute('aria-label'),
+        writtenAlt: written && written.querySelector('img') && written.querySelector('img').getAttribute('alt'),
+        writtenLabel: written && written.getAttribute('aria-label'),
+      };
+    });
+
+    const privacy = document.createElement('div');
+    privacy.className = 'emoji-mutes-privacy-portal';
+    document.body.appendChild(privacy);
+    const emojiOnly = '<img class="emojione custom-emoji" alt=":blob:" data-shortcode="blob" data-domain="" data-emoji-id="10" src="https://cdn.example/10.svg">';
+    const named = statusFor(null)
+      .setIn(['account', 'display_name'], ':blob:')
+      .setIn(['account', 'display_name_html'], emojiOnly);
+    const written = statusFor(THUMB);
+    render(
+      <Provider store={store}>
+        <React.Fragment>
+          <Status status={named} layoutMode='media' mediaIndex={0} mediaVisibility='show_all' />
+          <Status status={written} layoutMode='media' mediaIndex={0} mediaVisibility='show_all' />
+        </React.Fragment>
+      </Provider>,
+      { container: privacy },
+    );
+
+    const emptyRules = [
+      rule({ kind: 'custom', scope: 'local', custom_emoji_id: '10', shortcode: 'blob' }, ''),
+      rule({ kind: 'unicode', native: THUMB }, ''),
+    ];
+
+    apply(store, emptyRules, '2');
+
+    const open = () => privacy.querySelectorAll('.timeline-media-tile__open');
+
+    expect(open()[0].querySelector('img').getAttribute('alt')).toBe('');
+    expect(open()[0].getAttribute('aria-label')).toBe('Open media');
+    expect(open()[1].querySelector('img').getAttribute('alt')).toBe('');
+    expect(open()[1].getAttribute('aria-label')).toBe('Open media');
+
+    act(() => {
+      store.dispatch({ type: 'EMOJI_MUTES_REVISION', revision: '3' });
+      store.dispatch({ type: EMOJI_MUTES_APPLY, revision: '3', mutes: emptyRules, availability: 'enabled' });
+      expect(during.namedAlt).toBe('');
+      expect(during.namedLabel).toBe('Open media');
+      expect(during.writtenAlt).toBe('');
+      expect(during.writtenLabel).toBe('Open media');
+    });
+
+    expect(open()[0].getAttribute('aria-label')).toBe('Open media');
+    expect(open()[1].getAttribute('aria-label')).toBe('Open media');
+
+    act(() => {
+      store.dispatch({ type: EMOJI_MUTES_IGNORE });
+    });
+
+    expect(open()[0].querySelector('img').getAttribute('alt')).toBe(':blob:');
+    expect(open()[0].getAttribute('aria-label')).toBe(':blob:');
+    expect(open()[1].querySelector('img').getAttribute('alt')).toBe(THUMB);
+    privacy.remove();
+  });
+
+  it('projects a display name that has no HTML from the plain string once', () => {
+    const store = makeStore();
+    const status = statusFor(null).setIn(['account', 'display_name'], `Hi ${THUMB} :blob:`).setIn(['account', 'display_name_html'], '');
+    const { container } = renderTile(store, status);
+
+    apply(store, [
+      rule({ kind: 'unicode', native: THUMB }, '😺'),
+      rule({ kind: 'unicode', native: '😺' }, '[cat]'),
+      rule({ kind: 'custom', scope: 'local', custom_emoji_id: '10', shortcode: 'blob' }, '[local]'),
+    ]);
+
+    expect(container.querySelector('img').getAttribute('alt')).toBe('Hi 😺 :blob:');
+    expect(container.querySelector('.timeline-media-tile__open').getAttribute('aria-label')).toBe('Hi 😺 :blob:');
+  });
 });

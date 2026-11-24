@@ -10,7 +10,7 @@ import RelativeTimestamp from './relative_timestamp';
 import DisplayName from './display_name';
 import EmojiMutedHtml, { EmojiMutedAria, EmojiMutedPlain, bindCustomEmojiClick, unbindCustomEmojiClick, customEmojiTarget, withEmojiMuteTextIndex } from './emoji_muted_html';
 import { countEmojiMuteParse, emojiMutedPlainText, presentEmojiMutePlain, replaceMutedEmojiInPlain, replaceUnicodeEmojiInPlainText } from 'mastodon/features/emoji/emoji_mute_text';
-import { bindEmojiMuteElementSource, forgetEmojiMuteAttributeSource, rememberEmojiMuteDisplayAttribute } from 'mastodon/features/emoji/emoji_mute_sources';
+import { forgetEmojiMuteAttributeSource, rememberEmojiMuteAttributeSource, rememberEmojiMuteDisplayAttribute } from 'mastodon/features/emoji/emoji_mute_sources';
 import { attachInlineEmojiMenus, handleInlineEmojiClick } from 'mastodon/features/emoji/emoji_actions/inline_emoji';
 import ExternalSourceIdentity, { TimeLink } from './external_source_identity';
 import StatusContent from './status_content';
@@ -266,6 +266,7 @@ class DisplayEmojiMuteSource extends React.PureComponent {
   static propTypes = {
     plain: PropTypes.string,
     html: PropTypes.string,
+    emptyFallback: PropTypes.string,
     children: PropTypes.element.isRequired,
   };
 
@@ -284,7 +285,7 @@ class DisplayEmojiMuteSource extends React.PureComponent {
       }
 
       if (typeof this.props.html === 'string' && this.props.html !== '') {
-        rememberEmojiMuteDisplayAttribute(this.node, name, this.props.plain || '', this.props.html);
+        rememberEmojiMuteDisplayAttribute(this.node, name, this.props.plain || '', this.props.html, this.props.emptyFallback);
         return;
       }
 
@@ -310,6 +311,7 @@ class PlainEmojiMuteSource extends React.PureComponent {
 
   static propTypes = {
     source: PropTypes.string,
+    emptyFallback: PropTypes.string,
     children: PropTypes.element.isRequired,
   };
 
@@ -319,7 +321,11 @@ class PlainEmojiMuteSource extends React.PureComponent {
     }
 
     if (this.node && typeof this.props.source === 'string') {
-      bindEmojiMuteElementSource(this.node, this.props.source);
+      ['alt', 'aria-label', 'title'].forEach(name => {
+        if (this.node.hasAttribute(name)) {
+          rememberEmojiMuteAttributeSource(this.node, name, this.props.source, 'plain', this.props.emptyFallback);
+        }
+      });
     }
   };
 
@@ -1297,21 +1303,18 @@ class Status extends ImmutablePureComponent {
     const displayName = status.getIn(['account', 'display_name']);
     const username = status.getIn(['account', 'username']) || '';
     const rawAlt = description || displayName || username || '';
-    // A missing ALT falls back to the display name. That string has an
-    // emojify document; a written ALT does not, so shortcodes stay literal.
-    let altHtml;
-
-    if (!description && displayName) {
-      altHtml = status.getIn(['account', 'display_name_html']) || '';
-    }
+    // A missing ALT falls back to the display name. HTML is the emoji
+    // identity when it exists. Without it, the plain name is the source.
+    const nameHtml = !description && displayName ? (status.getIn(['account', 'display_name_html']) || '') : '';
+    const altHtml = nameHtml || undefined;
     const externalIdentity = externalIdentityOf(status);
     const aspect = original && mediaAspectRatio(attachment);
     const itemStyle = aspect ? { aspectRatio: String(aspect) } : undefined;
     const hash = attachment.get('blurhash');
     const thumbnailHash = attachment.get('thumbhash');
     const blurred = concealed && useBlurhash && (hash || thumbnailHash);
-
-    const plainSource = description || (displayName ? null : (username || ''));
+    const plainSource = description || (altHtml ? null : (displayName || username || ''));
+    const openFallback = this.props.intl.formatMessage(messages.openMediaTile);
 
     return (
       <SubscribedMediaTileProjection text={rawAlt} html={altHtml}>
@@ -1366,9 +1369,9 @@ class Status extends ImmutablePureComponent {
               <div className='timeline-media-tile'>
                 <div className='timeline-media-tile__preview'>
                   {altHtml ? (
-                    <DisplayEmojiMuteSource plain={displayName || ''} html={concealed ? '' : altHtml}>{openButton}</DisplayEmojiMuteSource>
+                    <DisplayEmojiMuteSource plain={displayName || ''} html={concealed ? '' : altHtml} emptyFallback={concealed ? undefined : openFallback}>{openButton}</DisplayEmojiMuteSource>
                   ) : (typeof plainSource === 'string' ? (
-                    <PlainEmojiMuteSource source={concealed ? openLabel : plainSource}>{openButton}</PlainEmojiMuteSource>
+                    <PlainEmojiMuteSource source={concealed ? openLabel : plainSource} emptyFallback={concealed ? undefined : openFallback}>{openButton}</PlainEmojiMuteSource>
                   ) : openButton)}
                   {description && <div className='media-gallery__item__badges'>
                     <AltTextBadge description={alt} rawOriginal={description} />

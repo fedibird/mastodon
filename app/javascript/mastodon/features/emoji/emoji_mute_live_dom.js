@@ -1,5 +1,5 @@
 import { storedReactionHidden } from './emoji_mute_projection';
-import { emojiMuteAttributeDisplayHtml, emojiMuteAttributeSourceKind, logicalEmojiMuteAttribute, logicalEmojiMuteText, rememberEmojiMuteTextSource } from './emoji_mute_sources';
+import { emojiMuteAttributeDisplayHtml, emojiMuteAttributeEmptyFallback, emojiMuteAttributeSourceKind, logicalEmojiMuteAttribute, logicalEmojiMuteText, rememberEmojiMuteTextSource } from './emoji_mute_sources';
 import { bindHashtagMenuName, concealOpenHashtagDialogs, concealOpenHashtagMenus, hashtagMenuLabelIdentity, hashtagMenuStoredIdentity, projectConcealedHashtagText, projectHashtagLabel, replaceHashtagSlot } from './hashtag_menu_names';
 import { attributeNamesIdentity, displayTextForEmojiMuteHtml, emojiMutedPlainText, emojiMuteTextIndexFromState, isUserEmojiImage, presentEmojiMutePlain, projectedEmojiImage, SUPPRESS_UNVERIFIED_INDEX, suppressUnicodeEmoji, UNVERIFIED_EMOJI_PLACEHOLDER } from './emoji_mute_text';
 
@@ -33,6 +33,16 @@ export const emojiMuteLiveDomProbe = { scans: 0 };
 export function resetEmojiMuteLiveDomProbe() {
   emojiMuteLiveDomProbe.scans = 0;
 }
+
+const projectedAttribute = (element, name, next) => {
+  if (next !== '') {
+    return next;
+  }
+
+  const fallback = emojiMuteAttributeEmptyFallback(element, name);
+
+  return fallback === null ? next : fallback;
+};
 
 const rewriteAttribute = (element, name) => {
   const value = element.getAttribute(name);
@@ -283,9 +293,10 @@ const writeRecordedAttribute = (record, index, raw) => {
 
   if (kind === 'display') {
     const html = emojiMuteAttributeDisplayHtml(element, name) || '';
-    const next = emojiMutedPlainText(typeof logical === 'string' ? logical : '', html, index);
+    const projected = emojiMutedPlainText(typeof logical === 'string' ? logical : '', html, index);
+    const next = projectedAttribute(element, name, projected === undefined || projected === null ? '' : projected);
 
-    element.setAttribute(name, next === undefined || next === null ? value : next);
+    element.setAttribute(name, next);
     return;
   }
 
@@ -294,8 +305,9 @@ const writeRecordedAttribute = (record, index, raw) => {
   // A photo alt stays the original markup. A link label is projected once
   // from that original string, including when the binder stored it as HTML.
   const next = readable && !plainImage ? presentEmojiMutePlain(logical, index) : logical;
+  const shown = projectedAttribute(element, name, next === undefined || next === null ? '' : next);
 
-  element.setAttribute(name, next === undefined || next === null ? value : next);
+  element.setAttribute(name, shown);
 };
 
 // The verified document, not the pre-suppress snapshot. Restoring every
@@ -667,7 +679,8 @@ export function scrubUnverifiedEmojiFrom(root, sink) {
 
       if (typeof displayHtml === 'string') {
         const plain = logicalEmojiMuteAttribute(element, name, element.getAttribute(name) || '');
-        const next = emojiMutedPlainText(typeof plain === 'string' ? plain : '', displayHtml, SUPPRESS_UNVERIFIED_INDEX);
+        const projected = emojiMutedPlainText(typeof plain === 'string' ? plain : '', displayHtml, SUPPRESS_UNVERIFIED_INDEX);
+        const next = projectedAttribute(element, name, typeof projected === 'string' ? projected : '');
         const value = element.getAttribute(name);
 
         if (typeof next !== 'string' || next === value) {

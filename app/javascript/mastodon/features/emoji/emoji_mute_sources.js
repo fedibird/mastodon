@@ -16,6 +16,12 @@ export function rememberEmojiMuteTextSource(node, source) {
   textSources.set(node, source);
 }
 
+export function forgetEmojiMuteTextSource(node) {
+  if (node) {
+    textSources.delete(node);
+  }
+}
+
 // The open menu and mute dialog show one projected tag. Release has to
 // project that tag again from the raw name and its image identity.
 export function rememberEmojiMuteHashtagSlot(node, slot) {
@@ -54,7 +60,7 @@ export function rememberEmojiMuteDisplayName(node, plain, html) {
   textSources.set(node, { displayName: { plain, html } });
 }
 
-export function rememberEmojiMuteAttributeSource(element, name, source, kind = 'plain') {
+export function rememberEmojiMuteAttributeSource(element, name, source, kind = 'plain', emptyFallback) {
   if (!element || typeof source !== 'string') {
     return;
   }
@@ -66,10 +72,16 @@ export function rememberEmojiMuteAttributeSource(element, name, source, kind = '
     attributeSources.set(element, sources);
   }
 
-  sources.set(name, { value: source, kind: kind === 'html' ? 'html' : 'plain' });
+  const record = { value: source, kind: kind === 'html' ? 'html' : 'plain' };
+
+  if (typeof emptyFallback === 'string') {
+    record.emptyFallback = emptyFallback;
+  }
+
+  sources.set(name, record);
 }
 
-export function rememberEmojiMuteDisplayAttribute(element, name, plain, html) {
+export function rememberEmojiMuteDisplayAttribute(element, name, plain, html, emptyFallback) {
   if (!element || typeof plain !== 'string' || typeof html !== 'string' || html === '') {
     return;
   }
@@ -81,7 +93,13 @@ export function rememberEmojiMuteDisplayAttribute(element, name, plain, html) {
     attributeSources.set(element, sources);
   }
 
-  sources.set(name, { value: plain, html, kind: 'display' });
+  const record = { value: plain, html, kind: 'display' };
+
+  if (typeof emptyFallback === 'string') {
+    record.emptyFallback = emptyFallback;
+  }
+
+  sources.set(name, record);
 }
 
 export function forgetEmojiMuteAttributeSource(element, name) {
@@ -134,6 +152,12 @@ export function emojiMuteAttributeDisplayHtml(element, name) {
   const stored = storedAttribute(element, name);
 
   return stored && typeof stored.html === 'string' ? stored.html : null;
+}
+
+export function emojiMuteAttributeEmptyFallback(element, name) {
+  const stored = storedAttribute(element, name);
+
+  return stored && typeof stored.emptyFallback === 'string' ? stored.emptyFallback : null;
 }
 
 export function hasEmojiMuteAttributeSource(element, name) {

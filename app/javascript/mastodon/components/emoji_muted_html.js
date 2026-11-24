@@ -2,7 +2,7 @@ import React from 'react';
 import PropTypes from 'prop-types';
 import { ReactReduxContext } from 'react-redux';
 import { emojiMutedPlainLabel, emojiMutedPlainText, emojiMuteTextIndexFromState, replaceEmojiInDisplayHtml, replaceUnicodeEmojiInPreviewHtml, UNVERIFIED_EMOJI_PLACEHOLDER } from 'mastodon/features/emoji/emoji_mute_text';
-import { bindEmojiMuteHtmlSources, rememberEmojiMuteDisplayName } from 'mastodon/features/emoji/emoji_mute_sources';
+import { bindEmojiMuteHtmlSources, forgetEmojiMuteTextSource, rememberEmojiMuteDisplayName, rememberEmojiMuteTextSource } from 'mastodon/features/emoji/emoji_mute_sources';
 
 // One Redux subscription per mounted display node. The shared account and
 // status records keep the emojify HTML. A rules change re-renders only these
@@ -272,17 +272,32 @@ class EmojiMutedPlainInner extends React.PureComponent {
   };
 
   bindDisplaySource() {
-    const html = this.props.html;
-
-    if (!this.node || typeof this.props.format === 'function' || typeof html !== 'string' || html === '') {
+    if (!this.node) {
       return;
     }
 
     const text = Array.from(this.node.childNodes).find(node => node.nodeType === Node.TEXT_NODE);
 
-    if (text) {
-      rememberEmojiMuteDisplayName(text, typeof this.props.plain === 'string' ? this.props.plain : '', html);
+    if (!text) {
+      return;
     }
+
+    // A formatter wraps the projected string, so this node is not the raw
+    // name. Drop a source left on a reused text node.
+    if (typeof this.props.format === 'function') {
+      forgetEmojiMuteTextSource(text);
+      return;
+    }
+
+    const plain = typeof this.props.plain === 'string' ? this.props.plain : '';
+    const html = this.props.html;
+
+    if (typeof html === 'string' && html !== '') {
+      rememberEmojiMuteDisplayName(text, plain, html);
+      return;
+    }
+
+    rememberEmojiMuteTextSource(text, plain);
   }
 
   render() {
