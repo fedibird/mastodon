@@ -30,7 +30,9 @@ export function createThemePreview(document) {
         // System mode must be ready for either OS appearance, including a
         // change that occurs immediately after applying the preview.
         if (request.every(item => item.loaded)) {
-          request.forEach(item => { item.link.media = item.preview.media; });
+          request.forEach((item) => {
+            item.link.media = item.preview.media;
+          });
           applied.forEach(item => item.link.remove());
           document.querySelectorAll('link[data-active-theme]').forEach((active) => {
             active.disabled = true;
