@@ -7,5 +7,6 @@ class Scheduler::ReboostDeliveryScheduler
 
   def perform
     Reboost::DeliveryResume.resume_outstanding!
+    RemoteReboostHold.schedule_outstanding!
   end
 end

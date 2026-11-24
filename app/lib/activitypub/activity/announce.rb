@@ -116,7 +116,13 @@ class ActivityPub::Activity::Announce < ActivityPub::Activity
       @json['id'],
       published,
       @json.is_a?(Hash) ? @json.deep_stringify_keys : {},
-      available_at
+      available_at,
+      delivery_options: {
+        'delivery' => @options[:delivery] == true,
+        'override_timestamps' => @options[:override_timestamps] == true,
+        'delivered_to_account_id' => @options[:delivered_to_account_id],
+        'relayed_through_account_id' => @options[:relayed_through_account]&.id,
+      }
     )
     Reboost::Log.emit('remote_held', account_id: @account.id, status_id: @original_status.id, uri: @json['id'])
   end

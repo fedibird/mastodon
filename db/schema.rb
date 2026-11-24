@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema.define(version: 2026_11_24_203000) do
+ActiveRecord::Schema.define(version: 2026_11_24_211000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "plpgsql"
 
@@ -2321,6 +2321,8 @@ create_table "managed_groups", force: :cascade do |t|
     t.datetime "published_at"
     t.datetime "available_at", null: false
     t.jsonb "payload", default: {}, null: false
+    t.datetime "apply_enqueued_at", precision: 6
+    t.jsonb "delivery_options", default: {}, null: false
     t.datetime "created_at", precision: 6, null: false
     t.datetime "updated_at", precision: 6, null: false
     t.index ["account_id", "reblog_of_id"], name: "index_remote_reboost_holds_on_account_and_status", unique: true

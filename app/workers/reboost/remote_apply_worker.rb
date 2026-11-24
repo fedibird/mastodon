@@ -22,12 +22,25 @@ class Reboost::RemoteApplyWorker
       return if reschedule_if_early(hold)
 
       uri = hold.activity_uri
-      ActivityPub::Activity::Announce.new(hold.payload, hold.account, applying_hold: true).perform
+      ActivityPub::Activity::Announce.new(hold.payload, hold.account, **apply_options(hold)).perform
       RemoteReboostHold.where(id: hold.id, activity_uri: uri).delete_all
     end
   end
 
   private
+
+  def apply_options(hold)
+    stored = hold.delivery_options || {}
+    options = {
+      applying_hold: true,
+      delivery: stored.fetch('delivery', true),
+      override_timestamps: stored.fetch('override_timestamps', true),
+    }
+    options[:delivered_to_account_id] = stored['delivered_to_account_id'] if stored['delivered_to_account_id']
+    relay_id = stored['relayed_through_account_id']
+    options[:relayed_through_account] = Account.find_by(id: relay_id) if relay_id
+    options
+  end
 
   def reschedule_if_early(hold)
     remaining = ReboostCooldown.remaining_seconds(hold.account_id, hold.reblog_of_id)

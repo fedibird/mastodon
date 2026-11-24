@@ -12,14 +12,18 @@ RSpec.describe ActivityPub::Activity::Announce do
   end
 
   def announce(id, published)
-    described_class.new({
+    described_class.new(announce_json(id, published), sender).perform
+  end
+
+  def announce_json(id, published)
+    {
       id: id,
       type: 'Announce',
       actor: sender.uri,
       published: published,
       object: object_uri,
       to: sender.followers_url,
-    }.with_indifferent_access, sender).perform
+    }.with_indifferent_access
   end
 
   it 'keeps one boost and ignores a redelivery of the same Announce id' do
@@ -280,6 +284,74 @@ RSpec.describe ActivityPub::Activity::Announce do
       Reboost::RemoteApplyWorker.new.perform(hold.id)
       expect(sender.statuses.where(reblog_of_id: status.id).pick(:uri)).to eq 'https://example.com/announce/c'
       expect(RemoteReboostHold.find_by(id: hold.id)).to be_nil
+    end
+  end
+
+  it 'reapplies a held Announce with the delivery context and a new snowflake id' do
+    older = 10.minutes.ago
+    newer = 5.minutes.ago
+    Fabricate(:user, account: status.account)
+    described_class.new(announce_json('https://example.com/announce/a', older.iso8601), sender, delivery: true, override_timestamps: true).perform
+    ActivityPub::Activity::Undo.new({
+      id: 'https://example.com/undo/a',
+      type: 'Undo',
+      actor: sender.uri,
+      object: { id: 'https://example.com/announce/a', type: 'Announce', object: object_uri },
+    }.with_indifferent_access, sender).perform
+
+    described_class.new(announce_json('https://example.com/announce/b', newer.iso8601), sender, delivery: true, override_timestamps: true).perform
+    hold = RemoteReboostHold.find_by!(account: sender, reblog_of: status)
+    expect(hold.delivery_options).to include('delivery' => true, 'override_timestamps' => true)
+    expect(sender.statuses.where(reblog_of_id: status.id)).to be_empty
+
+    allow(DistributionWorker).to receive(:perform_async)
+    travel 301.seconds do
+      Reboost::RemoteApplyWorker.new.perform(hold.id)
+      boost = sender.statuses.find_by!(reblog_of_id: status.id)
+      expect(boost.uri).to eq 'https://example.com/announce/b'
+      expect(boost.created_at).to be_within(2.seconds).of(newer)
+      expect(boost.id >> 16).to be > (newer.to_i * 1000)
+      expect(Notification.where(account: status.account, from_account: sender, activity: boost, type: :reblog)).to exist
+      expect(DistributionWorker).to have_received(:perform_async).with(boost.id)
+    end
+  end
+
+  it 'applies a held Announce after the enqueue failed and the same id is delivered again' do
+    calls = 0
+    allow(Reboost::RemoteApplyWorker).to receive(:perform_at).and_wrap_original do |method, *args|
+      calls += 1
+      raise Redis::BaseConnectionError if calls == 1
+
+      method.call(*args)
+    end
+
+    announce('https://example.com/announce/a', 1.minute.ago.iso8601)
+    expect { announce('https://example.com/announce/b', Time.current.iso8601) }.to raise_error(Redis::BaseConnectionError)
+    hold = RemoteReboostHold.find_by!(account: sender, reblog_of: status)
+    expect(hold.apply_enqueued_at).to be_nil
+
+    announce('https://example.com/announce/b', Time.current.iso8601)
+    expect(hold.reload.apply_enqueued_at).to be_present
+
+    travel 301.seconds do
+      Reboost::RemoteApplyWorker.new.perform(hold.id)
+      expect(sender.statuses.where(reblog_of_id: status.id).pick(:uri)).to eq 'https://example.com/announce/b'
+    end
+  end
+
+  it 'enqueues a hold the scheduler finds with no apply timestamp' do
+    allow(Reboost::RemoteApplyWorker).to receive(:perform_at).and_raise(Redis::BaseConnectionError)
+    announce('https://example.com/announce/a', 1.minute.ago.iso8601)
+    expect { announce('https://example.com/announce/b', Time.current.iso8601) }.to raise_error(Redis::BaseConnectionError)
+    hold = RemoteReboostHold.find_by!(account: sender, reblog_of: status)
+
+    allow(Reboost::RemoteApplyWorker).to receive(:perform_at).and_call_original
+    Scheduler::ReboostDeliveryScheduler.new.perform
+    expect(hold.reload.apply_enqueued_at).to be_present
+
+    travel 301.seconds do
+      Reboost::RemoteApplyWorker.new.perform(hold.id)
+      expect(sender.statuses.where(reblog_of_id: status.id).pick(:uri)).to eq 'https://example.com/announce/b'
     end
   end
 
