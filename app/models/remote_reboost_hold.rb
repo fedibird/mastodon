@@ -20,12 +20,13 @@ class RemoteReboostHold < ApplicationRecord
     end
 
     if uri == row.activity_uri
+      row.update!(delivery_options: merge_delivery_options(row.delivery_options, delivery_options))
       row.schedule_apply! if row.apply_enqueued_at.nil?
       return row
     end
     return row if published_at.nil? || (row.published_at && published_at <= row.published_at)
 
-    row.update!(activity_uri: uri, published_at: published_at, payload: payload, delivery_options: delivery_options)
+    row.update!(activity_uri: uri, published_at: published_at, payload: payload, delivery_options: merge_delivery_options(row.delivery_options, delivery_options))
     row.schedule_apply! if row.apply_enqueued_at.nil?
     row
   end
@@ -36,6 +37,15 @@ class RemoteReboostHold < ApplicationRecord
   def schedule_apply!
     Reboost::RemoteApplyWorker.perform_at(available_at, id)
     update!(apply_enqueued_at: Time.current)
+  end
+
+  def self.merge_delivery_options(current, incoming)
+    current = current.is_a?(Hash) ? current.stringify_keys : {}
+    incoming = incoming.is_a?(Hash) ? incoming.stringify_keys : {}
+    merged = current.merge(incoming)
+    merged['delivery'] = true if current['delivery'] == true || incoming['delivery'] == true
+    merged['override_timestamps'] = true if current['override_timestamps'] == true || incoming['override_timestamps'] == true
+    merged
   end
 
   def self.schedule_outstanding!(now = Time.current)

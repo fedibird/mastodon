@@ -1,6 +1,8 @@
 # frozen_string_literal: true
 
 class ActivityPub::Activity::Announce < ActivityPub::Activity
+  attr_reader :retry_hold
+
   def perform
     return reject_payload! if delete_arrived_first?(@json['id']) || !related_to_local_activity?
     return reject_payload! if ReboostAnnounceState.superseded?(@account.id, @json['id'])
@@ -109,6 +111,7 @@ class ActivityPub::Activity::Announce < ActivityPub::Activity
   end
 
   def hold_newer_announce!(published)
+    @retry_hold = true if @options[:applying_hold]
     available_at = Time.current + ReboostCooldown.remaining_seconds(@account.id, @original_status.id).seconds
     RemoteReboostHold.store!(
       @account.id,

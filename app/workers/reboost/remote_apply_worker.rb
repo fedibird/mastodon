@@ -22,7 +22,13 @@ class Reboost::RemoteApplyWorker
       return if reschedule_if_early(hold)
 
       uri = hold.activity_uri
-      ActivityPub::Activity::Announce.new(hold.payload, hold.account, **apply_options(hold)).perform
+      activity = ActivityPub::Activity::Announce.new(hold.payload, hold.account, **apply_options(hold))
+      activity.perform
+      if activity.retry_hold
+        defer_retry!(hold)
+        return
+      end
+
       RemoteReboostHold.where(id: hold.id, activity_uri: uri).delete_all
     end
   end
@@ -40,6 +46,18 @@ class Reboost::RemoteApplyWorker
     relay_id = stored['relayed_through_account_id']
     options[:relayed_through_account] = Account.find_by(id: relay_id) if relay_id
     options
+  end
+
+  # The removal lock is still busy. Keep this hold and queue one later run.
+  # apply_enqueued_at stays empty when that queue call raises.
+  def defer_retry!(hold)
+    later = 2.seconds.from_now
+    hold.update!(available_at: later, apply_enqueued_at: nil)
+    Thread.current[:reboost_remote_apply] = true
+    self.class.perform_at(later, hold.id)
+    hold.update!(apply_enqueued_at: Time.current)
+  ensure
+    Thread.current[:reboost_remote_apply] = false
   end
 
   def reschedule_if_early(hold)

@@ -355,6 +355,50 @@ RSpec.describe ActivityPub::Activity::Announce do
     end
   end
 
+  it 'keeps the hold when removal is still locked at apply time' do
+    Fabricate(:user, account: status.account)
+    announce('https://example.com/announce/a', 10.minutes.ago.iso8601)
+    published = Time.current.iso8601
+    described_class.new(announce_json('https://example.com/announce/b', published), sender, delivery: true, override_timestamps: true).perform
+    hold = RemoteReboostHold.find_by!(account: sender, reblog_of: status)
+    blocked = true
+    allow(DistributionWorker).to receive(:perform_async)
+    allow_any_instance_of(RemoveStatusService).to receive(:call).and_wrap_original do |method, *args, **kwargs|
+      raise Mastodon::RaceConditionError if blocked
+
+      method.call(*args, **kwargs)
+    end
+
+    travel 301.seconds do
+      Reboost::RemoteApplyWorker.new.perform(hold.id)
+      expect(RemoteReboostHold.find_by(id: hold.id)&.activity_uri).to eq 'https://example.com/announce/b'
+      expect(hold.reload.apply_enqueued_at).to be_present
+      expect(sender.statuses.where(reblog_of_id: status.id).pick(:uri)).to eq 'https://example.com/announce/a'
+
+      blocked = false
+      Reboost::RemoteApplyWorker.new.perform(hold.id)
+      boost = sender.statuses.find_by!(reblog_of_id: status.id)
+      expect(boost.uri).to eq 'https://example.com/announce/b'
+      expect(sender.statuses.where(reblog_of_id: status.id).count).to eq 1
+      expect(Notification.where(account: status.account, from_account: sender, activity: boost, type: :reblog)).to exist
+      expect(DistributionWorker).to have_received(:perform_async).with(boost.id)
+      expect(RemoteReboostHold.find_by(id: hold.id)).to be_nil
+    end
+  end
+
+  it 'upgrades a held fetch when the same Announce arrives as a delivery' do
+    announce('https://example.com/announce/a', 10.minutes.ago.iso8601)
+    published = Time.current.iso8601
+    announce('https://example.com/announce/b', published)
+    hold = RemoteReboostHold.find_by!(account: sender, reblog_of: status)
+    expect(hold.delivery_options['delivery']).to eq false
+
+    described_class.new(announce_json('https://example.com/announce/b', published), sender, delivery: true, override_timestamps: true).perform
+
+    expect(hold.reload.delivery_options).to include('delivery' => true, 'override_timestamps' => true)
+    expect(hold.activity_uri).to eq 'https://example.com/announce/b'
+  end
+
   it 'keeps another actor independent and does not consult enable_reboost' do
     other = Fabricate(:account, uri: 'https://other.example/actor', domain: 'other.example', followers_url: 'http://other.example/followers')
     Fabricate(:account).follow!(other)
