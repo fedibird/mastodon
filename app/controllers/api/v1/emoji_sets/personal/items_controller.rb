@@ -26,6 +26,11 @@ class Api::V1::EmojiSets::Personal::ItemsController < Api::BaseController
     render json: result.as_json
   end
 
+  def destroy
+    result = PersonalEmojiSets::RemoveItem.new(current_user).call(json_body, category_id: params[:category_id])
+    render json: result.as_json
+  end
+
   private
 
   def json_body

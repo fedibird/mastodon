@@ -185,6 +185,7 @@ class Settings::PreferencesController < Settings::BaseController
       :setting_emoji_picker_disable_personal,
       :setting_emoji_picker_disable_standard,
       :setting_emoji_picker_disable_actions,
+      :setting_emoji_actions_disable_personal_remove,
       :setting_emoji_mute_disable_actions,
       :setting_emoji_mute_enabled,
       :setting_emoji_mute_modal,

@@ -132,7 +132,7 @@ RSpec.describe UserPreferences::LegacyWriter do
       expect(cleared.before['default_sensitive']).to eq(state: :present, configured: false)
       expect(cleared.changed_keys).to eq ['default_sensitive']
       expect(reader(user, 'default_sensitive').state).not_to eq :absent
-      expect(revision(user)).to eq 5
+      expect(revision(user)).to eq 6
     end
 
     it 'skips an actual nil without writing, and treats a repeated nil row as a no-op' do

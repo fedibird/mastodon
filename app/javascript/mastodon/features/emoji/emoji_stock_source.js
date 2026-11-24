@@ -14,6 +14,18 @@ let etag = null;
 let request = null;
 let latestRequest = null;
 let generation = 0;
+// Highest revision applied from a trusted response. A storage marker is only
+// a signal to revalidate; it is not a revision and never rejects a save.
+let knownRevision = null;
+let revalidationPromise = null;
+let queuedSave = null;
+// The next stock read resolves a marker invalidation. Listener type does not
+// matter: stock-only, size-only, and a later load with no listener all share it.
+let protectNextRead = false;
+// Stays set until an authoritative GET succeeds. A failed read must not make
+// the next save response eligible to fill the cache.
+let invalidationPending = false;
+let announcedRevision = null;
 let listening = false;
 let currentSize = Number(pickerEmojiSize) || 22;
 
@@ -73,6 +85,195 @@ function validateDocument(document) {
   return document;
 }
 
+function noteRevision(revision) {
+  if (!Number.isInteger(revision)) {
+    return;
+  }
+
+  if (!Number.isInteger(knownRevision) || revision > knownRevision) {
+    knownRevision = revision;
+  }
+}
+
+// Generation counts invalidations. It does not order saves. Only a smaller
+// revision is an older document.
+function revisionIsOlder(revision) {
+  return Number.isInteger(revision) && Number.isInteger(knownRevision) && revision < knownRevision;
+}
+
+// Tell other tabs that a commit happened. The marker carries no snapshot, so
+// it does not publish stock or the picker size, and it does not bump generation.
+function announceCommit(revision) {
+  if (!Number.isInteger(revision)) {
+    return;
+  }
+
+  if (Number.isInteger(announcedRevision) && revision <= announcedRevision) {
+    return;
+  }
+
+  announcedRevision = revision;
+
+  try {
+    lastChange = `commit:${revision}:${Date.now()}:${Math.random()}`;
+    localStorage.setItem(changeKey, lastChange);
+  } catch (error) {
+    // The local cache decision already happened. A missing marker only skips
+    // the cross-tab hint.
+  }
+}
+
+function publishStockDocument(document, nextEtag) {
+  noteRevision(document.revision);
+  cachedDocument = document;
+  prepareEmojiStock(cachedDocument.stock);
+  etag = nextEtag || null;
+  applySize(cachedDocument.picker_emoji_size);
+  const result = ready(cachedDocument);
+  stockListeners.forEach(listener => listener(result));
+  return result;
+}
+
+// The floor is read when the response arrives, not when the request starts.
+// A commit queued while this one read is in flight raises it.
+function commitRevisionNow(neededRevision) {
+  const queuedRevision = queuedSave && queuedSave.revision;
+
+  if (Number.isInteger(queuedRevision) && queuedRevision > neededRevision) {
+    return queuedRevision;
+  }
+
+  return neededRevision;
+}
+
+function queuedCommitCovers(requiredRevision) {
+  return Boolean(
+    queuedSave
+    && Number.isInteger(queuedSave.revision)
+    && queuedSave.revision >= requiredRevision
+    && !revisionIsOlder(queuedSave.revision),
+  );
+}
+
+const supersededStock = () => ({ status: 'error', error: new Error('Personal emoji stock was superseded') });
+
+// One more server read after a successful GET that is older than a commit
+// queued during that read. There is no further automatic read. A newer
+// trusted commit queued during this read replaces a stale response. A network
+// failure stays retryable.
+function readCommittedStock(neededRevision, requestedGeneration) {
+  const headers = {};
+  const accessToken = initialState?.meta?.access_token;
+
+  if (accessToken) {
+    headers.Authorization = `Bearer ${accessToken}`;
+  }
+
+  return api().get(endpoint, {
+    headers,
+    validateStatus: status => (status >= 200 && status < 300) || status === 304,
+  }).then(response => {
+    if (requestedGeneration !== generation) {
+      return currentResult();
+    }
+
+    const requiredRevision = commitRevisionNow(neededRevision);
+
+    if (response.status === 304) {
+      return queuedCommitCovers(requiredRevision) ? publishStockDocument(queuedSave, null) : supersededStock();
+    }
+
+    const incoming = validateDocument(response.data);
+
+    if (!Number.isInteger(incoming.revision) || incoming.revision < requiredRevision || revisionIsOlder(incoming.revision)) {
+      return queuedCommitCovers(requiredRevision) ? publishStockDocument(queuedSave, null) : supersededStock();
+    }
+
+    return publishStockDocument(incoming, response.headers?.etag || null);
+  }, error => {
+    if (requestedGeneration !== generation) {
+      return currentResult();
+    }
+
+    throw error;
+  });
+}
+
+function watchRevalidation(promise) {
+  revalidationPromise = promise;
+  promise.then(result => {
+    if (revalidationPromise !== promise) {
+      return;
+    }
+
+    revalidationPromise = null;
+    const queued = queuedSave;
+    queuedSave = null;
+    const applied = cachedDocument && cachedDocument.revision;
+    const succeeded = Boolean(result && result.status === 'ready' && Number.isInteger(applied));
+
+    if (!succeeded) {
+      invalidationPending = true;
+      protectNextRead = true;
+
+      if (queued && !revisionIsOlder(queued.revision)) {
+        announceCommit(queued.revision);
+      }
+
+      return;
+    }
+
+    invalidationPending = false;
+
+    // The read already stored this revision or a newer one. Notify the commit
+    // without replacing that stock or size. A queued revision the read did not
+    // include was refused by the read itself.
+    if (queued && Number.isInteger(queued.revision) && queued.revision >= applied) {
+      announceCommit(queued.revision);
+    }
+  }, () => {
+    if (revalidationPromise !== promise) {
+      return;
+    }
+
+    revalidationPromise = null;
+    const queued = queuedSave;
+    queuedSave = null;
+    invalidationPending = true;
+    protectNextRead = true;
+
+    if (queued && !revisionIsOlder(queued.revision)) {
+      announceCommit(queued.revision);
+    }
+  }).catch(() => {});
+}
+
+function queueSave(saved) {
+  if (!queuedSave || (Number.isInteger(saved.revision) && (!Number.isInteger(queuedSave.revision) || saved.revision > queuedSave.revision))) {
+    queuedSave = saved;
+  }
+}
+
+// A marker written while nothing was listening is still a newer invalidation.
+// Detect it before a save response is allowed to replace the cache.
+function noteUnseenMarker() {
+  const marker = changeMarker();
+
+  if (marker === lastChange || revalidationPromise) {
+    return;
+  }
+
+  lastChange = marker;
+  invalidationPending = true;
+  protectNextRead = true;
+  generation += 1;
+  request = null;
+  latestRequest = null;
+  cachedDocument = null;
+  etag = null;
+  loadPersonalEmojiStock().catch(() => {});
+}
+
 // Each open revalidates with the server. Revision protects writes; ETag also
 // reflects custom image, availability and search metadata changes. Concurrent
 // pickers share the request, never a full custom or Unicode catalog request.
@@ -99,6 +300,8 @@ export function loadPersonalEmojiStock() {
     return request;
   }
 
+  const protect = protectNextRead;
+  protectNextRead = false;
   const requestedGeneration = generation;
   const headers = {};
   const accessToken = initialState?.meta?.access_token;
@@ -122,7 +325,31 @@ export function loadPersonalEmojiStock() {
     }
 
     if (response.status !== 304) {
-      cachedDocument = validateDocument(response.data);
+      const incoming = validateDocument(response.data);
+
+      const queuedRevision = queuedSave && queuedSave.revision;
+
+      // The read succeeded but does not include the commit queued while it
+      // was in flight. Keep the original callers waiting for one newer read
+      // instead of painting this document or leaving the picker in error.
+      if (Number.isInteger(queuedRevision) && Number.isInteger(incoming.revision) && incoming.revision < queuedRevision && !revisionIsOlder(incoming.revision)) {
+        if (cachedDocument && Number.isInteger(cachedDocument.revision) && cachedDocument.revision >= queuedRevision) {
+          return ready(cachedDocument);
+        }
+
+        return readCommittedStock(queuedRevision, requestedGeneration);
+      }
+
+      if (revisionIsOlder(incoming.revision)) {
+        if (cachedDocument) {
+          return ready(cachedDocument);
+        }
+
+        return { status: 'error', error: new Error('Personal emoji stock was superseded') };
+      }
+
+      noteRevision(incoming.revision);
+      cachedDocument = incoming;
       prepareEmojiStock(cachedDocument.stock);
       etag = response.headers?.etag || null;
     }
@@ -147,6 +374,11 @@ export function loadPersonalEmojiStock() {
 
   request = pending;
   latestRequest = pending;
+
+  if (protect) {
+    watchRevalidation(pending);
+  }
+
   return pending;
 }
 
@@ -155,7 +387,12 @@ function handleStorage(event) {
     return;
   }
 
-  lastChange = event.newValue;
+  // The receiving document already has the new storage value. Prefer that over
+  // the event payload so a later save does not see a second, unseen marker.
+  const marker = changeMarker();
+  lastChange = marker === null ? event.newValue : marker;
+  invalidationPending = true;
+  protectNextRead = true;
   generation += 1;
   request = null;
   latestRequest = null;
@@ -163,9 +400,9 @@ function handleStorage(event) {
   etag = null;
   stockListeners.forEach(listener => listener(null));
 
-  // A standard picker may also be open. Refresh its shared size without
-  // mounting Nimble or accepting preference values from localStorage.
-  if (sizeListeners.size > 0) {
+  // One read for an open picker, whether it subscribed to stock or to size.
+  // With no listener, the next loadPersonalEmojiStock still consumes protectNextRead.
+  if (stockListeners.size > 0 || sizeListeners.size > 0) {
     loadPersonalEmojiStock().catch(() => {});
   }
 }
@@ -227,12 +464,60 @@ export function subscribePickerEmojiSize(listener) {
 // Only call after a successful atomic save. Drafts never replace the live
 // stock. A tiny change marker reaches other tabs and embedded settings frames;
 // definitions and access tokens are never stored in localStorage.
+export function personalEmojiStockGeneration() {
+  return generation;
+}
+
+// A committed save publishes even if a storage event already moved generation.
+// That counter only invalidates reads. Revision decides which document is newer,
+// including after the cache was cleared. An older revision never replaces stock
+// or the shared picker size, and does not write another tab marker.
+export function personalEmojiDocumentIsCurrent(document) {
+  if (!document || !Number.isInteger(document.revision) || revalidationPromise || invalidationPending) {
+    return false;
+  }
+
+  return !revisionIsOlder(document.revision);
+}
+
 export function notifySavedPersonalEmojiSet(document) {
   if (personalStockDisabled) {
-    return;
+    return false;
   }
   const saved = validateDocument(document);
 
+  noteUnseenMarker();
+
+  if (revisionIsOlder(saved.revision)) {
+    return false;
+  }
+
+  // An invalidation is already revalidating. Keep this commit queued and let
+  // that GET finish; bumping generation here would discard the newer read.
+  if (revalidationPromise) {
+    queueSave(saved);
+    return false;
+  }
+
+  // The marker read has not succeeded yet. Do not fill the cache from this
+  // response; the next explicit read is still protected.
+  if (invalidationPending) {
+    if (!revisionIsOlder(saved.revision)) {
+      announceCommit(saved.revision);
+    }
+
+    return false;
+  }
+
+  // Same revision after another tab cleared the cache is not a newer commit.
+  // Leave the cache empty so the next read revalidates instead of broadcasting
+  // the copy we already knew.
+  if (!cachedDocument && Number.isInteger(saved.revision) && saved.revision === knownRevision) {
+    return false;
+  }
+
+  noteRevision(saved.revision);
+  announcedRevision = saved.revision;
   generation += 1;
   request = null;
   latestRequest = null;
@@ -249,4 +534,6 @@ export function notifySavedPersonalEmojiSet(document) {
     // Storage may be disabled. Same-page updates and next-open revalidation
     // still work and the successful server save must not become a UI failure.
   }
+
+  return true;
 }

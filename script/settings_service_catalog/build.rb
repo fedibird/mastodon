@@ -25,14 +25,14 @@ module SettingsServiceCatalog
     LEGACY_FORM_KEYS = %w(
       default_privacy default_sensitive default_language show_translation_bar
       translation_preferred_mode new_features_policy content_font_size info_font_size
-      reduce_motion emoji_picker_prefer_personal emoji_picker_disable_personal emoji_picker_disable_standard emoji_picker_disable_actions emoji_picker_lazy_load_standard
+      reduce_motion emoji_picker_prefer_personal emoji_picker_disable_personal emoji_picker_disable_standard emoji_picker_disable_actions emoji_actions_disable_personal_remove emoji_picker_lazy_load_standard
     ).freeze
     CREDENTIALS_KEYS = %w(
       default_privacy default_sensitive default_language
     ).freeze
     TRANSLATION = %w[show_translation_bar translation_preferred_mode].freeze
     LIVE_WEB_UI = %w[content_font_size info_font_size reduce_motion].freeze
-    RELOAD_ON_NEXT_PAGE = %w[emoji_picker_prefer_personal emoji_picker_disable_personal emoji_picker_disable_standard emoji_picker_disable_actions emoji_picker_lazy_load_standard].freeze
+    RELOAD_ON_NEXT_PAGE = %w[emoji_picker_prefer_personal emoji_picker_disable_personal emoji_picker_disable_standard emoji_picker_disable_actions emoji_actions_disable_personal_remove emoji_picker_lazy_load_standard].freeze
     PRIVACY = %w[
       noindex hide_network hide_statuses_count hide_following_count hide_followers_count
       hide_statuses_count_from_yourself hide_following_count_from_yourself hide_followers_count_from_yourself
@@ -817,6 +817,8 @@ module SettingsServiceCatalog
                     form_effects << 'the next full page load stops standard picker module and catalog preloading; with personal sets also disabled, the emoji reaction API denies additions while still permitting removal'
                   elsif var == 'emoji_picker_disable_personal'
                     form_effects << 'the next full page load disables personal stock requests and subscriptions; saved personal sets remain intact'
+                  elsif var == 'emoji_actions_disable_personal_remove'
+                    form_effects << 'the next full page load stops the emoji action menu from removing a personal-set registration; adding to a set and the personal set editor stay available'
                   elsif RELOAD_ON_NEXT_PAGE.include?(var)
                     form_effects << 'saving does not unload an already fetched standard emoji picker module; the next full page load applies the effective value'
                   end
@@ -976,6 +978,8 @@ module SettingsServiceCatalog
         parts << 'A stored true hides the standard mode, skips the standard picker module and custom picker catalog loading, and forces personal-only mode. If the personal picker is also disabled, all picker triggers disappear and new emoji reactions are rejected at the API. Existing reactions can still be viewed and removed.'
       elsif var == 'emoji_picker_disable_personal'
         parts << 'A stored true hides the personal mode and its management link, skips stock preload, requests, cache reads and listeners, and keeps saved sets intact. It overrides the prefer-personal setting until disabled again and the page is reloaded.'
+      elsif var == 'emoji_actions_disable_personal_remove'
+        parts << 'Reader distinguishes a missing row from a stored false. Both read as false. Form value 0 is stored as boolean false. A stored true disables removal from the emoji action menu, including keyboard and slide selection, and does not block adding to a personal set or editing it on the personal set page. The open WebUI keeps the previous value until the next full page load.'
       elsif RELOAD_ON_NEXT_PAGE.include?(var)
         parts << 'Reader distinguishes a missing row from a stored false. Form value 0 is stored as boolean false, not the string 0. emoji_picker_prefer_personal and emoji_picker_lazy_load_standard default off. An empty personal set does not fall through to the standard picker. Leaving lazy load off preloads on the next page load without changing the visible mode. A stored true still defers loading.'
       end

@@ -44,7 +44,7 @@ RSpec.describe Settings::CustomEmojis::SettingsController, type: :controller do
       card_reactions_single_line hide_list_of_emoji_reactions_to_posts
       enable_wide_emoji_reaction content_emoji_reaction_size
       disable_auto_focus_to_emoji_search emoji_picker_disable_personal emoji_picker_disable_standard
-      emoji_picker_prefer_personal emoji_picker_lazy_load_standard emoji_picker_disable_actions max_frequently_used_emojis
+      emoji_picker_prefer_personal emoji_picker_lazy_load_standard emoji_picker_disable_actions emoji_actions_disable_personal_remove max_frequently_used_emojis
     ).each do |key|
       expect(response.body).to include("user_setting_#{key}")
     end
@@ -95,6 +95,8 @@ RSpec.describe Settings::CustomEmojis::SettingsController, type: :controller do
       '絵文字ピッカーの構築を呼び出し時まで遅延させる',
       '有効にすると絵文字の使用頻度が低い場合にリソースの節約になりますが、ピッカー起動時の動作が遅くなります。',
       '絵文字ピッカーの動作がおかしい場合は無効化をお試しください。',
+      '登録解除を無効にする',
+      '個人セット設定画面での編集は引き続き行えます。',
       'カードの絵文字リアクションを1行に畳む',
       'リアクションのストリーミング反映を無効にする',
     ].each do |copy|
@@ -103,6 +105,9 @@ RSpec.describe Settings::CustomEmojis::SettingsController, type: :controller do
   end
 
   it 'persists moved preferences through the existing settings writer' do
+    user.settings['emoji_actions_disable_personal_remove'] = true
+    user.save!
+
     put :update, params: { user: {
       setting_enable_wide_emoji: '1',
       setting_auto_play_emoji: '0',
@@ -112,6 +117,7 @@ RSpec.describe Settings::CustomEmojis::SettingsController, type: :controller do
       setting_emoji_picker_lazy_load_standard: '1',
       setting_emoji_picker_disable_standard: '1',
       setting_emoji_picker_disable_actions: '1',
+      setting_emoji_actions_disable_personal_remove: '0',
       setting_max_frequently_used_emojis: '16',
     } }
 
@@ -125,6 +131,7 @@ RSpec.describe Settings::CustomEmojis::SettingsController, type: :controller do
     expect(user.setting_emoji_picker_lazy_load_standard).to be true
     expect(user.setting_emoji_picker_disable_standard).to be true
     expect(user.setting_emoji_picker_disable_actions).to be true
+    expect(user.setting_emoji_actions_disable_personal_remove).to be false
     expect(user.setting_max_frequently_used_emojis.to_i).to eq 16
   end
 
