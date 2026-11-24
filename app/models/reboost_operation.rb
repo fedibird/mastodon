@@ -19,11 +19,14 @@
 #  removal_finished_at :datetime
 #  completed_at        :datetime
 #  error_code          :string
-#  undo_payload        :text
-#  undo_inboxes        :jsonb            not null
-#  options             :jsonb            not null
-#  created_at          :datetime         not null
-#  updated_at          :datetime         not null
+#  undo_payload             :text
+#  undo_inboxes             :jsonb            not null
+#  options                  :jsonb            not null
+#  undo_enqueued_at         :datetime
+#  local_enqueued_at        :datetime
+#  federation_enqueued_at   :datetime
+#  created_at               :datetime         not null
+#  updated_at               :datetime         not null
 #
 class ReboostOperation < ApplicationRecord
   OPEN_STATES = %w(pending federating).freeze

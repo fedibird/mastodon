@@ -2236,6 +2236,11 @@ create_table "managed_groups", force: :cascade do |t|
     t.datetime "updated_at", precision: 6, null: false
   end
 
+  create_table "reboost_count_releases", primary_key: "status_id", id: :bigint, default: nil, force: :cascade do |t|
+    t.datetime "created_at", precision: 6, null: false
+    t.datetime "updated_at", precision: 6, null: false
+  end
+
   create_table "reboost_cooldowns", force: :cascade do |t|
     t.bigint "account_id", null: false
     t.bigint "status_id", null: false
@@ -2265,6 +2270,9 @@ create_table "managed_groups", force: :cascade do |t|
     t.text "undo_payload"
     t.jsonb "undo_inboxes", default: [], null: false
     t.jsonb "options", default: {}, null: false
+    t.datetime "undo_enqueued_at", precision: 6
+    t.datetime "local_enqueued_at", precision: 6
+    t.datetime "federation_enqueued_at", precision: 6
     t.datetime "created_at", precision: 6, null: false
     t.datetime "updated_at", precision: 6, null: false
     t.index ["account_id", "idempotency_key"], name: "index_reboost_operations_on_idempotency", unique: true, where: "(idempotency_key IS NOT NULL)"

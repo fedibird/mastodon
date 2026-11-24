@@ -294,9 +294,12 @@ class REST::StatusSerializer < ActiveModel::Serializer
   end
 
   def reboost_retry_after
-    return unless instance_options && instance_options[:relationships]
-
-    instance_options[:relationships].reboost_retry_after[object.id]
+    if instance_options && instance_options[:relationships]
+      map = instance_options[:relationships].reboost_retry_after
+      map[object.id] || (object.reblog_of_id && map[object.reblog_of_id])
+    elsif current_user?
+      ReboostCooldown.remaining_seconds(current_user.account_id, object.reblog_of_id || object.id)
+    end
   end
 
   def reboost_waiting?

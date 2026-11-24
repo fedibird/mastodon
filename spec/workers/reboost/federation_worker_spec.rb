@@ -31,7 +31,8 @@ RSpec.describe Reboost::FederationWorker do
     described_class.new.perform(operation.id)
 
     expect(ActivityPub::DeliveryWorker).to have_received(:push_bulk).with(['https://relay.example/inbox'])
-    expect(operation.reload.state).to eq 'completed'
+    expect(operation.reload).to have_attributes(state: 'failed', error_code: 'missing_status')
+    expect(operation.undo_enqueued_at).to be_present
     expect(ActivityPub::OrderedReboostDeliveryWorker).not_to have_received(:push_bulk)
   end
 
@@ -42,7 +43,9 @@ RSpec.describe Reboost::FederationWorker do
 
     expect(ActivityPub::DeliveryWorker).to have_received(:push_bulk).with(['https://relay.example/inbox'])
     expect(ActivityPub::OrderedReboostDeliveryWorker).not_to have_received(:push_bulk)
-    expect(operation.reload).to have_attributes(state: 'completed', error_code: 'unreblogged')
+    expect(operation.reload).to have_attributes(state: 'cancelled', error_code: 'unreblogged')
+    expect(operation.undo_enqueued_at).to be_present
+    expect(operation.new_status_id).to eq boost.id
   end
 
   it 'puts a public relay on the ordered Undo-then-Announce path once' do

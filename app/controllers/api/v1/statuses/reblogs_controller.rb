@@ -37,7 +37,12 @@ class Api::V1::Statuses::ReblogsController < Api::BaseController
   end
 
   def show
-    operation = ReboostOperation.where(account: current_account, reblog_of_id: params[:status_id]).order(id: :desc).first!
+    scope = ReboostOperation.where(account: current_account, reblog_of_id: params[:status_id])
+    operation = if params[:operation_id].present?
+                  scope.find(params[:operation_id])
+                else
+                  scope.order(id: :desc).first!
+                end
     render json: {
       id: operation.id.to_s,
       state: operation.state,

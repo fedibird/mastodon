@@ -210,15 +210,7 @@ class Reboost::Placement
   end
 
   def decrement_retained_once!(status)
-    key = "reboost:reblog_counted_out:#{status.id}"
-    claimed = RedisConfiguration.with { |redis| redis.set(key, '1', nx: true) }
-    return unless claimed
-
-    original.association(:status_stat).reset
-    original.decrement_count!(:reblogs_count)
-  rescue StandardError
-    RedisConfiguration.with { |redis| redis.del(key) }
-    raise
+    Reboost::RetainedCount.release!(original, status)
   end
 
   def raise_pending!(discarded, visibility, audience = nil)
@@ -301,8 +293,9 @@ class Reboost::Placement
     nil
   end
 
-  def distribute_locally!(reblog, federate:)
-    DistributionWorker.perform_async(reblog.id)
+  def distribute_locally!(reblog, federate:, operation: nil)
+    Reboost::DeliveryResume.new.enqueue_home!(operation, reblog) if operation
+    DistributionWorker.perform_async(reblog.id) if operation.nil?
     ActivityPub::DistributionWorker.perform_async(reblog.id) if federate
     return if reblog.account.group?
 
@@ -329,7 +322,7 @@ class Reboost::Placement
                 elsif ordered_undo?
                   federation_operation(created, nil)
                 end
-    distribute_locally!(created, federate: existing.nil? && !ordered_undo?)
+    distribute_locally!(created, federate: existing.nil? && !ordered_undo?, operation: operation)
     return if operation.nil?
 
     enqueue_federation!(operation)

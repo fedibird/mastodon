@@ -697,6 +697,7 @@ class Status < ApplicationRecord
   end
 
   after_create_commit  :increment_counter_caches
+  before_destroy :remember_reblog_count_release
   after_destroy_commit :decrement_counter_caches
 
   after_create_commit :store_uri, if: :local?
@@ -1081,11 +1082,15 @@ class Status < ApplicationRecord
     ExternalBridge::LinkSharing::BoostEvents.wrapper_discarded!(id)
   end
 
+  def remember_reblog_count_release
+    @reblog_count_already_released = reblog? && Reboost::RetainedCount.released?(id)
+  end
+
   def decrement_counter_caches
     return if uncount_visibility? || new_record? || ap_page?
 
     account&.decrement_count!(:statuses_count)
-    reblog&.decrement_count!(:reblogs_count) if reblog?
+    reblog&.decrement_count!(:reblogs_count) if reblog? && !@reblog_count_already_released
     thread&.decrement_count!(:replies_count) if in_reply_to_id.present? && distributable?
   end
 

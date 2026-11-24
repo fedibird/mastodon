@@ -199,6 +199,56 @@ describe Api::V1::Statuses::ReblogsController do
       end
     end
 
+    describe 'GET #show' do
+      let(:status) { Fabricate(:status, account: user.account) }
+
+      it 'returns the requested operation instead of a newer one' do
+        older = ReboostOperation.create!(
+          account: user.account,
+          reblog_of_id: status.id,
+          state: 'cancelled',
+          error_code: 'unreblogged',
+          reboost: true,
+          undo_inboxes: [],
+          options: {}
+        )
+        ReboostOperation.create!(
+          account: user.account,
+          reblog_of_id: status.id,
+          state: 'federating',
+          reboost: true,
+          undo_inboxes: [],
+          options: {}
+        )
+
+        get :show, params: { status_id: status.id, operation_id: older.id }
+
+        expect(response).to have_http_status(200)
+        expect(body_as_json).to include(id: older.id.to_s, state: 'cancelled', error: 'unreblogged', new_status_id: nil)
+      end
+
+      it 'keeps a cancelled operation cancelled after Undo delivery' do
+        operation = ReboostOperation.create!(
+          account: user.account,
+          reblog_of_id: status.id,
+          state: 'pending',
+          reboost: true,
+          undo_payload: '{"type":"Undo"}',
+          undo_inboxes: ['https://remote.example/inbox'],
+          options: {}
+        )
+        allow(ActivityPub::DeliveryWorker).to receive(:push_bulk)
+
+        post :destroy, params: { status_id: status.id }
+        get :show, params: { status_id: status.id, operation_id: operation.id }
+
+        expect(response).to have_http_status(200)
+        expect(body_as_json).to include(id: operation.id.to_s, state: 'cancelled', new_status_id: nil)
+        expect(operation.reload.undo_enqueued_at).to be_present
+        expect(ActivityPub::DeliveryWorker).to have_received(:push_bulk).with(['https://remote.example/inbox'])
+      end
+    end
+
     describe 'POST #create reboost' do
       let(:status) { Fabricate(:status, account: user.account) }
 

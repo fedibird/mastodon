@@ -335,6 +335,27 @@ RSpec.describe FeedManager do
         expect(FeedManager.instance.push_to_home(account, reblog)).to be false
       end
 
+      it 'does not restore a suppressed reblog after that reblog is removed' do
+        account = Fabricate(:user, current_sign_in_at: Time.now.utc).account
+        reblogged = Fabricate(:status)
+        visible = Fabricate(:status, reblog: reblogged)
+        suppressed = Fabricate(:status, reblog: reblogged)
+        timeline = FeedManager.instance.key(:home, account.id)
+        extra = FeedManager.instance.key(:home, account.id, "reblogs:#{reblogged.id}")
+
+        expect(FeedManager.instance.push_to_home(account, visible)).to be true
+        expect(FeedManager.instance.push_to_home(account, suppressed)).to be false
+        expect(redis.sismember(extra, suppressed.id.to_s)).to be true
+
+        expect(FeedManager.instance.unpush_from_home(account, suppressed)).to be false
+        expect(redis.sismember(extra, suppressed.id.to_s)).to be false
+        suppressed.destroy!
+
+        expect(FeedManager.instance.unpush_from_home(account, visible)).to be true
+        expect(redis.zscore(timeline, suppressed.id.to_s)).to be_nil
+        expect(redis.zscore(timeline, visible.id.to_s)).to be_nil
+      end
+
       it 'restores a snowflake-sized extra reblog id exactly' do
         account = Fabricate(:user, current_sign_in_at: Time.now.utc).account
         reblogged = Fabricate(:status)

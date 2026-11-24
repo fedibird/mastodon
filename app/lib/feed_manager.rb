@@ -49,6 +49,9 @@ class FeedManager
     local status_id, reblog_of_id = ARGV[1], ARGV[2]
     local rank = redis.call('ZREVRANK', timeline, status_id)
     if not rank then
+      -- A suppressed extra is not on the timeline. Drop it here so removing
+      -- the visible boost cannot put this deleted id back.
+      redis.call('SREM', extra_key, status_id)
       return 0
     end
     local seen = redis.call('ZSCORE', seen_key, reblog_of_id)

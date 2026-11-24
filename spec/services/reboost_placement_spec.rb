@@ -117,6 +117,30 @@ RSpec.describe ReblogService do
       end
     end
 
+    it 'does not decrement a retained boost again after redis is cleared or the row is destroyed' do
+      other = Fabricate(:status, reblog: original)
+      report = Fabricate(:report, account: account, target_account: account, status_ids: [first.id])
+      first.discard
+      RemovalWorker.new.perform(first.id)
+
+      travel 301.seconds do
+        described_class.new.call(account, original)
+      end
+      expect(original.reload.reblogs_count).to eq 2
+      expect(ReboostCountRelease.exists?(status_id: first.id)).to be true
+
+      RedisConfiguration.with do |redis|
+        redis.scan_each(match: 'reboost:*') { |key| redis.del(key) }
+      end
+      expect(Reboost::RetainedCount.release!(original, Status.unscoped.find(first.id))).to be false
+      expect(original.reload.reblogs_count).to eq 2
+
+      report.update!(action_taken_at: Time.current)
+      Status.unscoped.find(first.id).destroy!
+      expect(original.reload.reblogs_count).to eq 2
+      expect(Status.where(reblog_of_id: original.id)).to include(other)
+    end
+
     it 'rejects an ordinary boost after unreblog until the cooldown ends' do
       first.discard
 
@@ -175,6 +199,27 @@ RSpec.describe ReblogService do
         expect(retried.id).to eq created_id
         expect(account.statuses.where(reblog_of_id: original.id).count).to eq 1
         expect(Reboost::FederationWorker).to have_received(:perform_in).with(Reboost::FEDERATION_GAP, operation.id)
+      end
+    end
+
+    it 'resumes an unenqueued replacement without the same idempotency key' do
+      calls = 0
+      allow(Reboost::FederationWorker).to receive(:perform_in) do
+        calls += 1
+        raise Redis::BaseConnectionError if calls == 1
+      end
+
+      travel 301.seconds do
+        expect { described_class.new.call(account, original, reboost: true) }.to raise_error(Redis::BaseConnectionError)
+        created = account.statuses.find_by(reblog_of_id: original.id)
+        operation = ReboostOperation.order(:id).last
+        expect(operation).to have_attributes(state: 'federating', new_status_id: created.id, federation_enqueued_at: nil)
+
+        Scheduler::ReboostDeliveryScheduler.new.perform
+
+        expect(calls).to eq 2
+        expect(operation.reload.federation_enqueued_at).to be_present
+        expect(account.statuses.where(reblog_of_id: original.id).pluck(:id)).to eq [created.id]
       end
     end
 
@@ -305,6 +350,7 @@ RSpec.describe ReblogService do
       )
       RedisConfiguration.with { |redis| redis.set("idempotency:reboost:#{account.id}:again", "operation:#{operation.id}") }
       allow(ActivityPub::DeliveryWorker).to receive(:push_bulk)
+      allow(RedisLock).to receive(:acquire).and_call_original
       expect(RedisLock).to receive(:acquire).with(hash_including(key: "lock:reboost:#{account.id}:#{original.id}")).at_least(:once).and_call_original
 
       Reboost::Placement.cancel_pending!(account, original.id)
@@ -313,7 +359,8 @@ RSpec.describe ReblogService do
       travel 301.seconds do
         expect(Reboost::Placement.resume!(operation)).to be_nil
       end
-      expect(operation.reload).to have_attributes(state: 'completed', error_code: 'unreblogged')
+      expect(operation.reload).to have_attributes(state: 'cancelled', error_code: 'unreblogged')
+      expect(operation.undo_enqueued_at).to be_present
       expect(account.statuses.where(reblog_of_id: original.id)).to be_empty
     end
 
