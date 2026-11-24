@@ -105,6 +105,9 @@ RSpec.describe Settings::CustomEmojis::SettingsController, type: :controller do
   end
 
   it 'persists moved preferences through the existing settings writer' do
+    user.settings['emoji_actions_disable_personal_remove'] = true
+    user.save!
+
     put :update, params: { user: {
       setting_enable_wide_emoji: '1',
       setting_auto_play_emoji: '0',

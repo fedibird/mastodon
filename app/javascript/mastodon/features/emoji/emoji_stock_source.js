@@ -190,6 +190,12 @@ function readCommittedStock(neededRevision, requestedGeneration) {
     }
 
     return publishStockDocument(incoming, response.headers?.etag || null);
+  }, error => {
+    if (requestedGeneration !== generation) {
+      return currentResult();
+    }
+
+    throw error;
   });
 }
 
