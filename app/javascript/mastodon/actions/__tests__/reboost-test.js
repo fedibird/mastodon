@@ -109,6 +109,21 @@ describe('reboost', () => {
     expect(getState().getIn(['statuses', '1', 'reboost_operation'])).toBeUndefined();
   });
 
+  it('keeps the same operation when the status check fails and does not post again', async () => {
+    api.post.mockResolvedValue({ status: 202, data: { operation_id: '9', state: 'pending' } });
+    followReboostOperation.mockRejectedValue(new Error('timeout'));
+    const harness = setup();
+
+    await reboost(status)(harness.dispatch, harness.getState);
+
+    expect(harness.actions.some(action => action.type === 'ALERT_SHOW' && action.title.id === 'reboost.still_pending_title')).toBe(true);
+    expect(harness.getState().getIn(['statuses', '1', 'reboost_operation']).toJS()).toEqual({ id: '9', state: 'pending' });
+
+    api.post.mockClear();
+    await reboost(status)(harness.dispatch, harness.getState);
+    expect(api.post).not.toHaveBeenCalled();
+  });
+
   it('tells the viewer when polling ends before the operation does', async () => {
     api.post.mockResolvedValue({ status: 202, data: { operation_id: '9', state: 'pending' } });
     followReboostOperation.mockResolvedValue(null);

@@ -158,8 +158,6 @@ export function reboost(status) {
     return api(getState).post(`/api/v1/statuses/${statusId}/reblog`, { reboost: true }, {
       headers: { 'Idempotency-Key': idempotencyKey },
     }).then((response) => {
-      reboostIdempotencyKeys.delete(statusId);
-
       if (response.status === 202) {
         const operationId = response.data?.operation_id;
         dispatch(setReboostOperation(statusId, { id: operationId, state: response.data?.state || 'pending' }));
@@ -167,6 +165,7 @@ export function reboost(status) {
         return settleReboost(dispatch, getState, status, operationId);
       }
 
+      reboostIdempotencyKeys.delete(statusId);
       dispatch(importFetchedStatus(response.data));
       if (response.data.reblog) {
         dispatch(importFetchedStatus(response.data.reblog));
@@ -215,7 +214,13 @@ function settleReboost(dispatch, getState, status, operationId) {
       return api(getState).get(`/api/v1/statuses/${operation.new_status_id}`).then((response) => {
         dispatch(importFetchedStatus(response.data));
         dispatch(reblogSuccess(status));
+        reboostIdempotencyKeys.delete(statusId);
         dispatch(setReboostOperation(statusId, null));
+        return null;
+      }).catch((error) => {
+        reboostIdempotencyKeys.delete(statusId);
+        dispatch(setReboostOperation(statusId, null));
+        dispatch(showAlertForError(error));
         return null;
       });
     }
@@ -232,12 +237,13 @@ function settleReboost(dispatch, getState, status, operationId) {
       dispatch(showAlertForError(error));
       return null;
     }).then(() => {
+      reboostIdempotencyKeys.delete(statusId);
       dispatch(setReboostOperation(statusId, null));
       return null;
     });
-  }).catch((error) => {
-    dispatch(setReboostOperation(statusId, null));
-    dispatch(showAlertForError(error));
+  }).catch(() => {
+    dispatch(showAlert(reboostMessages.stillPendingTitle, reboostMessages.stillPending));
+    dispatch(setReboostOperation(statusId, { id: operationId, state: 'pending' }));
     return null;
   });
 }
