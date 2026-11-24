@@ -1,3 +1,5 @@
+import { hashtagIdentityFromNode } from 'mastodon/features/emoji/hashtag_menu_names';
+
 // Separate a trailing hashtag run from sanitized status HTML.
 // Parsing stays on an inert <template> so the fragment is not executed.
 
@@ -289,13 +291,25 @@ function collectTrailingRun(container) {
 }
 
 function hashtagData(anchor) {
-  const text = anchor.textContent || '';
+  const identity = hashtagIdentityFromNode(anchor);
+  const name = identity.name;
+  const text = name ? `${identity.mark}${name}` : (anchor.textContent || '');
 
-  return {
-    name: text.replace(/^[#＃]/, ''),
+  const data = {
+    name,
     text,
     href: anchor.getAttribute('href'),
   };
+
+  if (identity.imageRanges.length > 0) {
+    data.imageRanges = identity.imageRanges;
+  }
+
+  if (identity.images && identity.images.length > 0) {
+    data.images = identity.images;
+  }
+
+  return data;
 }
 
 function pruneTrailingChrome(node) {
@@ -442,7 +456,7 @@ function readStatusTag(tag) {
   }
 
   const read = typeof tag.get === 'function' ? key => tag.get(key) : key => tag[key];
-  const name = String(read('name') || '').trim().replace(/^[#＃]/, '');
+  const name = String(read('name') || '').trim().replace(/^(?:[#＃](?!\uFE0F?\u20E3))/, '');
 
   if (!name) {
     return null;
@@ -485,14 +499,9 @@ function rememberHashtag(seen, hashtags, hashtag) {
   hashtags.push(hashtag);
 }
 
-function hashtagLabel(anchor) {
-  const raw = (anchor.textContent || '').trim().replace(/^[#＃]/, '');
-
-  return raw ? `#${raw}` : '';
-}
-
 // Hashtag anchors in document order. NFKC case-insensitive duplicates keep
-// the first visible spelling. Parsing stays on an inert <template>.
+// the first visible spelling. The stored name drops either hash mark; the
+// text keeps the mark that was written. Parsing stays on an inert <template>.
 export function collectStatusHashtags(html) {
   if (typeof html !== 'string' || html === '' || !/hashtag|[#＃]/.test(html)) {
     return [];
@@ -508,12 +517,15 @@ export function collectStatusHashtags(html) {
       return;
     }
 
-    const text = hashtagLabel(anchor);
-    const name = text.replace(/^#/, '');
+    const identity = hashtagIdentityFromNode(anchor);
+
+    if (!identity.name) {
+      return;
+    }
 
     rememberHashtag(seen, hashtags, {
-      name,
-      text,
+      name: identity.name,
+      text: `${identity.mark}${identity.name}`,
       href: anchor.getAttribute('href'),
     });
   });

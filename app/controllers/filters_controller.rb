@@ -9,7 +9,7 @@ class FiltersController < ApplicationController
   before_action :set_body_classes
 
   def index
-    @filters = current_account.custom_filters.includes(:keywords, :statuses).order(:phrase)
+    @filters = current_account.custom_filters.includes(:keywords, :statuses, :filter_tags).order(:phrase)
   end
 
   def new
@@ -45,7 +45,7 @@ class FiltersController < ApplicationController
   private
 
   def set_filter
-    @filter = current_account.custom_filters.find(params[:id])
+    @filter = current_account.custom_filters.includes(:keywords, :statuses, :filter_tags).find(params[:id])
   end
 
   def resource_params

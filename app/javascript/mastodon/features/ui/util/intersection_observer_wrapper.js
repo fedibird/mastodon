@@ -7,41 +7,51 @@
 
 class IntersectionObserverWrapper {
 
-  callbacks = {};
-  nodes = {};
+  // Several rows can share an id. Emoji reaction lists repeat an account,
+  // and that account id stays on data-id so emoji names are not copied into
+  // the DOM. The node is the registration key. entry.target selects the
+  // callback, reconnect watches every node, and unobserve removes only the
+  // node it was given.
+  registrations = new Map();
   observer = null;
 
   connect (options) {
     const onIntersection = (entries) => {
       entries.forEach(entry => {
-        const id = entry.target.getAttribute('data-id');
-        if (this.callbacks[id]) {
-          this.callbacks[id](entry);
+        const registration = this.registrations.get(entry.target);
+
+        if (registration) {
+          registration.callback(entry);
         }
       });
     };
 
     if (this.observer) this.observer.disconnect();
     this.observer = new IntersectionObserver(onIntersection, options);
-    Object.keys(this.nodes).forEach(id => this.observer.observe(this.nodes[id]));
+    this.registrations.forEach((_registration, node) => this.observer.observe(node));
   }
 
   observe (id, node, callback) {
-    this.callbacks[id] = callback;
-    this.nodes[id] = node;
+    if (!node) {
+      return;
+    }
+
+    this.registrations.set(node, { id, callback });
     if (this.observer) this.observer.observe(node);
   }
 
   unobserve (id, node) {
-    delete this.callbacks[id];
-    delete this.nodes[id];
+    if (!node) {
+      return;
+    }
+
+    this.registrations.delete(node);
     if (this.observer) this.observer.unobserve(node);
   }
 
   disconnect () {
     if (this.observer) {
-      this.callbacks = {};
-      this.nodes = {};
+      this.registrations.clear();
       this.observer.disconnect();
       this.observer = null;
     }

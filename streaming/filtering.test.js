@@ -453,4 +453,68 @@ describe('streaming status-specific filters', () => {
     assert.equal(results[0].filter.id, 'other-account-filter');
     assert.equal(Object.keys(cached).length, 1);
   });
+
+  const tagRow = (overrides = {}) => ({
+    id: 'tag-filter',
+    title: '#番組',
+    context: ['home', 'notifications', 'public', 'thread', 'account'],
+    expires_at: null,
+    filter_action: 1,
+    tag_name: '番組',
+    ...overrides,
+  });
+
+  it('matches an exact hashtag and ignores a longer tag, plain text, and a URL', () => {
+    const cached = buildCachedFilters([], [], [tagRow()]);
+    const exact = filteredResultsForStatus(statusWith({
+      id: 's1',
+      content: '<p>本文</p>',
+      tags: [{ name: '番組' }],
+    }), cached);
+    const longer = filteredResultsForStatus(statusWith({
+      id: 's2',
+      content: '<p>#番組実況</p>',
+      tags: [{ name: '番組実況' }],
+    }), cached);
+    const plain = filteredResultsForStatus(statusWith({
+      id: 's3',
+      content: '<p>番組 https://example.com/tags/番組</p>',
+    }), cached);
+
+    assert.deepEqual(exact[0].tag_matches, ['番組']);
+    assert.deepEqual(longer, []);
+    assert.deepEqual(plain, []);
+  });
+
+  it('matches ASCII case, a fullwidth hash, and the boosted original without using quote tags', () => {
+    const cached = buildCachedFilters([], [], [tagRow({ tag_name: 'abc' })]);
+    const cased = filteredResultsForStatus(statusWith({
+      tags: [{ name: 'ABC' }],
+      content: '<p>hello</p>',
+    }), cached);
+    const boost = filteredResultsForStatus(statusWith({
+      id: 'boost',
+      reblog: { id: 'orig', tags: [{ name: 'AbC' }], content: '<p>orig</p>' },
+      content: '<p>wrapper</p>',
+    }), cached);
+    const quote = filteredResultsForStatus(statusWith({
+      id: 'quote',
+      content: '<p>quoting</p>',
+      tags: [],
+      quote: { id: 'quoted', tags: [{ name: 'abc' }] },
+    }), cached);
+
+    assert.equal(cased.length, 1);
+    assert.equal(boost.length, 1);
+    assert.deepEqual(quote, []);
+  });
+
+  it('stops matching a hashtag at the exact expires_at', () => {
+    const expiresAt = new Date('2026-11-15T12:00:00.000Z');
+    const cached = buildCachedFilters([], [], [tagRow({ expires_at: expiresAt })]);
+    const status = statusWith({ tags: [{ name: '番組' }] });
+
+    assert.equal(filteredResultsForStatus(status, cached, new Date(expiresAt.getTime() - 1)).length, 1);
+    assert.deepEqual(filteredResultsForStatus(status, cached, expiresAt), []);
+  });
 });

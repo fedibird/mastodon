@@ -134,7 +134,13 @@ export const disableAutoFocusToEmojiSearch = getMeta('disable_auto_focus_to_emoj
 // Missing meta uses the settings.yml defaults. Explicit false stays false.
 export const emojiPickerPreferPersonal = getMeta('emoji_picker_prefer_personal') === true;
 export const emojiPickerDisablePersonal = getMeta('emoji_picker_disable_personal') === true;
+export const emojiPickerDisableStandard = getMeta('emoji_picker_disable_standard') === true;
+export const emojiPickerDisabled = emojiPickerDisablePersonal && emojiPickerDisableStandard;
 export const emojiPickerDisableActions = getMeta('emoji_picker_disable_actions') === true;
+export const emojiActionsDisablePersonalRemove = getMeta('emoji_actions_disable_personal_remove') === true;
+export const emojiMuteDisableActions = getMeta('emoji_mute_disable_actions') === true;
+const previewClickAction = getMeta('emoji_preview_click_action');
+export const emojiPreviewClickAction = ['none', 'close', 'detail', 'copy'].includes(previewClickAction) ? previewClickAction : 'detail';
 export const emojiPickerLazyLoadStandard = getMeta('emoji_picker_lazy_load_standard') === true;
 
 export const languages = initialState?.languages;

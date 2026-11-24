@@ -40,8 +40,9 @@ const mapStateToProps = (state, { columnId }) => {
   const layoutMode = readTimelineLayout(state, columnId, 'emoji_reactioned_statuses');
   const mediaLayout = layoutMode === 'media';
   const onlyMedia = mediaLayout || (pinned ? columns.get(index).getIn(['params', 'other', 'onlyMedia']) : state.getIn(['settings', 'emoji_reactioned_statuses', 'other', 'onlyMedia']));
-  const withoutMedia = mediaLayout ? false : (pinned ? columns.get(index).getIn(['params', 'other', 'withoutMedia']) : state.getIn(['settings', 'emoji_reactioned_statuses', 'other', 'withoutMedia']));
+  const withoutMedia = !mediaLayout && (pinned ? columns.get(index).getIn(['params', 'other', 'withoutMedia']) : state.getIn(['settings', 'emoji_reactioned_statuses', 'other', 'withoutMedia']));
   const columnWidth = pinned ? columns.get(index).getIn(['params', 'columnWidth']) : state.getIn(['settings', 'emoji_reactioned_statuses', 'columnWidth']);
+  const sortByPostDate = !!(pinned ? columns.get(index).getIn(['params', 'other', 'sortByPostDate']) : state.getIn(['settings', 'emoji_reactioned_statuses', 'other', 'sortByPostDate']));
   const emojis = emojiFilterList(pinned ? columns.get(index).getIn(['params', 'emojis']) : state.getIn(['settings', 'emoji_reactioned_statuses', 'emojis']));
   const listKey = emojiReactionedStatusesListKey(columnId);
   const list = state.getIn(['emoji_reactioned_statuses', 'lists', listKey]);
@@ -50,6 +51,7 @@ const mapStateToProps = (state, { columnId }) => {
   return {
     listKey,
     emojis,
+    sortByPostDate,
     statusIds: list ? list.get('items') : EMPTY_STATUS_LIST,
     isLoading: list ? list.get('isLoading') : false,
     hasMore: !!(list && list.get('next')),
@@ -86,32 +88,35 @@ class EmojiReactions extends ImmutablePureComponent {
     catalogIsLoading: PropTypes.bool,
     listKey: PropTypes.string,
     emojis: ImmutablePropTypes.list,
+    sortByPostDate: PropTypes.bool,
   };
 
   static defaultProps = {
     onlyMedia: false,
     withoutMedia: false,
+    sortByPostDate: false,
     stale: false,
     catalogStale: false,
     catalogIsLoading: false,
   };
 
   componentDidMount () {
-    const { dispatch, listKey, emojis, onlyMedia, withoutMedia } = this.props;
+    const { dispatch, listKey, emojis, onlyMedia, withoutMedia, sortByPostDate } = this.props;
 
     dispatch(fetchEmojiReactionEmojiCatalog());
-    dispatch(fetchEmojiReactionedStatuses({ listKey, emojis, onlyMedia, withoutMedia }));
+    dispatch(fetchEmojiReactionedStatuses({ listKey, emojis, onlyMedia, withoutMedia, sortByPostDate }));
   }
 
   componentDidUpdate (prevProps) {
-    const { dispatch, listKey, emojis, onlyMedia, withoutMedia, stale, isLoading, catalogStale, catalogIsLoading } = this.props;
+    const { dispatch, listKey, emojis, onlyMedia, withoutMedia, sortByPostDate, stale, isLoading, catalogStale, catalogIsLoading } = this.props;
     const filtersChanged = prevProps.listKey !== listKey
       || prevProps.onlyMedia !== onlyMedia
       || prevProps.withoutMedia !== withoutMedia
+      || prevProps.sortByPostDate !== sortByPostDate
       || !is(prevProps.emojis, emojis);
 
     if (filtersChanged || (stale && !isLoading)) {
-      dispatch(fetchEmojiReactionedStatuses({ listKey, emojis, onlyMedia, withoutMedia }));
+      dispatch(fetchEmojiReactionedStatuses({ listKey, emojis, onlyMedia, withoutMedia, sortByPostDate }));
     }
 
     if (catalogStale && !catalogIsLoading) {
@@ -120,12 +125,12 @@ class EmojiReactions extends ImmutablePureComponent {
   }
 
   handlePin = () => {
-    const { columnId, dispatch, emojis, onlyMedia, withoutMedia } = this.props;
+    const { columnId, dispatch, emojis, onlyMedia, withoutMedia, sortByPostDate } = this.props;
 
     if (columnId) {
       dispatch(removeColumn(columnId));
     } else {
-      dispatch(addColumn('EMOJI_REACTIONS', pinnedEmojiReactionColumnParams({ emojis, onlyMedia, withoutMedia })));
+      dispatch(addColumn('EMOJI_REACTIONS', pinnedEmojiReactionColumnParams({ emojis, onlyMedia, withoutMedia, sortByPostDate })));
     }
   }
 
@@ -157,7 +162,7 @@ class EmojiReactions extends ImmutablePureComponent {
   }
 
   render () {
-    const { intl, statusIds, columnId, multiColumn, hasMore, isLoading, columnWidth, withoutMedia, layoutMode, mediaStatuses } = this.props;
+    const { intl, statusIds, columnId, multiColumn, hasMore, isLoading, columnWidth, withoutMedia, layoutMode, mediaStatuses, listKey, sortByPostDate } = this.props;
     const pinned = !!columnId;
 
     const emptyMessage = <FormattedMessage id='empty_column.emoji_reactioned_statuses' defaultMessage="You don't have any reaction posts yet. When you reaction one, it will show up here." />;
@@ -184,11 +189,12 @@ class EmojiReactions extends ImmutablePureComponent {
         <EmojiFilterDropdownContainer columnId={columnId} />
 
         <StatusList
+          key={`${listKey}:${sortByPostDate ? 'status' : 'added'}`}
           layoutMode={layoutMode}
           mediaStatuses={mediaStatuses}
           trackScroll={!pinned}
           statusIds={statusIds}
-          scrollKey={`emoji_reactioned_statuses-${columnId}`}
+          scrollKey={`emoji_reactioned_statuses-${columnId}${sortByPostDate ? '-status' : ''}`}
           hasMore={hasMore}
           isLoading={isLoading}
           onLoadMore={this.handleLoadMore}

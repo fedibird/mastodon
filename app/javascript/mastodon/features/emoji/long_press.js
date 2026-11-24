@@ -31,7 +31,7 @@ const pointFromTouchList = (list, id) => {
   return { clientX: touch.clientX, clientY: touch.clientY };
 };
 
-export function attachLongPressGesture(element, { onLongPress, onLongPressMove, onLongPressRelease } = {}) {
+export function attachLongPressGesture(element, { onLongPress, onLongPressMove, onLongPressRelease, propagateCancelledTouchEnd = false, stopSlideTouchMovePropagation = false } = {}) {
   if (!element || typeof onLongPress !== 'function') {
     return () => {};
   }
@@ -363,6 +363,11 @@ export function attachLongPressGesture(element, { onLongPress, onLongPressMove, 
     // After the menu is open, allow sliding onto items (native context-menu style).
     if (tracking.fired) {
       emitSlideMove(touch.clientX, touch.clientY);
+      // A drag across menu items must not also move the containing mobile
+      // swipeable timeline. Other hosts preserve their current behavior.
+      if (stopSlideTouchMovePropagation) {
+        event.stopPropagation();
+      }
       return;
     }
 
@@ -401,10 +406,15 @@ export function attachLongPressGesture(element, { onLongPress, onLongPressMove, 
     }
 
     if (cancelled) {
-      if (event.cancelable) {
-        event.preventDefault();
+      // When an inline emoji's long-press was cancelled by swiping/scrolling,
+      // its parent ReactSwipeableViews still needs touchend to settle its
+      // translation. The picker/reaction defaults remain unchanged.
+      if (!propagateCancelledTouchEnd) {
+        if (event.cancelable) {
+          event.preventDefault();
+        }
+        event.stopPropagation();
       }
-      event.stopPropagation();
       armClickSuppress();
     }
   };

@@ -4,7 +4,7 @@ import { defineMessages, injectIntl } from 'react-intl';
 import IconButton from '../../../components/icon_button';
 import Overlay from 'react-overlays/Overlay';
 import ImmutablePropTypes from 'react-immutable-proptypes';
-import { disableAutoFocusToEmojiSearch } from 'mastodon/initial_state';
+import { disableAutoFocusToEmojiSearch, emojiPickerDisabled } from 'mastodon/initial_state';
 import EmojiPickerPanel from 'mastodon/features/emoji/emoji_picker_panel';
 
 const messages = defineMessages({
@@ -150,6 +150,10 @@ class EmojiPickerDropdown extends React.PureComponent {
   };
 
   render() {
+    if (emojiPickerDisabled) {
+      return null;
+    }
+
     const { intl, onSkinTone, skinTone, frequentlyUsedEmojis, button, pickersEmoji, openDropdownId, onStandardActive, autoFocus, initialMode } = this.props;
     const title = intl.formatMessage(messages.emoji);
     const { placement } = this.state;

@@ -35,7 +35,7 @@ class Api::V2::FiltersController < Api::BaseController
   private
 
   def set_filters
-    @filters = current_account.custom_filters.includes(:keywords, :statuses)
+    @filters = current_account.custom_filters.includes(:keywords, :statuses, :filter_tags)
   end
 
   def set_filter

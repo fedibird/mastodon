@@ -9,7 +9,7 @@
     = f.input :expires_in,
               collection: CustomFilter::EXPIRATION_DURATIONS.map(&:to_i),
               include_blank: I18n.t('invites.expires_in_prompt'),
-              label_method: ->(i) { I18n.t("invites.expires_in.#{i}") },
+              label_method: ->(i) { filter_expires_in_label(i) },
               wrapper: :with_label
 
 .fields-group
@@ -58,6 +58,17 @@
   %h4= t('filters.edit.statuses')
 
   %p.muted-hint= t('filters.edit.statuses_hint_html', path: filter_statuses_path(f.object, embedded_filter_options))
+
+  %hr.spacer/
+
+- if f.object.filter_tags.any?
+  %h4= t('filters.edit.hashtags')
+
+  %p.muted-hint= t('filters.edit.hashtags_hint')
+
+  %ul
+    - f.object.filter_tags.each do |tag_rule|
+      %li= "##{tag_rule.name}"
 
   %hr.spacer/
 

@@ -84,6 +84,67 @@ describe('emoji picker startup preload', () => {
     expect(preloadCatalog).toHaveBeenCalledTimes(1);
   });
 
+  it('uses only the personal set when the standard picker is disabled', async () => {
+    const stock = { status: 'ready', stock: { categories: [] } };
+    const preloadCatalog = jest.fn();
+    loadPersonalEmojiStock.mockResolvedValue(stock);
+
+    expect(emojiPickerInitialMode(false, false, true)).toBe('personal');
+    expect(emojiPickerInitialMode(true, false, true)).toBe('personal');
+    expect(emojiPickerInitialMode(true, true, false)).toBe('standard');
+
+    await expect(preloadEmojiPickersIfNeeded(false, false, preloadCatalog, true)).resolves.toEqual([
+      null,
+      stock,
+      null,
+    ]);
+    expect(loadStandardEmojiPicker).not.toHaveBeenCalled();
+    expect(preloadCatalog).not.toHaveBeenCalled();
+    expect(loadPersonalEmojiStock).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not preload any picker or its catalog when both sources are disabled', async () => {
+    const preloadCatalog = jest.fn();
+
+    await expect(preloadEmojiPickersIfNeeded(false, true, preloadCatalog, true)).resolves.toEqual([
+      null,
+      null,
+      null,
+    ]);
+    expect(loadStandardEmojiPicker).not.toHaveBeenCalled();
+    expect(loadPersonalEmojiStock).not.toHaveBeenCalled();
+    expect(preloadCatalog).not.toHaveBeenCalled();
+  });
+
+  it('skips only the personal stock preload when the document says no set row exists', async () => {
+    const module = { Picker: () => null, Emoji: () => null };
+    const preloadCatalog = jest.fn().mockResolvedValue(['custom']);
+    loadStandardEmojiPicker.mockResolvedValue(module);
+
+    await expect(preloadEmojiPickersIfNeeded(false, false, preloadCatalog, false, false)).resolves.toEqual([
+      module,
+      null,
+      ['custom'],
+    ]);
+    expect(loadStandardEmojiPicker).toHaveBeenCalledTimes(1);
+    expect(loadPersonalEmojiStock).not.toHaveBeenCalled();
+    expect(preloadCatalog).toHaveBeenCalledTimes(1);
+  });
+
+  it('still preloads personal stock when a set row exists or the hint is not a boolean', async () => {
+    const stock = { status: 'ready', stock: { categories: [] } };
+    loadPersonalEmojiStock.mockResolvedValue(stock);
+    loadStandardEmojiPicker.mockResolvedValue({ Picker: () => null });
+
+    await preloadEmojiPickersIfNeeded(false, false, null, true, true);
+    await preloadEmojiPickersIfNeeded(false, false, null, true, undefined);
+    await preloadEmojiPickersIfNeeded(false, false, null, true, null);
+    await preloadEmojiPickersIfNeeded(false, false, null, true, 'false');
+
+    expect(loadPersonalEmojiStock).toHaveBeenCalledTimes(4);
+    expect(loadStandardEmojiPicker).not.toHaveBeenCalled();
+  });
+
   it('does not reject application startup when any preload fails', async () => {
     loadStandardEmojiPicker.mockRejectedValue(new Error('module unavailable'));
     loadPersonalEmojiStock.mockRejectedValue(new Error('stock offline'));

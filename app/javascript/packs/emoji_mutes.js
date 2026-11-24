@@ -17,6 +17,6 @@ loadPolyfills().then(() => {
 
     const { localeData, messages } = getLocale();
     addLocaleData(localeData);
-    ReactDOM.render(<IntlProvider locale={document.documentElement.lang} messages={messages}><EmojiMuteSettings /></IntlProvider>, node);
+    ReactDOM.render(<IntlProvider locale={document.documentElement.lang} messages={messages}><EmojiMuteSettings disableMuteActions={node.dataset.disableMuteActions === 'true'} /></IntlProvider>, node);
   });
 }).catch(console.error);

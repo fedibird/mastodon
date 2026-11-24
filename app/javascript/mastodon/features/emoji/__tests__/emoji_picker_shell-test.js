@@ -208,6 +208,30 @@ describe('emoji picker shell and personal stock', () => {
     global.fetch = jest.fn();
   });
 
+  it('uses the personal set without a standard mode switch or standard data load', async () => {
+    const { loadStandardEmojiPicker } = renderShell({
+      standardEnabled: false,
+      initialMode: 'standard',
+    });
+
+    expect(await screen.findByRole('button', { name: 'Family' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Standard' })).not.toBeInTheDocument();
+    expect(loadStandardEmojiPicker).not.toHaveBeenCalled();
+  });
+
+  it('renders no picker when both sources are disabled', () => {
+    const stockSource = jest.fn(ready(fixture()));
+    const { container, loadStandardEmojiPicker } = renderShell({
+      standardEnabled: false,
+      personalEnabled: false,
+      stockSource,
+    });
+
+    expect(container.firstChild).toBeNull();
+    expect(loadStandardEmojiPicker).not.toHaveBeenCalled();
+    expect(stockSource).not.toHaveBeenCalled();
+  });
+
   it('hides action controls in both modes without blocking normal selection', async () => {
     const standardActions = [];
     const StandardTestPicker = props => {
@@ -235,6 +259,14 @@ describe('emoji picker shell and personal stock', () => {
     expect(screen.queryByRole('button', { name: 'Edit' })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Standard pineapple' }));
     expect(onPick).toHaveBeenCalledTimes(2);
+  });
+
+  it('keeps the native emoji-mart last-child rule away from shell chrome even when actions are enabled', async () => {
+    renderShell();
+    await screen.findByRole('button', { name: 'Family' });
+    expect(screen.getByRole('group', { name: 'Emoji picker mode' })).not.toHaveClass('emoji-mart-bar');
+    expect(screen.getByRole('button', { name: 'Edit' })).toBeInTheDocument();
+    expect(screen.getByRole('group', { name: 'Emoji picker editing' })).not.toHaveClass('emoji-mart-bar');
   });
 
   it('scrolls a category within the personal picker without scrolling its ancestors', async () => {
@@ -991,7 +1023,11 @@ describe('emoji picker shell and personal stock', () => {
   it('keeps the saved heading through search and falls back to the name if its image fails', async () => {
     const stock = JSON.parse(JSON.stringify(fixture()));
 
-    stock.categories[0].heading = { text: 'Z', image: stock.categories[0].items[0].image };
+    stock.categories[0].heading = {
+      text: 'Z',
+      image: stock.categories[0].items[0].image,
+      reference: { kind: 'unicode', native: stock.categories[0].items[0].selection.native },
+    };
     renderShell({ stockSource: ready(stock) });
 
     const search = await screen.findByRole('searchbox');

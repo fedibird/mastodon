@@ -1,7 +1,8 @@
 import React from 'react';
 import PropTypes from 'prop-types';
 import { ReactReduxContext } from 'react-redux';
-import { emojiMutedPlainLabel, emojiMutedPlainText, replaceEmojiInDisplayHtml, replaceInTextIndexFromRules, replaceUnicodeEmojiInPreviewHtml } from 'mastodon/features/emoji/emoji_mute_text';
+import { emojiMutedPlainLabel, emojiMutedPlainText, emojiMuteTextIndexFromState, replaceEmojiInDisplayHtml, replaceUnicodeEmojiInPreviewHtml, UNVERIFIED_EMOJI_PLACEHOLDER } from 'mastodon/features/emoji/emoji_mute_text';
+import { bindEmojiMuteHtmlSources } from 'mastodon/features/emoji/emoji_mute_sources';
 
 // One Redux subscription per mounted display node. The shared account and
 // status records keep the emojify HTML. A rules change re-renders only these
@@ -9,14 +10,11 @@ import { emojiMutedPlainLabel, emojiMutedPlainText, replaceEmojiInDisplayHtml, r
 // (tests, or the signed-out shell) the original HTML is shown.
 
 const indexFromStore = store => {
-  if (!store) {
+  if (!store || typeof store.getState !== 'function') {
     return undefined;
   }
 
-  const state = store.getState();
-  const rules = state && typeof state.getIn === 'function' ? state.getIn(['emojiMutes', 'rules']) : undefined;
-
-  return replaceInTextIndexFromRules(rules);
+  return emojiMuteTextIndexFromState(store.getState());
 };
 
 export function withEmojiMuteTextIndex(Wrapped) {
@@ -190,6 +188,18 @@ class EmojiMutedHtmlInner extends React.PureComponent {
     emojiMuteTextIndex: PropTypes.object,
   };
 
+  bindSource = node => {
+    this.node = node;
+
+    if (node && typeof this.props.html === 'string') {
+      bindEmojiMuteHtmlSources(node, this.props.html);
+    }
+  };
+
+  componentDidUpdate() {
+    this.bindSource(this.node);
+  }
+
   render() {
     const { tag: Tag = 'span', html, className, plain, lang, dir, id, emojiMuteTextIndex } = this.props;
     const source = typeof html === 'string' ? html : '';
@@ -212,7 +222,7 @@ class EmojiMutedHtmlInner extends React.PureComponent {
       extra.title = emojiMutedPlainLabel(plain, source, emojiMuteTextIndex);
     }
 
-    return <Tag className={className} {...extra} dangerouslySetInnerHTML={{ __html: presented }} />;
+    return <Tag className={className} {...extra} ref={this.bindSource} dangerouslySetInnerHTML={{ __html: presented }} />;
   }
 
 }
@@ -302,7 +312,25 @@ class EmojiMutedAriaInner extends React.Component {
 
 }
 
+class EmojiMuteSurfaceInner extends React.PureComponent {
+
+  static propTypes = {
+    children: PropTypes.node,
+    emojiMuteTextIndex: PropTypes.object,
+  };
+
+  render() {
+    if (this.props.emojiMuteTextIndex && this.props.emojiMuteTextIndex.suppressAll) {
+      return <span className='emoji-mute-unverified'>{UNVERIFIED_EMOJI_PLACEHOLDER}</span>;
+    }
+
+    return this.props.children;
+  }
+
+}
+
 export default withEmojiMuteTextIndex(EmojiMutedHtmlInner);
+export const EmojiMuteSurface = withEmojiMuteTextIndex(EmojiMuteSurfaceInner);
 export const EmojiMutedTitle = withEmojiMuteTextIndex(EmojiMutedTitleInner);
 export const EmojiMutedPlain = withEmojiMuteTextIndex(EmojiMutedPlainInner);
 export const EmojiMutedPreview = withEmojiMuteTextIndex(EmojiMutedPreviewInner);

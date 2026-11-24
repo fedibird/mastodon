@@ -75,13 +75,19 @@ describe('IntersectionObserverArticle masonry virtualization', () => {
     return { ...view, wrapper, article, slot };
   };
 
-  const leaveView = ({ wrapper, article }) => {
+  const deliver = (wrapper, article, entry) => {
     act(() => {
-      wrapper.callbacks['1']({
-        isIntersecting: false,
+      wrapper.registrations.get(article).callback({
         target: article,
-        boundingClientRect: rect(93.75),
+        ...entry,
       });
+    });
+  };
+
+  const leaveView = ({ wrapper, article }) => {
+    deliver(wrapper, article, {
+      isIntersecting: false,
+      boundingClientRect: rect(93.75),
     });
     flushIdle();
   };
@@ -120,15 +126,102 @@ describe('IntersectionObserverArticle masonry virtualization', () => {
 
     article.getBoundingClientRect = () => rect(88);
 
-    act(() => {
-      wrapper.callbacks['9']({
-        isIntersecting: false,
-        target: article,
-        boundingClientRect: rect(88),
-      });
+    deliver(wrapper, article, {
+      isIntersecting: false,
+      boundingClientRect: rect(88),
     });
     flushIdle();
 
     expect(article.style.height).toBe('88px');
+  });
+
+  it('virtualizes each row on its own when two articles share an account id', () => {
+    const wrapper = new IntersectionObserverWrapper();
+    let onIntersection = null;
+
+    global.IntersectionObserver = class {
+
+      constructor (callback) {
+        onIntersection = callback;
+      }
+
+      observe () {}
+
+      unobserve () {}
+
+      disconnect () {}
+
+    };
+
+    const accountId = '112807565960881667';
+    const view = render(
+      <div>
+        <IntersectionObserverArticle key='reaction-a' intersectionObserverWrapper={wrapper} id={accountId} index={11} listLength={34}>
+          <div>first account row</div>
+        </IntersectionObserverArticle>
+        <IntersectionObserverArticle key='reaction-b' intersectionObserverWrapper={wrapper} id={accountId} index={12} listLength={34}>
+          <div>second account row</div>
+        </IntersectionObserverArticle>
+      </div>,
+    );
+    const articles = Array.from(view.container.querySelectorAll('article'));
+
+    articles.forEach(node => {
+      node.getBoundingClientRect = () => rect(57);
+    });
+    wrapper.connect({});
+
+    expect(articles.map(article => article.getAttribute('data-id'))).toEqual([accountId, accountId]);
+    expect(articles.map(article => article.getAttribute('aria-posinset'))).toEqual(['12', '13']);
+
+    act(() => {
+      onIntersection([
+        { isIntersecting: false, target: articles[0], boundingClientRect: rect(57) },
+        { isIntersecting: true, target: articles[1], boundingClientRect: rect(57) },
+      ]);
+    });
+    flushIdle();
+
+    expect(articles[0].style.opacity).toBe('0');
+    expect(articles[0].style.height).toBe('57px');
+    expect(articles[0].style.overflow).toBe('hidden');
+    expect(articles[1].style.opacity).toBe('');
+    expect(articles[1].textContent).toContain('second account row');
+
+    act(() => {
+      onIntersection([
+        { isIntersecting: true, target: articles[0], boundingClientRect: rect(57) },
+      ]);
+    });
+    flushIdle();
+
+    expect(articles[0].style.opacity).toBe('');
+    expect(articles[0].style.height).toBe('');
+    expect(articles[0].textContent).toContain('first account row');
+    expect(articles[1].style.opacity).toBe('');
+
+    view.rerender(
+      <div>
+        <IntersectionObserverArticle key='reaction-b' intersectionObserverWrapper={wrapper} id={accountId} index={0} listLength={1}>
+          <div>second account row</div>
+        </IntersectionObserverArticle>
+      </div>,
+    );
+
+    const remaining = view.container.querySelector('article');
+
+    expect(wrapper.registrations.size).toBe(1);
+    expect(wrapper.registrations.has(remaining)).toBe(true);
+
+    remaining.getBoundingClientRect = () => rect(57);
+    act(() => {
+      onIntersection([
+        { isIntersecting: false, target: remaining, boundingClientRect: rect(57) },
+      ]);
+    });
+    flushIdle();
+
+    expect(remaining.style.opacity).toBe('0');
+    expect(remaining.style.height).toBe('57px');
   });
 });

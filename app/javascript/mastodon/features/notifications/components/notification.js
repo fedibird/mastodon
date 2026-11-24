@@ -13,7 +13,8 @@ import Emoji from 'mastodon/components/emoji';
 import Icon from 'mastodon/components/icon';
 import Permalink from 'mastodon/components/permalink';
 import Content from 'mastodon/components/content';
-import EmojiMutedHtml, { bindCustomEmojiClick, unbindCustomEmojiClick, customEmojiTarget } from 'mastodon/components/emoji_muted_html';
+import EmojiMutedHtml, { bindCustomEmojiClick, unbindCustomEmojiClick, customEmojiTarget, EmojiMuteSurface } from 'mastodon/components/emoji_muted_html';
+import { attachInlineEmojiMenus, handleInlineEmojiClick } from 'mastodon/features/emoji/emoji_actions/inline_emoji';
 import classNames from 'classnames';
 import Report from './report';
 
@@ -90,17 +91,29 @@ class Notification extends ImmutablePureComponent {
 
   _updateEmojiLinks () {
     const node = this.node;
-
-    if (!node || node.__notificationEmojiBound) {
+    if (!node) {
       return;
     }
 
-    node.__notificationEmojiBound = true;
-    node.addEventListener('mouseup', this.handleEmojiMouseUp, true);
-    bindCustomEmojiClick(node, this.handleEmojiClick);
+    if (!node.__notificationEmojiBound) {
+      node.__notificationEmojiBound = true;
+      node.addEventListener('mouseup', this.handleEmojiMouseUp, true);
+      bindCustomEmojiClick(node, this.handleEmojiClick);
+    }
+
+    // HTML can be replaced during a mute/notification update while the
+    // container itself survives; refresh the attached gesture targets.
+    this.detachInlineEmojiMenus?.();
+    this.detachInlineEmojiMenus = attachInlineEmojiMenus(node, {
+      source: 'inline_notification',
+      statusId: this.props.notification?.get('status'),
+      accountId: this.props.notification?.getIn(['account', 'id']),
+    });
   }
 
   _removeEmojiLinks (node) {
+    this.detachInlineEmojiMenus?.();
+    this.detachInlineEmojiMenus = null;
     if (!node || !node.__notificationEmojiBound) {
       return;
     }
@@ -109,7 +122,6 @@ class Notification extends ImmutablePureComponent {
     unbindCustomEmojiClick(node, this.handleEmojiClick);
     node.__notificationEmojiBound = false;
   }
-
   handleEmojiMouseUp = e => {
     if (!customEmojiTarget(e)) {
       return;
@@ -121,21 +133,16 @@ class Notification extends ImmutablePureComponent {
 
   handleEmojiClick = e => {
     const emoji = customEmojiTarget(e);
-
-    if (!emoji) {
+    if (!emoji || !this.node?.contains(emoji)) {
       return;
     }
 
-    const shortcode = emoji.getAttribute('data-shortcode');
-    const domain = emoji.getAttribute('data-domain');
-
-    if (this.context.router) {
-      e.preventDefault();
-      e.stopPropagation();
-      this.context.router.history.push(`/emoji_detail/${shortcode}${domain ? `@${domain}` : ''}`);
-    }
+    handleInlineEmojiClick(e, emoji, this.context.router, {
+      source: 'inline_notification',
+      statusId: this.props.notification?.get('status'),
+      accountId: this.props.notification?.getIn(['account', 'id']),
+    });
   }
-
   handleMoveUp = () => {
     const { notification, onMoveUp } = this.props;
     onMoveUp(notification.get('id'));
@@ -484,7 +491,9 @@ class Notification extends ImmutablePureComponent {
         <div className={classNames('notification notification-reaction focusable', { unread })} tabIndex='0' aria-label={notificationForScreenReader(intl, intl.formatMessage(messages.emoji_reaction, { name: notification.getIn(['account', 'acct']) }), notification.get('created_at'))}>
           <div className='notification__message' ref={this.setRef}>
             <div className={classNames('notification__reaction-icon-wrapper', { wide })}>
-              <Emoji hovered={false} emoji={emoji} title={title} url={url} static_url={static_url} domain={domain} />
+              <EmojiMuteSurface>
+                <Emoji hovered={false} emoji={emoji} title={title} url={url} static_url={static_url} domain={domain} />
+              </EmojiMuteSurface>
             </div>
 
             <span title={notification.get('created_at')} className={classNames('notification__reaction-message-wrapper', { wide })}>

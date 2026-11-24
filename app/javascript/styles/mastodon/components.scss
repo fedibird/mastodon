@@ -4715,8 +4715,12 @@ body.app-body.layout-single-column.status-timeline-split {
   max-height: 100dvh;
   overflow: hidden;
 
+  // The React HotKeys wrapper is no longer a direct app-holder child after
+  // the emoji-mute privacy portal was introduced. Keep split-TL geometry
+  // without imposing viewport height on react-overlays dropdown portals.
   .app-holder,
   .app-holder > div,
+  .app-holder .emoji-mutes-privacy-portal > .emoji-mutes-webui-hotkeys,
   .ui,
   .columns-area__panels,
   .columns-area__panels__main {
@@ -4731,6 +4735,16 @@ body.app-body.layout-single-column.status-timeline-split {
 
   .tabs-bar__wrapper {
     flex: 0 0 auto;
+  }
+
+  // The notice sits in the same column as a split timeline. Cap it and
+  // scroll the card itself so a short viewport still leaves both panes.
+  .columns-area__panels__main > .emoji-mute-load-notice {
+    flex: 0 0 auto;
+    min-height: 0;
+    max-height: 40%;
+    overflow-x: hidden;
+    overflow-y: auto;
   }
 
   .swipeable-view__wrapper,
@@ -4748,6 +4762,49 @@ body.app-body.layout-single-column.status-timeline-split {
   .column {
     height: 100%;
     min-height: 0;
+  }
+
+  // 240px cannot show the notice and two readable panes at once. Keep a
+  // 470px split so ratio 20 and ratio 80 still leave an 88px pane, and let
+  // the page scroll.
+  @media screen and (max-height: 400px) {
+    height: auto;
+    max-height: none;
+    overflow: visible;
+
+    .app-holder,
+    .app-holder > div,
+    .app-holder .emoji-mutes-privacy-portal > .emoji-mutes-webui-hotkeys,
+    .ui,
+    .columns-area__panels,
+    .columns-area__panels__main,
+    .swipeable-view__wrapper,
+    .columns-area__panels__main > .columns-area--mobile,
+    .react-swipeable-view-container,
+    .react-swipeable-view-container > div,
+    .columns-area--mobile,
+    .column {
+      height: auto !important;
+      max-height: none;
+      overflow: visible;
+    }
+
+    .columns-area__panels__main > .emoji-mute-load-notice {
+      max-height: none;
+      overflow: visible;
+    }
+
+    // 470px keeps an 88px pane at both ratio 20 and ratio 80. The page scrolls.
+    .columns-area--mobile .timeline-split {
+      flex: none;
+      height: 470px;
+      min-height: 470px;
+      overflow: hidden;
+    }
+
+    .columns-area--mobile .timeline-split .timeline-split__pane {
+      min-height: 88px;
+    }
   }
 }
 
@@ -5099,6 +5156,14 @@ body.app-body.layout-single-column.status-timeline-split {
       min-height: 0;
       overscroll-behavior-y: contain;
       -webkit-overflow-scrolling: touch;
+    }
+  }
+
+  // The short split is taller than the viewport and the page scrolls.
+  // A touch that starts in the live pane has to reach the document.
+  @media screen and (max-height: 400px) {
+    .timeline-split .scrollable {
+      overscroll-behavior-y: auto;
     }
   }
 
@@ -8530,6 +8595,21 @@ a.status-card.compact:hover {
     color: darken($lighter-text-color, 4%);
     background-color: transparent;
   }
+}
+
+.mute-modal__contexts {
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.mute-modal__settings-link {
+  display: inline-block;
+  margin-top: 12px;
+  color: inherit;
+  text-decoration: underline;
 }
 
 .confirmation-modal__container,
@@ -13329,6 +13409,41 @@ div.external-source-identity:hover .external-source-identity__name {
 
   p {
     margin: 0 0 8px;
+  }
+}
+
+.emoji-mutes-bypass-notice {
+  position: fixed;
+  z-index: 1000;
+  right: 16px;
+  bottom: 16px;
+  box-sizing: border-box;
+  width: 360px;
+  max-width: calc(100vw - 32px);
+  padding: 12px 16px;
+  border: 1px solid $ui-base-lighter-color;
+  border-radius: 6px;
+  background: $ui-base-color;
+  box-shadow: 0 4px 18px rgba($base-shadow-color, 0.4);
+  color: $primary-text-color;
+  font-size: 13px;
+  line-height: 1.5;
+
+  button {
+    display: block;
+    margin-top: 8px;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: $ui-highlight-color;
+    font: inherit;
+    font-weight: 600;
+    cursor: pointer;
+
+    &:hover,
+    &:focus {
+      text-decoration: underline;
+    }
   }
 }
 

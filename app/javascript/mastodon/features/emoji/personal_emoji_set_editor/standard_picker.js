@@ -30,17 +30,29 @@ function loadCatalog() {
       const visible = data.filter(emoji => emoji.visible_in_picker);
 
       return {
-        custom: visible.map(emoji => ({
-          id: emoji.shortcode,
-          name: emoji.alternate_name || emoji.shortcode,
-          short_names: [emoji.shortcode],
-          text: '',
-          emoticons: [],
-          keywords: [emoji.shortcode, emoji.ruby, emoji.reading, emoji.alternate_name, ...(emoji.aliases || [])].filter(Boolean),
-          imageUrl: autoPlayEmoji ? emoji.url : emoji.static_url,
-          custom: true,
-          customCategory: emoji.category,
-        })),
+        custom: visible.map(emoji => {
+          const built = {
+            id: emoji.shortcode,
+            name: emoji.alternate_name || emoji.shortcode,
+            short_names: [emoji.shortcode],
+            text: '',
+            emoticons: [],
+            keywords: [emoji.shortcode, emoji.ruby, emoji.reading, emoji.alternate_name, ...(emoji.aliases || [])].filter(Boolean),
+            imageUrl: autoPlayEmoji ? emoji.url : emoji.static_url,
+            custom: true,
+            customCategory: emoji.category,
+          };
+
+          if (emoji.id !== null && emoji.id !== undefined && emoji.id !== '') {
+            built.custom_emoji_id = String(emoji.id);
+          }
+
+          if (typeof emoji.domain === 'string' && emoji.domain !== '') {
+            built.domain = emoji.domain;
+          }
+
+          return built;
+        }),
         include: Array.from(new Set(['custom', ...visible.map(emoji => emoji.category ? `custom-${emoji.category}` : 'custom')])).concat(baseCategories),
       };
     }).catch(error => {

@@ -6,6 +6,7 @@ import ComposeFormContainer from 'mastodon/features/compose/containers/compose_f
 import NavigationContainer from 'mastodon/features/compose/containers/navigation_container';
 import LinkFooter from './link_footer';
 import { changeComposing } from 'mastodon/actions/compose';
+import EmojiMuteLoadNotice from 'mastodon/components/emoji_mute_load_notice';
 
 export default @connect()
 class ComposePanel extends React.PureComponent {
@@ -25,6 +26,7 @@ class ComposePanel extends React.PureComponent {
   render() {
     return (
       <div className='compose-panel' onFocus={this.onFocus}>
+        <EmojiMuteLoadNotice placement='compose-panel' />
         <SearchContainer openInRoute />
         <NavigationContainer onClose={this.onBlur} />
         <ComposeFormContainer singleColumn />

@@ -13,4 +13,8 @@ class Themes
   def names
     @conf.keys
   end
+
+  def user_selectable_names
+    names + ['system']
+  end
 end

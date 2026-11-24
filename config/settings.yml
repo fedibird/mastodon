@@ -207,8 +207,24 @@ defaults: &defaults
   emoji_picker_prefer_personal: false
   # Skip personal-set stock loading and hide its picker without deleting saved sets.
   emoji_picker_disable_personal: false
+  # Skip the standard picker and its module/catalog loading. With personal
+  # sets also disabled, there is no picker and new emoji reactions are blocked.
+  emoji_picker_disable_standard: false
   # Disable only the emoji picker's actions UI and gesture handlers.
   emoji_picker_disable_actions: false
+  # Hide personal-set removal in the emoji action menu. Adding to a set and
+  # editing on the personal set page stay available. Applies on the next full
+  # page load. A stored false stays false.
+  emoji_actions_disable_personal_remove: false
+  # Prevent accidental quick mute/unmute actions; existing mute effects remain.
+  emoji_mute_disable_actions: false
+  # Feature switch. Off skips boot loading and does not apply saved rules.
+  # Distinct from emoji_mute_disable_actions, which only blocks editing.
+  emoji_mute_enabled: false
+  # Confirm mute and unmute from the emoji action menu. Default on.
+  emoji_mute_modal: true
+  # Enlarged emoji preview click: none, close, detail, or copy.
+  emoji_preview_click_action: detail
   # On skips both standard module and personal stock preloading until opened.
   # Off may preload both at page load without changing the visible mode.
   # A saved change applies on the next full page load and does not unload a

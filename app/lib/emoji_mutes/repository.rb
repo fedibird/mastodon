@@ -2,7 +2,7 @@
 
 module EmojiMutes
   class Repository
-    CREATE_FIELDS = %w(emoji effects replacement).freeze
+    CREATE_FIELDS = %w(emoji effects replacement enable).freeze
     UPDATE_FIELDS = %w(expected_revision effects replacement).freeze
     DELETE_FIELDS = %w(expected_revision).freeze
 
@@ -16,18 +16,20 @@ module EmojiMutes
     end
 
     def revision
-      self.class.consistent_state(@user.id).last
+      self.class.consistent_state(@user.id)[1]
     end
 
-    # User row lock, then both reads. A writer uses the same first lock, so
-    # it cannot commit a new revision between the two selects.
+    # User row lock, then the rules, the collection revision, and the on/off
+    # row. A writer takes the same user lock first, so it cannot commit a new
+    # mute and a new switch between these reads.
     def self.consistent_state(user_id)
       EmojiMute.transaction do
         User.lock.find(user_id)
         mutes = EmojiMute.where(user_id: user_id).order(:id).to_a
         before_revision_read&.call
         revision = EmojiMuteCollection.where(user_id: user_id).pick(:revision) || 0
-        [mutes, revision.to_i]
+        preference = Setting.unscoped.find_by(thing_type: 'User', thing_id: user_id, var: EmojiMutes::Preference::KEY)
+        [mutes, revision.to_i, preference]
       end
     end
 
@@ -49,15 +51,23 @@ module EmojiMutes
 
       mute = nil
       revision = nil
+      enabled_transition = nil
+      explicit_enable = explicit_enable!(body)
       EmojiMute.transaction do
         collection = lock_collection!
         invalid!('emoji_mutes', 'limit_reached') if EmojiMute.where(user_id: @user.id).count >= EmojiMute::MAX_PER_USER
 
         mute = EmojiMute.create!(attributes.merge(effects).merge(user_id: @user.id, replacement: replacement, revision: 1))
+        enabled_transition = EmojiMutes::Preference.new(@user).enable_for_registration!(explicit_enable: explicit_enable)
         revision = bump!(collection)
       end
       publish!(revision)
-      Presenter.new([mute]).one(mute, revision)
+      EmojiMutes::Preference.new(@user).forget_rules!
+      EmojiMutes::Preference.publish!(@user, true) if enabled_transition == :enabled
+      Presenter.new([mute]).one(mute, revision).merge({
+        'emoji_mute_enabled' => true,
+        'emoji_mute_enabled_explicit' => true,
+      })
     rescue ActiveRecord::RecordNotUnique
       raise Conflict, 'duplicate'
     end
@@ -165,6 +175,13 @@ module EmojiMutes
     def fields!(body, allowed)
       invalid!('body', 'invalid_type') unless body.is_a?(Hash)
       invalid!('body', 'unknown_field') unless (body.keys - allowed).empty?
+    end
+
+    def explicit_enable!(body)
+      return false unless body.key?('enable')
+
+      invalid!('enable', 'invalid_type') unless body['enable'] == true
+      true
     end
 
     def lock_collection!

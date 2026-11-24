@@ -10,6 +10,7 @@ import RelativeTimestamp from './relative_timestamp';
 import DisplayName from './display_name';
 import EmojiMutedHtml, { EmojiMutedAria, EmojiMutedPlain, bindCustomEmojiClick, unbindCustomEmojiClick, customEmojiTarget } from './emoji_muted_html';
 import { countEmojiMuteParse, emojiMutedPlainText, replaceMutedEmojiInPlain, replaceUnicodeEmojiInPlainText } from 'mastodon/features/emoji/emoji_mute_text';
+import { attachInlineEmojiMenus, handleInlineEmojiClick } from 'mastodon/features/emoji/emoji_actions/inline_emoji';
 import ExternalSourceIdentity, { TimeLink } from './external_source_identity';
 import StatusContent from './status_content';
 import TimelineCardBody from './timeline_card_body';
@@ -27,7 +28,7 @@ import Icon from 'mastodon/components/icon';
 import EmojiReactionsBar from 'mastodon/components/emoji_reactions_bar';
 import PictureInPicturePlaceholder from 'mastodon/components/picture_in_picture_placeholder';
 import FilterReason from './filter_reason';
-import { displayMedia, cropCardImages, enableReaction, compactReaction, cardReactionsSingleLine, cardCollapseLongText, show_reply_tree_button, enableStatusReference, disableRelativeTime, hideLinkPreview, hidePhotoPreview, hideVideoPreview, hideRebloggedBy, new_features_policy } from 'mastodon/initial_state';
+import { displayMedia, cropCardImages, enableReaction, compactReaction, emojiPickerDisabled, cardReactionsSingleLine, cardCollapseLongText, show_reply_tree_button, enableStatusReference, disableRelativeTime, hideLinkPreview, hidePhotoPreview, hideVideoPreview, hideRebloggedBy, new_features_policy } from 'mastodon/initial_state';
 import { List as ImmutableList } from 'immutable';
 import { emojiReactionsForStatus } from '../utils/emoji_reactions';
 import MixSourceBadges from 'mastodon/features/mixes/components/source_badges';
@@ -577,27 +578,31 @@ class Status extends ImmutablePureComponent {
 
   _updateEmojiLinks () {
     bindCustomEmojiClick(this.emoji_node, this.handleEmojiClick);
+    this.detachInlineEmojiMenus?.();
+    this.detachInlineEmojiMenus = attachInlineEmojiMenus(this.emoji_node, {
+      source: 'inline_status_attribution',
+      statusId: this.props.status?.get('id'),
+      accountId: this.props.status?.getIn(['account', 'id']),
+    });
   }
 
   _removeEmojiLinks () {
+    this.detachInlineEmojiMenus?.();
+    this.detachInlineEmojiMenus = null;
     unbindCustomEmojiClick(this.emoji_node, this.handleEmojiClick);
   }
 
   handleEmojiClick = e => {
     const emoji = customEmojiTarget(e);
-
     if (!emoji || !this.emoji_node || !this.emoji_node.contains(emoji)) {
       return;
     }
 
-    const shortcode = emoji.getAttribute('data-shortcode');
-    const domain = emoji.getAttribute('data-domain');
-
-    if (this.context.router) {
-      e.preventDefault();
-      e.stopPropagation();
-      this.context.router.history.push(`/emoji_detail/${shortcode}${domain ? `@${domain}` : ''}`);
-    }
+    handleInlineEmojiClick(e, emoji, this.context.router, {
+      source: 'inline_status_attribution',
+      statusId: this.props.status?.get('id'),
+      accountId: this.props.status?.getIn(['account', 'id']),
+    });
   }
 
   handleToggleMediaVisibility = () => {
@@ -898,9 +903,9 @@ class Status extends ImmutablePureComponent {
       return;
     }
 
-    unbindCustomEmojiClick(this.emoji_node, this.handleEmojiClick);
+    this._removeEmojiLinks();
     this.emoji_node = c;
-    bindCustomEmojiClick(this.emoji_node, this.handleEmojiClick);
+    this._updateEmojiLinks();
   }
 
 
@@ -933,10 +938,11 @@ class Status extends ImmutablePureComponent {
     const hasSpoiler = !!status.get('spoiler_text');
     const contentVisible = !hasSpoiler || !status.get('hidden');
     const media = status.get('media_attachments', ImmutableList());
-    // The add-reaction control always stays beside favourite. Counts stay off
-    // the card when compact reactions are on, including a zero-count row.
+    // While a picker is enabled, the add-reaction control stays beside favourite
+    // and compact mode hides the card's reaction row. With both pickers disabled,
+    // keep existing reaction chips visible because the compact counter is gone.
     const hasVisibleEmojiReactions = emojiReactionsForStatus(status).some(reaction => reaction && typeof reaction.get === 'function' && reaction.get('count', 0) > 0);
-    const showReactions = showCardEmojiReactions(enableReaction, hasVisibleEmojiReactions, compactReaction);
+    const showReactions = showCardEmojiReactions(enableReaction, hasVisibleEmojiReactions, compactReaction, emojiPickerDisabled);
     const firstMedia = contentVisible && media && media.size > 0
       ? this.renderAttachmentMedia(status.set('media_attachments', media.take(1)), {
         sensitive: status.get('sensitive'),
@@ -1101,7 +1107,7 @@ class Status extends ImmutablePureComponent {
                 {sourceBadges && sourceBadges.length > 0 && <MixSourceBadges badges={sourceBadges} />}
                 <div className='timeline-card__author-actions'>
                   <StatusActionBar status={status} account={account} scrollKey={scrollKey} compactCardMode='favourite' expired={expired} onFavourite={this.props.onFavourite} />
-                  {enableReaction && <StatusActionBar status={status} account={account} scrollKey={scrollKey} compactCardMode='reactions' expired={expired} addEmojiReaction={this.props.addEmojiReaction} removeEmojiReaction={this.props.removeEmojiReaction} emojiReactioned={this.props.emojiReactioned} reactionLimitReached={reactionLimitReached} />}
+                  {enableReaction && !emojiPickerDisabled && <StatusActionBar status={status} account={account} scrollKey={scrollKey} compactCardMode='reactions' expired={expired} addEmojiReaction={this.props.addEmojiReaction} removeEmojiReaction={this.props.removeEmojiReaction} emojiReactioned={this.props.emojiReactioned} reactionLimitReached={reactionLimitReached} />}
                 </div>
               </div>
               {showReactions && (
@@ -1644,7 +1650,7 @@ class Status extends ImmutablePureComponent {
               </>
               }
 
-              {enableReaction && (contextType === 'thread' || !compactReaction) && <EmojiReactionsBar
+              {enableReaction && (contextType === 'thread' || !compactReaction || emojiPickerDisabled) && <EmojiReactionsBar
                 status={status}
                 addEmojiReaction={this.props.addEmojiReaction}
                 removeEmojiReaction={this.props.removeEmojiReaction}

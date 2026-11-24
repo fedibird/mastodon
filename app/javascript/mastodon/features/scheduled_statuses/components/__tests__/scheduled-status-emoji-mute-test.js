@@ -168,4 +168,29 @@ describe('scheduled status preview', () => {
     expect(preview().querySelector('a').getAttribute('title')).toBe(OK);
     expect(record.getIn(['params', 'text'])).toBe(text);
   });
+
+  it('removes emoji images from the scheduled preview while unverified and keeps the saved text', () => {
+    const markup = `<p>Hi ${OK}</p><img class="emojione custom-emoji" alt=":blob:" src="https://cdn.example/secret.svg" data-shortcode="blob" data-domain=""><img src="/media/x.jpg" alt="${OK}" srcset="/media/x.jpg 2x">`;
+    const record = scheduled().setIn(['params', 'text'], markup);
+    const store = createStore((state = fromJS({
+      emojiMutes: { display: 'suppress', phase: 'error', availability: 'enabled', rules: [] },
+    }), action) => state.set('emojiMutes', emojiMutes(state.get('emojiMutes'), action)));
+    const { container } = render(
+      <Provider store={store}>
+        <RouterStub>
+          <ScheduledStatus scheduledStatus={record} onRedraftScheduledStatus={jest.fn()} onDeleteScheduledStatus={jest.fn()} />
+        </RouterStub>
+      </Provider>,
+    );
+    const preview = container.querySelector('.mini-status__content__text');
+    const photo = preview.querySelector('img');
+
+    expect(preview.querySelector('img.emojione, img.custom-emoji')).toBeNull();
+    expect(preview.innerHTML).not.toContain('secret.svg');
+    expect(preview.innerHTML).not.toContain(OK);
+    expect(photo.getAttribute('src')).toBe('/media/x.jpg');
+    expect(photo.getAttribute('alt')).toBe('◻');
+    expect(photo.getAttribute('srcset')).toBe('/media/x.jpg 2x');
+    expect(record.getIn(['params', 'text'])).toBe(markup);
+  });
 });

@@ -12,11 +12,14 @@ import ScrollableList from '../../components/scrollable_list';
 import Icon from 'mastodon/components/icon';
 import ColumnHeader from '../../components/column_header';
 import Emoji from '../../components/emoji';
+import { attachInlineEmojiMenus, handleInlineEmojiClick } from 'mastodon/features/emoji/emoji_actions/inline_emoji';
 import ReactedHeaderContaier from '../reactioned/containers/header_container';
 import { debounce } from 'lodash';
 import { defaultColumnWidth } from 'mastodon/initial_state';
 import { changeSetting } from '../../actions/settings';
 import { changeColumnParams } from '../../actions/columns';
+import { storedReactionHidden } from 'mastodon/features/emoji/emoji_mute_projection';
+import { UNVERIFIED_EMOJI_PLACEHOLDER } from 'mastodon/features/emoji/emoji_mute_text';
 
 const messages = defineMessages({
   refresh: { id: 'refresh', defaultMessage: 'Refresh' },
@@ -36,6 +39,15 @@ const mapStateToProps = (state, { columnId, params: { statusId } }) => {
   };
 };
 
+const mapReactionStateToProps = (state, { emojiReaction }) => {
+  const display = state.getIn(['emojiMutes', 'display']);
+
+  return {
+    suppressed: display === 'suppress',
+    hiddenByRule: display !== 'show' && display !== 'suppress' && storedReactionHidden(emojiReaction, state.getIn(['emojiMutes', 'rules'])),
+  };
+};
+
 class Reaction extends ImmutablePureComponent {
 
   static contextTypes = {
@@ -44,6 +56,8 @@ class Reaction extends ImmutablePureComponent {
 
   static propTypes = {
     emojiReaction: ImmutablePropTypes.map.isRequired,
+    suppressed: PropTypes.bool,
+    hiddenByRule: PropTypes.bool,
   };
 
   state = {
@@ -51,32 +65,78 @@ class Reaction extends ImmutablePureComponent {
   };
 
   handleEmojiClick = e => {
-    const shortcode = e.target.dataset.shortcode;
-    const domain = e.target.dataset.domain;
-
-    if (this.context.router) {
-      e.preventDefault();
-      e.stopPropagation();
-      this.context.router.history.push(`/emoji_detail/${shortcode}${domain ? `@${domain}` : ''}`);
-    }
+    handleInlineEmojiClick(e, e.currentTarget, this.context.router, { source: 'emoji_reaction_overview' });
   }
+
+  componentDidMount () {
+    this.updateEmojiMenu();
+  }
+
+  componentDidUpdate () {
+    this.updateEmojiMenu();
+  }
+
+  componentWillUnmount () {
+    this.detachInlineEmojiMenus?.();
+  }
+
+  setRef = node => {
+    this.node = node;
+  };
+
+  updateEmojiMenu = () => {
+    this.detachInlineEmojiMenus?.();
+    this.detachInlineEmojiMenus = attachInlineEmojiMenus(this.node, { source: 'emoji_reaction_overview' });
+  };
 
   handleMouseEnter = () => this.setState({ hovered: true })
 
   handleMouseLeave = () => this.setState({ hovered: false })
 
   render () {
-    const { emojiReaction } = this.props;
+    const { emojiReaction, suppressed, hiddenByRule } = this.props;
+    const title = emojiReaction.get('alternate_name') ?? emojiReaction.get('name');
+    let glyph = null;
 
-    const title = emojiReaction.get('alternate_name') ?? emojiReaction.get('name')
+    if (suppressed) {
+      glyph = <span className='emoji-mute-unverified' aria-hidden='true'>{UNVERIFIED_EMOJI_PLACEHOLDER}</span>;
+    } else if (!hiddenByRule) {
+      glyph = <Emoji className='reaction' hovered={this.state.hovered} emoji={emojiReaction.get('name')} url={emojiReaction.get('url')} static_url={emojiReaction.get('static_url')} domain={emojiReaction.get('domain')} title={title} onClick={this.handleEmojiClick} />;
+    }
+
+    // Identity is only for a glyph that is actually shown. A later open
+    // during suppress is not visited by the one-shot scrub.
+    const name = emojiReaction.get('name') || '';
+    const domain = emojiReaction.get('domain') || '';
+    const customEmojiId = emojiReaction.get('custom_emoji_id') || '';
+    const identity = {};
+
+    if (!suppressed && !hiddenByRule) {
+      identity['data-emoji-reaction-name'] = name;
+
+      if (domain) {
+        identity['data-emoji-reaction-domain'] = domain;
+      }
+
+      if (customEmojiId) {
+        identity['data-emoji-custom-emoji-id'] = String(customEmojiId);
+      }
+
+      if (!domain && !customEmojiId && name) {
+        identity['data-emoji-native'] = name;
+      }
+    }
 
     return (
-      <div className='account__emoji_reaction' onMouseEnter={this.handleMouseEnter} onMouseLeave={this.handleMouseLeave} ref={this.setRef}>
-        <Emoji className='reaction' hovered={this.state.hovered} emoji={emojiReaction.get('name')} url={emojiReaction.get('url')} static_url={emojiReaction.get('static_url')} domain={emojiReaction.get('domain')} title={title} onClick={this.handleEmojiClick} />
+      <div className='account__emoji_reaction' {...identity} onMouseEnter={this.handleMouseEnter} onMouseLeave={this.handleMouseLeave} ref={this.setRef}>
+        {glyph}
       </div>
     );
   };
+
 }
+
+const ConnectedReaction = connect(mapReactionStateToProps)(Reaction);
 
 class EmojiReactions extends React.PureComponent {
 
@@ -84,6 +144,7 @@ class EmojiReactions extends React.PureComponent {
     dispatch: PropTypes.func.isRequired,
     emojiReactions: ImmutablePropTypes.list,
     multiColumn: PropTypes.bool,
+    columnId: PropTypes.string,
     columnWidth: PropTypes.string,
     intl: PropTypes.object.isRequired,
     hasMore: PropTypes.bool,
@@ -167,7 +228,7 @@ class EmojiReactions extends React.PureComponent {
           bindToDocument={!multiColumn}
         >
           {emojiReactions.map(emojiReaction =>
-            <AccountContainer key={emojiReaction.get('account')+emojiReaction.get('name')} id={emojiReaction.get('account')} withNote={false} append={<Reaction emojiReaction={emojiReaction} />} />,
+            <AccountContainer key={emojiReaction.get('account')+emojiReaction.get('name')} id={emojiReaction.get('account')} withNote={false} append={<ConnectedReaction emojiReaction={emojiReaction} />} />,
           )}
         </ScrollableList>
       </Column>

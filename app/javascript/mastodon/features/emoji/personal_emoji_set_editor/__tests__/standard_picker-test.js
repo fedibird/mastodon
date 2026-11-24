@@ -17,7 +17,9 @@ jest.mock('mastodon/initial_state_data', () => ({
 }));
 
 it('includes categorized and uncategorized custom emoji with string category IDs under the project Babel configuration', async () => {
-  const custom = (shortcode, category, visible = true) => ({
+  const custom = (shortcode, category, visible = true, extra = {}) => ({
+    id: extra.id,
+    domain: extra.domain,
     shortcode,
     category,
     visible_in_picker: visible,
@@ -26,7 +28,8 @@ it('includes categorized and uncategorized custom emoji with string category IDs
     aliases: ['greeting'],
   });
   personalEmojiRequest.mockResolvedValue([
-    custom('wave_custom', 'あいさつ'),
+    custom('wave_custom', 'あいさつ', true, { id: 11, domain: null }),
+    custom('remote_blob', 'あいさつ', true, { id: 90, domain: 'other.example' }),
     custom('hello_custom', 'あいさつ'),
     custom('wide_banner', '横長'),
     custom('uncategorized'),
@@ -48,10 +51,12 @@ it('includes categorized and uncategorized custom emoji with string category IDs
   expect(include.every(id => typeof id === 'string')).toBe(true);
   expect(include.filter(id => id === 'custom-あいさつ')).toHaveLength(1);
   expect(include).not.toContain('custom-非表示');
-  expect(emojis.map(emoji => emoji.id)).toEqual(['wave_custom', 'hello_custom', 'wide_banner', 'uncategorized']);
-  expect(emojis[0]).toMatchObject({ custom: true, customCategory: 'あいさつ', short_names: ['wave_custom'], imageUrl: '/emoji/wave_custom.png' });
-  expect(emojis[2]).toMatchObject({ custom: true, customCategory: '横長', short_names: ['wide_banner'] });
-  expect(emojis[3]).toMatchObject({ custom: true, short_names: ['uncategorized'] });
+  expect(emojis.map(emoji => emoji.id)).toEqual(['wave_custom', 'remote_blob', 'hello_custom', 'wide_banner', 'uncategorized']);
+  expect(emojis[0]).toMatchObject({ custom: true, customCategory: 'あいさつ', short_names: ['wave_custom'], imageUrl: '/emoji/wave_custom.png', custom_emoji_id: '11' });
+  expect(emojis[0].domain).toBeUndefined();
+  expect(emojis[1]).toMatchObject({ custom_emoji_id: '90', domain: 'other.example' });
+  expect(emojis[3]).toMatchObject({ custom: true, customCategory: '横長', short_names: ['wide_banner'] });
+  expect(emojis[4]).toMatchObject({ custom: true, short_names: ['uncategorized'] });
 
   rerender(<IntlProvider locale='en'><StandardPicker onPick={jest.fn()} skinTone={1} onSkinToneChange={jest.fn()} /></IntlProvider>);
   const preview = EmojiPickerShell.mock.calls[EmojiPickerShell.mock.calls.length - 1][0].standardPickerProps;

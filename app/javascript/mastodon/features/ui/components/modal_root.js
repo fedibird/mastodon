@@ -27,6 +27,7 @@ import {
 import ReactionModal from './reaction_modal';
 import CompareHistoryModal from './compare_history_modal';
 import EmojiReactionFilterModal from './emoji_reaction_filter_modal';
+import HashtagMuteModal from './hashtag_mute_modal';
 
 const MODAL_COMPONENTS = {
   'MEDIA': () => Promise.resolve({ default: MediaModal }),
@@ -49,6 +50,7 @@ const MODAL_COMPONENTS = {
   'REACTION': () => Promise.resolve({ default: ReactionModal }),
   'COMPARE_HISTORY': () => Promise.resolve({ default: CompareHistoryModal }),
   'EMOJI_REACTION_FILTER': () => Promise.resolve({ default: EmojiReactionFilterModal }),
+  'HASHTAG_MUTE': () => Promise.resolve({ default: HashtagMuteModal }),
 };
 
 export default class ModalRoot extends React.PureComponent {
@@ -82,7 +84,7 @@ export default class ModalRoot extends React.PureComponent {
   }
 
   renderLoading = modalId => () => {
-    return ['MEDIA', 'VIDEO', 'BOOST', 'CONFIRM', 'ACTIONS', 'CALENDAR', 'REACTION', 'COMPARE_HISTORY', 'EMOJI_REACTION_FILTER'].indexOf(modalId) === -1 ? <ModalLoading /> : null;
+    return ['MEDIA', 'VIDEO', 'BOOST', 'CONFIRM', 'ACTIONS', 'CALENDAR', 'REACTION', 'COMPARE_HISTORY', 'EMOJI_REACTION_FILTER', 'HASHTAG_MUTE'].indexOf(modalId) === -1 ? <ModalLoading /> : null;
   }
 
   renderError = (props) => {

@@ -39,6 +39,7 @@ const messages = defineMessages({
   loading: { id: 'emoji_picker.stock_loading', defaultMessage: 'Loading emojis' },
   error: { id: 'emoji_picker.stock_error', defaultMessage: 'Could not load emojis' },
   retry: { id: 'emoji_picker.stock_retry', defaultMessage: 'Try again' },
+  held: { id: 'emoji_picker.mutes_unavailable', defaultMessage: 'Emoji choices stay hidden until mute rules are confirmed.' },
 });
 
 class CategoryHeading extends React.PureComponent {
@@ -100,6 +101,10 @@ class StockEmojiPicker extends React.PureComponent {
     selectedCategoryId: PropTypes.string,
     editMode: PropTypes.bool,
     actionsEnabled: PropTypes.bool,
+    candidatesHeld: PropTypes.bool,
+    holdError: PropTypes.bool,
+    onHoldRetry: PropTypes.func,
+    sourceEmpty: PropTypes.bool,
   };
 
   static defaultProps = {
@@ -115,6 +120,7 @@ class StockEmojiPicker extends React.PureComponent {
     theme: 'light',
     editMode: false,
     actionsEnabled: true,
+    candidatesHeld: false,
   };
 
   state = {
@@ -145,6 +151,14 @@ class StockEmojiPicker extends React.PureComponent {
   componentDidUpdate(prevProps) {
     if (this.props.autoFocus && !prevProps.autoFocus) {
       this.focusSearch();
+    }
+
+    if (prevProps.stock !== this.props.stock || prevProps.query !== this.props.query || prevProps.candidatesHeld !== this.props.candidatesHeld) {
+      const items = this.props.candidatesHeld ? [] : this.flatItems(this.visibleStock());
+
+      if (this.state.activeKey && !items.some(item => item.key === this.state.activeKey)) {
+        this.setState({ activeKey: null });
+      }
     }
 
     if (this.props.selectedCategoryId && (
@@ -740,11 +754,14 @@ class StockEmojiPicker extends React.PureComponent {
     const active = item.key === this.state.activeKey;
     const custom = item.selection && item.selection.custom;
     const reference = referenceFromStockItem(item);
-    const actionDataset = datasetFromReference(reference);
-    const actionProps = {
+    const actionDataset = actionsEnabled ? datasetFromReference(reference) : {};
+    // The document-level menu listener also watches data-emoji-actions.
+    // Leave that marker off when picker actions are disabled; this does not
+    // disable personal-set data, searching, or ordinary emoji insertion.
+    const actionProps = actionsEnabled ? {
       'data-emoji-actions': '1',
       'data-emoji-source': 'personal_picker',
-    };
+    } : {};
 
     if (actionDataset.emojiKind) actionProps['data-emoji-kind'] = actionDataset.emojiKind;
     if (actionDataset.emojiNative) actionProps['data-emoji-native'] = actionDataset.emojiNative;
@@ -821,7 +838,9 @@ class StockEmojiPicker extends React.PureComponent {
     const hasVisible = visible.categories.some(category => category.items.length > 0);
     let status = null;
 
-    if (!hasVisible && !normalizeSearchKey(query) && isEmptyEmojiStock(stock)) {
+    const catalogueEmpty = this.props.sourceEmpty !== undefined ? this.props.sourceEmpty : isEmptyEmojiStock(stock);
+
+    if (!hasVisible && !normalizeSearchKey(query) && catalogueEmpty) {
       status = this.renderStatus('emoji-stock-picker__empty', 'empty');
     } else if (!hasVisible) {
       status = this.renderStatus('emoji-stock-picker__none', 'notFound');
@@ -837,7 +856,7 @@ class StockEmojiPicker extends React.PureComponent {
   }
 
   renderBody() {
-    const { status } = this.props;
+    const { intl, status } = this.props;
 
     if (status === 'loading') {
       return this.renderStatus('emoji-stock-picker__loading', 'loading');
@@ -845,6 +864,20 @@ class StockEmojiPicker extends React.PureComponent {
 
     if (status === 'error') {
       return this.renderStatus('emoji-stock-picker__error', 'error');
+    }
+
+    if (this.props.candidatesHeld) {
+      return (
+        <React.Fragment>
+          {this.renderSearch()}
+          {this.renderStatus('emoji-stock-picker__held', 'held')}
+          {this.props.holdError && (
+            <button type='button' className='emoji-stock-picker__retry' onClick={this.props.onHoldRetry}>
+              {intl.formatMessage(messages.retry)}
+            </button>
+          )}
+        </React.Fragment>
+      );
     }
 
     return this.renderResults();

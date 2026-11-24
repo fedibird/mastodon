@@ -1,5 +1,8 @@
 import { fromJS } from 'immutable';
 
+import { buildReplaceInTextIndex } from 'mastodon/features/emoji/emoji_mute_text';
+import { concealImageDerivedSegments, hashtagIdentityFromNode, projectHashtagLabel } from 'mastodon/features/emoji/hashtag_menu_names';
+
 import { collectCopyHashtags, collectStatusHashtags, computeStatusHashtagBadges, isHashtagMenuLink, localeAwareInclude, splitTrailingHashtags, stripMatchingTrailingHashtags, trailingHashtagsEqual, uniqueHashtagsWithCaseHandling } from '../status_hashtags';
 
 function anchor(name, { href, rel = 'tag', classes = 'mention hashtag' } = {}) {
@@ -380,7 +383,7 @@ describe('collectStatusHashtags', () => {
 
     expect(collectStatusHashtags(html).map(hashtag => hashtag.text)).toEqual([
       '#one',
-      '#two',
+      '＃two',
       '#three',
     ]);
   });
@@ -390,6 +393,16 @@ describe('collectStatusHashtags', () => {
 
     expect(collectStatusHashtags(html)).toEqual([]);
     expect(isHashtagMenuLink(null)).toBe(false);
+  });
+
+  it('keeps an emoji image alt and skips a photo alt', () => {
+    const html = `<p><a class="mention hashtag" href="https://example.com/topics/party">#<span>party<img class="emojione" alt="👍" src="/emoji/1f44d.svg"><img src="/media/photo.jpg" alt="landscape"></span></a> ${anchor('garden')}</p>`;
+
+    expect(collectStatusHashtags(html).map(hashtag => hashtag.text)).toEqual(['#party👍', '#garden']);
+    expect(collectCopyHashtags(html, [
+      { name: 'party👍', url: 'https://example.com/topics/party' },
+      { name: 'garden', url: 'https://example.com/tags/garden' },
+    ]).map(hashtag => hashtag.text)).toEqual(['#party👍', '#garden']);
   });
 
   it('does not execute scripts while collecting hashtags', () => {
@@ -703,6 +716,32 @@ describe('collectCopyHashtags', () => {
     ]).map(hashtag => hashtag.text)).toEqual(['#foo', '#bar']);
   });
 
+  it('treats a fullwidth hash as the same tag without dropping its mark', () => {
+    const full = '<a href="https://remote.example/tags/two" class="mention hashtag" rel="tag">＃two</a>';
+    const half = '<a href="https://example.com/tags/two" class="mention hashtag" rel="tag">#<span>Two</span></a>';
+    const html = `<p>See ${full} ${half}<br><br>${full}</p>`;
+    const translation = '<p>訳 <a href="https://remote.example/tags/two" class="mention hashtag" rel="tag">#<span>ふたつ</span></a></p>';
+    const tags = [
+      { name: 'two', url: 'https://example.com/tags/two' },
+      { name: 'extra', url: 'https://example.com/tags/extra' },
+    ];
+
+    expect(collectStatusHashtags(html)).toEqual([
+      expect.objectContaining({ name: 'two', text: '＃two' }),
+    ]);
+    expect(collectStatusHashtags(translation).map(hashtag => hashtag.text)).toEqual(['#ふたつ']);
+    expect(collectCopyHashtags(html, tags).map(hashtag => hashtag.text)).toEqual(['＃two', '#extra']);
+    expect(collectCopyHashtags(html, fromJS(tags)).map(hashtag => hashtag.name)).toEqual(['two', 'extra']);
+    expect(collectCopyHashtags(translation, tags).map(hashtag => hashtag.text)).not.toContain('＃two');
+
+    const badges = computeStatusHashtagBadges(html, tags);
+
+    expect(badges.html).toContain('＃two');
+    expect(badges.hashtags.map(hashtag => hashtag.text)).toEqual(['#extra']);
+    expect(badges.hashtags.map(hashtag => hashtag.name)).not.toContain('＃two');
+    expect(computeStatusHashtagBadges(translation, tags).hashtags.map(hashtag => hashtag.name)).toEqual(['two', 'extra']);
+  });
+
   it('keeps the visible spelling when the API name differs only by case or NFKC', () => {
     const html = `<p>${anchor('FediBird')} ${anchor('Ａ')}</p>`;
 
@@ -711,5 +750,78 @@ describe('collectCopyHashtags', () => {
       { name: 'a', url: 'https://example.com/tags/a' },
       { name: 'bar', url: 'https://example.com/tags/bar' },
     ])).map(hashtag => hashtag.text)).toEqual(['#FediBird', '#Ａ', '#bar']);
+  });
+
+  it('drops leading space before the hash and does not copy that tag twice', () => {
+    const spaced = document.createElement('a');
+    const wide = document.createElement('a');
+
+    spaced.innerHTML = ' #tag ';
+    wide.innerHTML = ' ＃tag';
+
+    expect(hashtagIdentityFromNode(spaced)).toEqual(expect.objectContaining({ name: 'tag', mark: '#' }));
+    expect(hashtagIdentityFromNode(wide)).toEqual(expect.objectContaining({ name: 'tag', mark: '＃' }));
+
+    const html = '<p><a href="https://example.com/tags/tag" class="mention hashtag" rel="tag"> ＃tag </a></p>';
+
+    expect(collectCopyHashtags(html, fromJS([
+      { name: 'tag', url: 'https://example.com/tags/tag' },
+    ])).map(hashtag => hashtag.text)).toEqual(['＃tag']);
+  });
+
+  it('keeps a keycap when the hash mark sits outside the anchor', () => {
+    const html = '<p>#<a href="https://example.com/tags/fun" class="mention hashtag" rel="tag"><img class="emojione" alt="#️⃣" src="/emoji/23-20e3.svg">fun</a></p>';
+    const inside = '<p><a href="https://example.com/tags/fun" class="mention hashtag" rel="tag">#<img class="emojione" alt="#️⃣" src="/emoji/23-20e3.svg">fun</a></p>';
+
+    expect(collectStatusHashtags(html)).toEqual([
+      expect.objectContaining({ name: '#️⃣fun', text: '##️⃣fun' }),
+    ]);
+    expect(collectStatusHashtags(inside)).toEqual([
+      expect.objectContaining({ name: '#️⃣fun', text: '##️⃣fun' }),
+    ]);
+    expect(collectCopyHashtags(html, fromJS([
+      { name: '#️⃣fun', url: 'https://example.com/tags/fun' },
+    ])).map(hashtag => hashtag.text)).toEqual(['##️⃣fun']);
+  });
+});
+
+describe('verified custom emoji badges', () => {
+  it('projects an image-derived trailing badge and leaves a typed shortcode', () => {
+    const image = '<img class="emojione custom-emoji" alt=":blob:" data-shortcode="blob" data-domain="" data-emoji-id="7" src="https://cdn.example/blob.png">';
+    const html = `<p>See<br><br><a href="https://example.com/tags/party" class="mention hashtag" rel="tag">#party${image}</a> <a href="https://example.com/tags/typed" class="mention hashtag" rel="tag">#party:blob:</a></p>`;
+    const badges = computeStatusHashtagBadges(html, []);
+    const custom = badges.hashtags.find(hashtag => hashtag.href.includes('/party'));
+    const typedAnchor = document.createElement('a');
+    const index = buildReplaceInTextIndex([{
+      emoji: { kind: 'custom', scope: 'local', custom_emoji_id: '7', shortcode: 'blob' },
+      replacement: '[hidden]',
+      effects: { replace_in_text: true },
+    }]);
+
+    typedAnchor.innerHTML = '#party:blob:';
+    const typed = hashtagIdentityFromNode(typedAnchor);
+
+    expect(custom.images).toEqual([expect.objectContaining({ custom: true, id: '7', shortcode: 'blob' })]);
+    expect(projectHashtagLabel(custom.name, custom.imageRanges, index, custom.images)).toBe('party[hidden]');
+    expect(typed.images).toEqual([]);
+    expect(projectHashtagLabel(typed.name, typed.imageRanges, index, typed.images)).toBe('party:blob:');
+  });
+});
+
+describe('image-derived shortcode fallback', () => {
+  it('hides an image shortcode and leaves a typed shortcode', () => {
+    const name = 'party:blob::typed:';
+    const ranges = [[5, 11]];
+
+    expect(concealImageDerivedSegments('Details: :blob:', name, ranges)).toBe('Details: \u25FB');
+    expect(concealImageDerivedSegments('Details: :typed:', name, ranges)).toBe('Details: :typed:');
+  });
+});
+
+describe('overlapping hashtag image ranges', () => {
+  it('hides each image-derived copy when the name overlaps itself', () => {
+    const hidden = concealImageDerivedSegments('a:blob:a:blob:a', 'a:blob:a', [[1, 7]]);
+
+    expect(hidden).toBe(`a${'\u25FB'}a${'\u25FB'}a`);
   });
 });

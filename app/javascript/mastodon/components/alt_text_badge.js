@@ -3,6 +3,7 @@ import PropTypes from 'prop-types';
 import { FormattedMessage } from 'react-intl';
 import Overlay from 'react-overlays/Overlay';
 import { languages as preloadedLanguages } from 'mastodon/initial_state';
+import { rememberAltPopoverSource } from 'mastodon/features/emoji/emoji_mute_live_dom';
 
 const languageLabel = code => {
   if (!code) {
@@ -22,6 +23,8 @@ class AltTextBadge extends React.PureComponent {
     description: PropTypes.string,
     originalDescription: PropTypes.string,
     translatedDescription: PropTypes.string,
+    rawOriginal: PropTypes.string,
+    rawTranslated: PropTypes.string,
     sourceLang: PropTypes.string,
     targetLang: PropTypes.string,
     mode: PropTypes.oneOf(['original', 'translated', 'bilingual']),
@@ -47,9 +50,9 @@ class AltTextBadge extends React.PureComponent {
 
   handleMouseUp = (e) => {
     const maxDelta = 5;
-    const {clientX: startX, clientY: startY} = this.state;
+    const { clientX: startX, clientY: startY } = this.state;
 
-    if (startX == null) {
+    if (startX === null) {
       return;
     }
 
@@ -85,6 +88,47 @@ class AltTextBadge extends React.PureComponent {
 
   setRef = (c) => {
     this.node = c;
+  }
+
+  setPopover = (node) => {
+    this.popover = node;
+    this.bindPopoverSources();
+  }
+
+  bindPopoverSources = () => {
+    const popover = this.popover;
+
+    if (!popover) {
+      return;
+    }
+
+    const rawOriginal = this.props.rawOriginal ?? this.props.originalDescription ?? this.props.description ?? '';
+    const rawTranslated = this.props.rawTranslated ?? this.props.translatedDescription ?? '';
+    const translated = this.props.translatedDescription || '';
+    const mode = this.props.mode || (translated ? 'translated' : 'original');
+    const showTranslated = mode !== 'original' && translated;
+    const source = popover.querySelector('.status-translation-pair__source');
+    const target = popover.querySelector('.status-translation-pair__target');
+
+    if (source) {
+      rememberAltPopoverSource(source, rawOriginal);
+    }
+
+    if (target) {
+      rememberAltPopoverSource(target, rawTranslated);
+    }
+
+    if (!source && !target) {
+      const single = Array.from(popover.querySelectorAll('p')).find(paragraph => !paragraph.classList.contains('media-gallery__alt__meta'));
+
+      if (single) {
+        rememberAltPopoverSource(single, showTranslated ? rawTranslated : rawOriginal);
+      }
+    }
+  }
+
+  componentDidUpdate() {
+    this.bindPopoverSources();
   }
 
   render () {
@@ -128,6 +172,7 @@ class AltTextBadge extends React.PureComponent {
               <div
                 className='media-gallery__alt__popover dropdown-animation'
                 role='region'
+                ref={this.setPopover}
                 onMouseDown={this.handleMouseDown}
                 onMouseUp={this.handleMouseUp}
               >

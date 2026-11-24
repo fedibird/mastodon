@@ -244,7 +244,9 @@ describe('emoji actions menu integration with picker outside-click', () => {
     const reference = { kind: 'unicode', native: '😀' };
 
     act(() => {
-      openEmojiActions(reference, { anchor, source: 'emoji_detail' });
+      // From the detail column, details navigation is intentionally omitted.
+      // Here the picker is the source, so navigation must remain available.
+      openEmojiActions(reference, { anchor, source: 'standard_picker' });
     });
 
     const detailItem = await screen.findByRole('button', { name: 'Emoji details' });

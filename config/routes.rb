@@ -636,6 +636,7 @@ Rails.application.routes.draw do
           get :stock
           post :resolve
           post 'categories/:category_id/items', to: 'personal/items#create', constraints: { category_id: /[A-Za-z0-9_-]{1,64}/ }
+          delete 'categories/:category_id/items', to: 'personal/items#destroy', constraints: { category_id: /[A-Za-z0-9_-]{1,64}/ }
         end
       end
 
@@ -688,6 +689,7 @@ Rails.application.routes.draw do
         resources :statuses, only: [:index]
       end
       resources :filters,         only: [:index, :create, :show, :update, :destroy]
+      resources :hashtag_mutes,   only: [:index, :create, :update, :destroy]
       resources :endorsements,    only: [:index]
       resources :markers,         only: [:index, :create]
       namespace :profile do
@@ -715,6 +717,7 @@ Rails.application.routes.draw do
           resource :resolve, only: :create, controller: :resolve
         end
         resources :emoji_mutes, only: [:index, :create, :update, :destroy]
+        resource :emoji_mute_preference, only: [:show, :update], controller: :emoji_mute_preferences
 
         post 'filters/matches', to: 'filters/matches#create'
         resource :preferences, only: [:show]

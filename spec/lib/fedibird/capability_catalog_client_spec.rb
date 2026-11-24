@@ -35,6 +35,7 @@ RSpec.describe Fedibird::CapabilityCatalog do
       expect(contextual.dig(:emoji_details, :read_scopes_any)).to eq(%w(read read:accounts))
       expect(contextual.dig(:emoji_details, :read_only)).to be(true)
       expect(contextual.dig(:personal_emoji_sets, :category_item_path)).to eq('/api/v1/emoji_sets/personal/categories/:category_id/items')
+      expect(contextual.dig(:personal_emoji_sets, :category_item_methods)).to eq(%w(POST DELETE))
       expect(contextual.dig(:personal_emoji_sets, :write_scopes_any)).to eq(%w(write write:accounts))
       expect(contextual).not_to have_key(:emoji_mutes)
       expect(contextual).not_to have_key(:emoji_registration_requests)

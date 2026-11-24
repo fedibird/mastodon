@@ -770,6 +770,92 @@ describe('emoji mute projection', () => {
     expect(calls.filter(url => url.includes('/api/v1/statuses?'))).toHaveLength(restoredCalls);
   });
 
+  it('restores withheld statuses on the first bootstrap without refreshing notifications', async () => {
+    resetEmojiMuteStoreForTests();
+    installEmojiMutesForTests({ revision: '5', emoji_mutes: [] });
+    const calls = [];
+    const account = {
+      id: 'author',
+      username: 'author',
+      acct: 'author',
+      display_name: 'Author',
+      url: 'https://example.test/@author',
+      note: '',
+      followed_message: '',
+      emojis: [],
+      fields: [],
+    };
+    api.mockImplementation(() => ({
+      get: url => {
+        calls.push(String(url));
+
+        if (String(url).includes('/api/v1/fedibird/emoji_mutes')) {
+          return Promise.resolve({ data: { revision: '5', emoji_mutes: [] } });
+        }
+
+        if (String(url).includes('/api/v1/statuses?')) {
+          return Promise.resolve({
+            data: [{
+              id: 'pending',
+              account,
+              content: '<p>post</p>',
+              spoiler_text: '',
+              emojis: [],
+              media_attachments: [],
+              mentions: [],
+              emoji_reactions: [{ name: '😀', count: 1, account_ids: ['3'] }],
+              emoji_reactions_count: 1,
+              emoji_mutes_revision: '5',
+            }],
+          });
+        }
+
+        if (String(url).includes('unread_count')) {
+          return Promise.resolve({ data: { count: 1 } });
+        }
+
+        return Promise.resolve({ data: [] });
+      },
+      put: jest.fn(() => Promise.resolve({ data: {} })),
+    }));
+
+    let state = fromJS({
+      statuses: {
+        pending: { emoji_reactions_withheld: true },
+      },
+      accounts: {},
+      timelines: { home: { items: ['pending'] } },
+      contexts: {},
+      notifications: { items: [], pendingItems: [], lastReadId: '0', unread: 0 },
+    });
+    const getState = () => state;
+    const dispatch = action => {
+      if (typeof action === 'function') {
+        return action(dispatch, getState);
+      }
+
+      if (action.type === STATUSES_IMPORT || action.type === STATUS_IMPORT) {
+        state = state.set('statuses', reducer(state.get('statuses'), action));
+      }
+
+      return action;
+    };
+
+    await syncEmojiMutes({ bootstrap: true })(dispatch, getState);
+    expect(calls.filter(url => url.includes('/api/v1/statuses?')).join(' ')).toContain('ids[]=pending');
+    expect(calls.some(url => url.includes('/api/v1/notifications'))).toBe(false);
+    expect(state.getIn(['statuses', 'pending', 'emoji_reactions_withheld'])).toBeUndefined();
+
+    calls.length = 0;
+    await syncEmojiMutes()(dispatch, getState);
+    expect(calls.some(url => url.includes('/api/v1/statuses?'))).toBe(false);
+    expect(calls.some(url => url.includes('/api/v1/notifications'))).toBe(false);
+
+    calls.length = 0;
+    await syncEmojiMutes({ reconnect: true })(dispatch, getState);
+    expect(calls.some(url => url.includes('/api/v1/notifications') && !url.includes('unread'))).toBe(true);
+  });
+
   it('limits initial recovery to explicitly withheld reactions and waits until rules are ready', () => {
     resetEmojiMuteStoreForTests();
     const state = fromJS({
@@ -1023,6 +1109,70 @@ describe('emoji mute projection', () => {
       expect(fetched).toEqual(expect.stringContaining(`ids[]=${id}`));
     });
     expect(calls.filter(url => url.includes('ids[]=1')).length).toBeGreaterThan(1);
+  });
+
+  it('counts a reaction notification that arrives before the rules and is then restored', () => {
+    resetEmojiMuteStoreForTests();
+    const withheld = notificationsReducer(fromJS({
+      items: [],
+      pendingItems: [],
+      unread: 0,
+      lastReadId: '0',
+      readMarkerId: '0',
+      top: false,
+      mounted: 0,
+      isTabVisible: true,
+      hasMore: true,
+    }), {
+      type: 'NOTIFICATIONS_UPDATE',
+      notification: {
+        id: '8',
+        type: 'emoji_reaction',
+        account: { id: '1' },
+        emoji_reaction: { name: '😀' },
+      },
+    });
+    expect(withheld.get('unread')).toBe(0);
+    expect(withheld.get('emojiMuteWithheld').size).toBe(1);
+
+    installEmojiMutesForTests({ revision: '1', emoji_mutes: [] });
+    const restored = notificationsReducer(withheld, { type: EMOJI_MUTES_APPLY, mutes: [], revision: '1' });
+    expect(restored.get('items').map(item => item.get('id')).toJS()).toEqual(['8']);
+    expect(restored.get('unread')).toBe(1);
+  });
+
+  it('adjusts unread by the restored or hidden rows and keeps the unloaded total', () => {
+    resetEmojiMuteStoreForTests();
+    const base = fromJS({
+      items: [{ id: '4', type: 'mention', account: { id: '1' } }],
+      pendingItems: [],
+      unread: 10,
+      lastReadId: '5',
+      top: false,
+      mounted: 0,
+      isTabVisible: true,
+      hasMore: true,
+    });
+    const withheld = notificationsReducer(base, {
+      type: 'NOTIFICATIONS_UPDATE',
+      notification: {
+        id: '8',
+        type: 'emoji_reaction',
+        account: { id: '1' },
+        emoji_reaction: { name: '😀' },
+      },
+    });
+    expect(withheld.get('unread')).toBe(10);
+
+    installEmojiMutesForTests({ revision: '1', emoji_mutes: [] });
+    const restored = notificationsReducer(withheld, { type: EMOJI_MUTES_APPLY, mutes: [], revision: '1' });
+    expect(restored.get('items').some(item => item.get('id') === '8')).toBe(true);
+    expect(restored.get('unread')).toBe(11);
+
+    const hide = [{ effects: { hide_reactions: true }, emoji: { kind: 'unicode', native: '😀' } }];
+    const hidden = notificationsReducer(restored, { type: EMOJI_MUTES_APPLY, mutes: hide, revision: '2' });
+    expect(hidden.get('items').some(item => item.get('id') === '8')).toBe(false);
+    expect(hidden.get('unread')).toBe(10);
   });
 
   it('does not restore a withheld notification after clear, block, or a filter change', () => {
@@ -1522,6 +1672,7 @@ describe('emoji mute projection', () => {
 
   it('registers the mute change event for EventSource', () => {
     expect(KNOWN_EVENT_TYPES).toContain('emoji_mutes_changed');
+    expect(KNOWN_EVENT_TYPES).toContain('emoji_mute_preference');
     expect(reactionNameHidden('‼️', null, [{ effects: { hide_reactions: true }, emoji: { kind: 'unicode', native: '‼' } }])).toBe(false);
     expect(reactionNameHidden('1⃣', null, [{ effects: { hide_reactions: true }, emoji: { kind: 'unicode', native: '1️⃣' } }])).toBe(false);
   });

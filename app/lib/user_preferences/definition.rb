@@ -79,7 +79,9 @@ class UserPreferences::Definition
       motion,
       emoji_picker_prefer_personal,
       emoji_picker_disable_personal,
+      emoji_picker_disable_standard,
       emoji_picker_disable_actions,
+      emoji_actions_disable_personal_remove,
       emoji_picker_lazy_load_standard,
       fallback_policy,
       preferred_language,
@@ -296,12 +298,32 @@ class UserPreferences::Definition
     )
   end
 
+  def self.emoji_picker_disable_standard
+    boolean(
+      key: 'emoji_picker_disable_standard',
+      category: :appearance,
+      default_source: 'config/settings.yml emoji_picker_disable_standard false by default. When true, the standard picker and its module/catalog are not loaded; if the personal picker is also disabled, no emoji picker is available.',
+      source_refs: ['config/settings.yml', 'app/lib/user_preferences/reader.rb', 'app/javascript/mastodon/initial_state.js', 'app/views/settings/custom_emojis/settings/show.html.haml'],
+      apply_hint: :reload
+    )
+  end
+
   def self.emoji_picker_disable_actions
     boolean(
       key: 'emoji_picker_disable_actions',
       category: :appearance,
       default_source: 'config/settings.yml emoji_picker_disable_actions false by default. When true, action menus and gesture handlers are disabled only inside emoji pickers.',
       source_refs: ['config/settings.yml', 'app/lib/user_preferences/reader.rb', 'app/javascript/mastodon/features/emoji/emoji_picker_shell.js', 'app/views/settings/custom_emojis/settings/show.html.haml'],
+      apply_hint: :reload
+    )
+  end
+
+  def self.emoji_actions_disable_personal_remove
+    boolean(
+      key: 'emoji_actions_disable_personal_remove',
+      category: :appearance,
+      default_source: 'config/settings.yml emoji_actions_disable_personal_remove false by default. A stored false stays false. When true, the emoji action menu cannot remove a personal-set registration. Adding to a set and editing on the personal set page stay available. The next full page load applies the value.',
+      source_refs: ['config/settings.yml', 'app/lib/user_preferences/reader.rb', 'app/javascript/mastodon/initial_state.js', 'app/javascript/mastodon/features/ui/components/emoji_actions_menu_controller.js', 'app/views/settings/custom_emojis/settings/show.html.haml'],
       apply_hint: :reload
     )
   end

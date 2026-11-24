@@ -71,6 +71,22 @@ describe('status notifications from normalized Redux entities', () => {
     expect(screen.getByRole('link', { name: 'Booster' })).toHaveAttribute('href', booster.url);
   });
 
+  it('suppresses emoji in a follow notification display name and keeps a photo', () => {
+    const emojiName = 'Booster <img class="emojione" alt="👌" title="👌" src="/emoji/1f44c.svg"><img src="/media/x.jpg" alt="👌" srcset="/media/x.jpg 2x">';
+    const follow = fromJS({ id: '11', type: 'follow', account: 'booster', created_at: '2026-10-17T00:00:00Z' });
+    mount({
+      accounts: { booster: { ...booster, display_name_html: emojiName } },
+      statuses: {},
+      emojiMutes: { display: 'suppress', rules: [] },
+    }, 'en', en, follow);
+
+    expect(document.querySelector('img.emojione')).toBeNull();
+    expect(document.body.innerHTML).not.toContain('/emoji/1f44c.svg');
+    expect(document.body.innerHTML).not.toContain('👌');
+    expect(document.querySelector('img[src="/media/x.jpg"]').getAttribute('alt')).toBe('◻');
+    expect(document.querySelector('img[src="/media/x.jpg"]').getAttribute('srcset')).toBe('/media/x.jpg 2x');
+  });
+
   it.each([
     {},
     { wrapper: { id: 'wrapper', account: 'booster' } },

@@ -7,8 +7,10 @@ import { IntlProvider, addLocaleData } from 'react-intl';
 import { getLocale } from '../locales';
 import Compose from '../features/standalone/compose';
 import initialState from '../initial_state';
-import { fetchCircles } from '../actions/circles';
+import { prefetchCircles } from '../actions/circles';
 import { ensureCustomEmojis } from '../actions/custom_emojis';
+import { bootStandaloneEmojiMutes } from '../actions/emoji_mutes';
+import StandaloneEmojiMuteRetry from '../features/emoji/standalone_emoji_mute_retry';
 import { preloadCustomEmojiCatalogIfNeeded, preloadStandardEmojiPickerIfNeeded } from '../features/emoji/emoji_picker_preferences';
 
 const { localeData, messages } = getLocale();
@@ -20,7 +22,8 @@ if (initialState) {
   store.dispatch(hydrateStore(initialState));
 }
 
-store.dispatch(fetchCircles());
+store.dispatch(prefetchCircles());
+store.dispatch(bootStandaloneEmojiMutes());
 preloadStandardEmojiPickerIfNeeded();
 // Standalone compose needs the standard catalog but not the private stock.
 preloadCustomEmojiCatalogIfNeeded(() => store.dispatch(ensureCustomEmojis()));
@@ -37,6 +40,7 @@ export default class TimelineContainer extends React.PureComponent {
     return (
       <IntlProvider locale={locale} messages={messages}>
         <Provider store={store}>
+          <StandaloneEmojiMuteRetry />
           <Compose />
         </Provider>
       </IntlProvider>

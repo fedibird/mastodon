@@ -9,6 +9,7 @@ import { displayMedia, useBlurhash } from '../../initial_state';
 import Icon from 'mastodon/components/icon';
 import Blurhash from 'mastodon/components/blurhash';
 import Thumbhash from 'mastodon/components/thumbhash';
+import { bindEmojiMuteElementSource } from 'mastodon/features/emoji/emoji_mute_sources';
 
 const messages = defineMessages({
   play: { id: 'video.play', defaultMessage: 'Play' },
@@ -103,6 +104,7 @@ class Video extends React.PureComponent {
     frameRate: PropTypes.string,
     src: PropTypes.string.isRequired,
     alt: PropTypes.string,
+    emojiMuteSource: PropTypes.string,
     lang: PropTypes.string,
     width: PropTypes.number,
     height: PropTypes.number,
@@ -165,8 +167,15 @@ class Video extends React.PureComponent {
     });
   }
 
+  bindEmojiMuteSource () {
+    if (this.video && typeof this.props.emojiMuteSource === 'string') {
+      bindEmojiMuteElementSource(this.video, this.props.emojiMuteSource);
+    }
+  }
+
   setVideoRef = c => {
     this.video = c;
+    this.bindEmojiMuteSource();
 
     if (this.video) {
       this.setState({ volume: this.video.volume, muted: this.video.muted });
@@ -367,6 +376,7 @@ class Video extends React.PureComponent {
   }
 
   componentDidMount () {
+    this.bindEmojiMuteSource();
     document.addEventListener('fullscreenchange', this.handleFullscreenChange, true);
     document.addEventListener('webkitfullscreenchange', this.handleFullscreenChange, true);
     document.addEventListener('mozfullscreenchange', this.handleFullscreenChange, true);
@@ -402,6 +412,8 @@ class Video extends React.PureComponent {
   }
 
   componentDidUpdate (prevProps, prevState) {
+    this.bindEmojiMuteSource();
+
     if (prevState.revealed && !this.state.revealed && this.video) {
       this.video.pause();
     }

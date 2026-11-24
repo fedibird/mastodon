@@ -52,7 +52,13 @@ RSpec.describe Api::V1::EmojiReactionsController, type: :controller do
   end
 
   def reaction_lookup_queries(queries)
-    queries.select { |sql| sql.match?(/"emoji_reactions"\."id" IN \(/) && sql.exclude?('NOT EXISTS') }
+    # The projection privacy predicate also has NOT EXISTS, so classify the
+    # actual status lookup by its JOIN, not by the absence of all NOT EXISTS.
+    queries.select do |sql|
+      sql.match?(/"emoji_reactions"\."id" IN \(/) &&
+        sql.include?('INNER JOIN "statuses"') &&
+        sql.exclude?('earlier.id')
+    end
   end
 
   def in_list_size(sql)
@@ -71,6 +77,14 @@ RSpec.describe Api::V1::EmojiReactionsController, type: :controller do
     return [] if href.blank?
 
     Array(Rack::Utils.parse_nested_query(URI(href).query)[key])
+  end
+
+  it 'recognizes reaction lookup SQL even when projection privacy uses NOT EXISTS' do
+    representative_scan = 'SELECT id FROM emoji_reactions WHERE NOT EXISTS (SELECT 1 WHERE earlier.id < emoji_reactions.id)'
+    lookup = 'SELECT emoji_reactions.* FROM "emoji_reactions" INNER JOIN "statuses" ON "statuses"."id" = "emoji_reactions"."status_id" WHERE "emoji_reactions"."id" IN (1, 2) AND NOT EXISTS (SELECT 1 FROM external_status_projections)'
+
+    expect(reaction_lookup_queries([representative_scan, lookup])).to eq [lookup]
+    expect(in_list_size(lookup)).to eq 2
   end
 
   describe 'GET #index' do
@@ -99,6 +113,72 @@ RSpec.describe Api::V1::EmojiReactionsController, type: :controller do
 
         expect(response).to have_http_status(200)
         expect(status_ids).to eq [status_c.id.to_s, status_b.id.to_s, status_a.id.to_s]
+      end
+
+      context 'with post-date order' do
+        let!(:older_status) { Fabricate(:status, account: user.account) }
+        let!(:newer_status) { Fabricate(:status, account: user.account) }
+
+        before do
+          # Reverse the reaction id order relative to the post order.
+          insert_reaction(id: 800, status: older_status)
+          insert_reaction(id: 700, status: newer_status)
+        end
+
+        it 'keeps the representative reaction order by default' do
+          get :index
+
+          expect(status_ids).to eq [older_status.id.to_s, newer_status.id.to_s]
+        end
+
+        it 'orders by status id and uses it in the page links' do
+          get :index, params: { order: 'status', limit: 1 }
+
+          expect(status_ids).to eq [newer_status.id.to_s]
+          expect(link_param('next', 'max_id')).to eq newer_status.id.to_s
+          expect(link_param('prev', 'min_id')).to eq newer_status.id.to_s
+          expect(link_param('next', 'order')).to eq 'status'
+          expect(link_param('prev', 'order')).to eq 'status'
+        end
+
+        it 'paginates after a status id instead of a reaction id' do
+          get :index, params: { order: 'status', max_id: newer_status.id }
+
+          expect(status_ids).to eq [older_status.id.to_s]
+        end
+
+        it 'uses status id for min_id pagination' do
+          get :index, params: { order: 'status', min_id: older_status.id }
+
+          expect(status_ids).to eq [newer_status.id.to_s]
+        end
+
+        it 'uses status id for since_id pagination' do
+          get :index, params: { order: 'status', since_id: older_status.id }
+
+          expect(status_ids).to eq [newer_status.id.to_s]
+        end
+
+        it 'keeps the same reaction per status rule with emoji filtering' do
+          insert_reaction(id: 900, status: older_status, name: '🎉')
+          insert_reaction(id: 910, status: newer_status, name: '🎉')
+
+          get :index, params: { order: 'status', emojis: ['🎉'] }
+
+          expect(status_ids).to eq [newer_status.id.to_s, older_status.id.to_s]
+          expect(link_param('prev', 'order')).to eq 'status'
+          expect(link_values('prev', 'emojis')).to eq ['🎉']
+        end
+
+        it 'keeps the candidate scan bounded and sorted without a join' do
+          queries = capture_sql { get :index, params: { order: 'status', limit: 1 } }
+          candidates = candidate_queries(queries)
+
+          expect(candidates.size).to eq 1
+          expect(candidates.first).to match(/ORDER BY "emoji_reactions"."status_id" DESC/)
+          expect(candidates.first).not_to match(/JOIN/i)
+          expect(candidates.first).to match(/LIMIT/)
+        end
       end
 
       it 'returns only the first page of representative ids' do
@@ -480,6 +560,7 @@ RSpec.describe Api::V1::EmojiReactionsController, type: :controller do
         expect(status_ids).to eq [live.id.to_s, expired.id.to_s]
         expect(reaction_lookup_queries(queries).join).to match(/INNER JOIN "statuses" ON "statuses"\."deleted_at" IS NULL/)
         expect(reaction_lookup_queries(queries).join).not_to match(/expired_at IS NULL/)
+        expect(reaction_lookup_queries(queries).join).to include('external_status_projections')
       end
 
       it 'uses the same emoji page for compact responses' do
@@ -513,6 +594,20 @@ RSpec.describe Api::V1::EmojiReactionsController, type: :controller do
         expect(candidate[:sql]).not_to match(/GROUP BY/i)
         expect(kept).to match(/LEFT OUTER JOIN "media_attachments"/)
         expect(kept).to match(/"media_attachments"\."status_id" IS NULL/)
+      end
+
+      it 'keeps registration order with the media-only compatibility path' do
+        older_status = Fabricate(:status, account: user.account)
+        newer_status = Fabricate(:status, account: user.account)
+        Fabricate(:media_attachment, account: user.account, status: older_status)
+        Fabricate(:media_attachment, account: user.account, status: newer_status)
+        insert_reaction(id: 5100, status: newer_status)
+        insert_reaction(id: 5200, status: older_status)
+
+        get :index, params: { compact: true, only_media: true, limit: 1 }
+
+        expect(body_as_json[:statuses].map { |status| status[:id] }).to eq [older_status.id.to_s]
+        expect(link_param('next', 'max_id')).to eq '5200'
       end
 
       it 'keeps only_media on the existing filtered query' do
@@ -604,6 +699,33 @@ RSpec.describe Api::V1::EmojiReactionsController, type: :controller do
         expect(status_ids).to eq [live.id.to_s, expired.id.to_s]
         expect(reaction_lookup_queries(queries).join).to match(/INNER JOIN "statuses" ON "statuses"\."deleted_at" IS NULL/)
         expect(reaction_lookup_queries(queries).join).not_to match(/expired_at IS NULL/)
+        expect(reaction_lookup_queries(queries).join).to include('external_status_projections')
+      end
+
+      it 'keeps expired statuses when the emoji page is ordered by post date' do
+        expired = Fabricate(:status, account: user.account)
+        live = Fabricate(:status, account: user.account)
+        expired.update_column(:expired_at, 1.hour.ago)
+        insert_reaction(id: 710, status: expired)
+        insert_reaction(id: 720, status: live)
+
+        get :index, params: { order: 'status' }
+
+        expect(status_ids).to eq [live.id.to_s, expired.id.to_s]
+      end
+
+      it 'keeps expired statuses in the legacy media-filtered reaction page' do
+        expired = Fabricate(:status, account: user.account)
+        live = Fabricate(:status, account: user.account)
+        Fabricate(:media_attachment, account: user.account, status: expired)
+        Fabricate(:media_attachment, account: user.account, status: live)
+        expired.update_column(:expired_at, 1.hour.ago)
+        insert_reaction(id: 710, status: expired)
+        insert_reaction(id: 720, status: live)
+
+        get :index, params: { only_media: true }
+
+        expect(status_ids).to eq [live.id.to_s, expired.id.to_s]
       end
 
       it 'uses the same status order for compact responses' do

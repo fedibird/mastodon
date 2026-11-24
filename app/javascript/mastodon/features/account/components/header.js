@@ -13,6 +13,7 @@ import { counterRenderer } from 'mastodon/components/common_counter';
 import ShortNumber from 'mastodon/components/short_number';
 import Content from 'mastodon/components/content';
 import EmojiMutedHtml, { EmojiMutedTitle, bindCustomEmojiClick, unbindCustomEmojiClick, customEmojiTarget } from 'mastodon/components/emoji_muted_html';
+import { attachInlineEmojiMenus, handleInlineEmojiClick } from 'mastodon/features/emoji/emoji_actions/inline_emoji';
 import { NavLink } from 'react-router-dom';
 import DropdownMenuContainer from 'mastodon/containers/dropdown_menu_container';
 import NotificationSettings from './notification_settings';
@@ -120,6 +121,7 @@ class Header extends ImmutablePureComponent {
   }
 
   componentWillUnmount () {
+    this.detachInlineEmojiMenus?.();
     unbindCustomEmojiClick(this.node, this.handleEmojiClick);
     unbindCustomEmojiClick(this.node2, this.handleEmojiClick);
   }
@@ -127,23 +129,21 @@ class Header extends ImmutablePureComponent {
   _updateEmojiLinks () {
     bindCustomEmojiClick(this.node, this.handleEmojiClick);
     bindCustomEmojiClick(this.node2, this.handleEmojiClick);
+    this.detachInlineEmojiMenus?.();
+    const context = { source: 'inline_account_header', accountId: this.props.account?.get('id') };
+    const detachMain = attachInlineEmojiMenus(this.node, context);
+    const detachExtra = attachInlineEmojiMenus(this.node2, context);
+    this.detachInlineEmojiMenus = () => {
+      detachMain();
+      detachExtra();
+    };
   }
-
   handleEmojiClick = e => {
     const emoji = customEmojiTarget(e);
-
-    if (!emoji) {
-      return;
-    }
-
-    const shortcode = emoji.getAttribute('data-shortcode');
-    const domain = emoji.getAttribute('data-domain');
-
-    if (this.context.router) {
-      e.preventDefault();
-      e.stopPropagation();
-      this.context.router.history.push(`/emoji_detail/${shortcode}${domain ? `@${domain}` : ''}`);
-    }
+    handleInlineEmojiClick(e, emoji, this.context.router, {
+      source: 'inline_account_header',
+      accountId: this.props.account?.get('id'),
+    });
   }
 
   openEditProfile = () => {

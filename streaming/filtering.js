@@ -94,11 +94,43 @@ const filterReprFromRow = (row) => ({
   filter_action: ['warn', 'hide'][row.filter_action],
 });
 
+const normalizeHashtagName = (raw) => String(raw ?? '').trim().replace(/^[#＃]+/u, '').toLowerCase();
+
+const collectTagNames = (record, into) => {
+  const tags = record && record.tags;
+
+  if (!Array.isArray(tags)) {
+    return;
+  }
+
+  tags.forEach((tag) => {
+    const raw = typeof tag === 'string' ? tag : tag && tag.name;
+    const name = normalizeHashtagName(raw);
+
+    if (name) {
+      into.add(name);
+    }
+  });
+};
+
+const tagNamesForStatus = (status) => {
+  const names = new Set();
+
+  collectTagNames(status, names);
+
+  if (status && status.reblog && status.reblog !== status) {
+    collectTagNames(status.reblog, names);
+  }
+
+  return names;
+};
+
 const ensureCachedFilter = (cache, row) => {
   if (!cache[row.id]) {
     cache[row.id] = {
       keywords: [],
       statusIds: [],
+      tagNames: [],
       expires_at: row.expires_at,
       repr: filterReprFromRow(row),
     };
@@ -107,7 +139,7 @@ const ensureCachedFilter = (cache, row) => {
   return cache[row.id];
 };
 
-const buildCachedFilters = (keywordRows, statusRows) => {
+const buildCachedFilters = (keywordRows, statusRows, tagRows) => {
   const cache = {};
 
   (keywordRows || []).forEach((row) => {
@@ -121,6 +153,15 @@ const buildCachedFilters = (keywordRows, statusRows) => {
   (statusRows || []).forEach((row) => {
     const cached = ensureCachedFilter(cache, row);
     cached.statusIds.push(String(row.status_id));
+  });
+
+  (tagRows || []).forEach((row) => {
+    const cached = ensureCachedFilter(cache, row);
+    const name = normalizeHashtagName(row.tag_name);
+
+    if (name) {
+      cached.tagNames.push(name);
+    }
   });
 
   Object.keys(cache).forEach((key) => {
@@ -147,6 +188,7 @@ const candidateStatusIds = (status) => {
 const filteredResultsForStatus = (status, cachedFilters, now = new Date()) => {
   const searchIndex = searchIndexFromStatus(status);
   const statusIds = candidateStatusIds(status);
+  const tagNames = tagNamesForStatus(status);
   const filtered = [];
 
   Object.values(cachedFilters).forEach((cachedFilter) => {
@@ -156,16 +198,23 @@ const filteredResultsForStatus = (status, cachedFilters, now = new Date()) => {
 
     const keyword_matches = cachedFilter.regexp ? searchIndex.match(cachedFilter.regexp) : null;
     const status_matches = (cachedFilter.statusIds || []).filter(id => statusIds.includes(String(id)));
+    const tag_matches = (cachedFilter.tagNames || []).filter(name => tagNames.has(name));
 
-    if (!keyword_matches && status_matches.length === 0) {
+    if (!keyword_matches && status_matches.length === 0 && tag_matches.length === 0) {
       return;
     }
 
-    filtered.push({
+    const result = {
       filter: cachedFilter.repr,
       keyword_matches: keyword_matches || null,
       status_matches: status_matches.length > 0 ? status_matches : null,
-    });
+    };
+
+    if (tag_matches.length > 0) {
+      result.tag_matches = tag_matches;
+    }
+
+    filtered.push(result);
   });
 
   return filtered;
@@ -178,6 +227,7 @@ module.exports = {
   searchIndexFromStatus,
   stripStreamingSearchableText,
   compileKeywordRegexp,
+  normalizeHashtagName,
   buildCachedFilters,
   filteredResultsForStatus,
 };

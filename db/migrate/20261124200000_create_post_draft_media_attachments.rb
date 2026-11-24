@@ -1,13 +1,15 @@
 # frozen_string_literal: true
 
 class CreatePostDraftMediaAttachments < ActiveRecord::Migration[6.1]
+  # Version is after 20261121143000. 20261117150000 is already
+  # create_custom_filter_tags, and schema_migrations stores only the number.
   # New empty join table. media_attachments is not rewritten: a draft
   # reference is a row here, not a column on that table. One attachment
   # can belong to one draft. Deleting the draft removes the reference
   # and leaves the file. Deleting the file is refused while a reference
   # remains.
   def change
-    create_table :post_draft_media_attachments do |t|
+    create_table :post_draft_media_attachments do |t| # rubocop:disable Rails/CreateTableWithTimestamps
       t.references :post_draft, null: false, foreign_key: { on_delete: :cascade }, index: false, type: :bigint
       t.references :media_attachment, null: false, foreign_key: { on_delete: :restrict }, index: false, type: :bigint
       t.integer :position, null: false

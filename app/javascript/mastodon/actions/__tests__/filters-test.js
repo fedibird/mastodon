@@ -189,8 +189,8 @@ it('does not let a pre-save fetch overwrite a later post-save collection', async
   const dispatch = jest.fn();
   const first = fetchFilters()(dispatch, () => fromJS({}));
   const second = fetchFilters()(dispatch, () => fromJS({}));
-  finishNew({ data: [{ id: 'new' }] }); await second;
-  finishOld({ data: [{ id: 'stale' }] }); await first;
+  finishNew({ data: [{ id: 'new' }] }); await expect(second).resolves.toEqual({ ok: true, stale: false });
+  finishOld({ data: [{ id: 'stale' }] }); await expect(first).resolves.toEqual({ ok: false, stale: true });
   const successes = dispatch.mock.calls.map(([action]) => action).filter(action => action.type === 'FILTERS_FETCH_SUCCESS');
   expect(successes).toHaveLength(1);
   expect(successes[0].filters).toEqual([{ id: 'new' }]);

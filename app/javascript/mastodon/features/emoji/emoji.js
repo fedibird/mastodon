@@ -204,8 +204,11 @@ export const buildCustomEmojis = (customEmojis) => {
     const ruby      = emoji.get('ruby') ?? toHiragana(name);
     const category  = emoji.get('category');
     const keywords  = uniqCompact([name, ruby, category, ...aliases.toArray()]);
-
-    emojis.push({
+    const databaseId = emoji.get('id');
+    const domain = emoji.get('domain');
+    // Nimble's id stays the shortcode. Mute identity is a separate field so a
+    // reused shortcode is not treated as the same emoji.
+    const built = {
       id: name,
       name,
       short_names: [name],
@@ -215,7 +218,17 @@ export const buildCustomEmojis = (customEmojis) => {
       imageUrl: url,
       custom: true,
       customCategory: category,
-    });
+    };
+
+    if (databaseId !== null && databaseId !== undefined && databaseId !== '') {
+      built.custom_emoji_id = String(databaseId);
+    }
+
+    if (typeof domain === 'string' && domain !== '') {
+      built.domain = domain;
+    }
+
+    emojis.push(built);
   });
 
   return emojis;

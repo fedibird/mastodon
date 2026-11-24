@@ -148,6 +148,64 @@ class ColumnHeader extends React.PureComponent {
     }));
   }
 
+  setHeaderRef = node => {
+    this.headerNode = node;
+  }
+
+  findTabsBarPortal = () => {
+    // The authenticated WebUI can be detached during emoji-mute revision
+    // verification. document.getElementById cannot search that subtree.
+    const privacyRoot = this.headerNode?.closest('.emoji-mutes-privacy-portal');
+    return privacyRoot?.querySelector('#tabs-bar__portal') || document.getElementById('tabs-bar__portal');
+  }
+
+  // On mobile the tab-bar portal may not exist during the first render.
+  // Never schedule React updates from render: that can recurse before the
+  // sibling TabsBar commits its DOM node.
+  componentDidMount () {
+    this.reconcileTabsBarPortal();
+  }
+
+  componentDidUpdate () {
+    this.reconcileTabsBarPortal();
+  }
+
+  componentWillUnmount () {
+    this.disconnectTabsBarPortalObserver();
+  }
+
+  disconnectTabsBarPortalObserver = () => {
+    if (this.tabsBarPortalObserver) {
+      this.tabsBarPortalObserver.disconnect();
+      this.tabsBarPortalObserver = null;
+    }
+  }
+
+  reconcileTabsBarPortal = () => {
+    if (!this.waitingForTabsBarPortal || this.props.multiColumn || this.props.placeholder) {
+      this.disconnectTabsBarPortalObserver();
+      return;
+    }
+
+    if (this.findTabsBarPortal()) {
+      this.disconnectTabsBarPortalObserver();
+      this.waitingForTabsBarPortal = false;
+      this.forceUpdate();
+      return;
+    }
+
+    // The portal can arrive later (async column / route transition). Observe
+    // only while waiting, and disconnect as soon as it exists or on unmount.
+    if (!this.tabsBarPortalObserver && typeof MutationObserver !== 'undefined' && document.body) {
+      this.tabsBarPortalObserver = new MutationObserver(() => {
+        if (this.findTabsBarPortal()) {
+          this.reconcileTabsBarPortal();
+        }
+      });
+      const privacyRoot = this.headerNode?.closest('.emoji-mutes-privacy-portal');
+      this.tabsBarPortalObserver.observe(privacyRoot || document.body, { childList: true, subtree: true });
+    }
+  }
   render () {
     const { title, icon, active, children, pinned, multiColumn, extraButton, showBackButton, intl: { formatMessage }, placeholder, appendContent, collapseIssues, columnWidth, columnId, layoutScope, layoutMode } = this.props;
     const { collapsed, animating } = this.state;
@@ -277,7 +335,7 @@ class ColumnHeader extends React.PureComponent {
     const hasTitle = icon && title;
 
     const component = (
-      <div className={wrapperClassName}>
+      <div className={wrapperClassName} ref={this.setHeaderRef}>
         <h1 className={buttonClassName}>
           {hasTitle && (
             <button onClick={this.handleTitleClick}>
@@ -306,22 +364,15 @@ class ColumnHeader extends React.PureComponent {
     );
 
     if (multiColumn || placeholder) {
+      this.waitingForTabsBarPortal = false;
       return component;
-    } else {
-      // The portal container and the component may be rendered to the DOM in
-      // the same React render pass, so the container might not be available at
-      // the time `render()` is called.
-      const container = document.getElementById('tabs-bar__portal');
-      if (container === null) {
-        // The container wasn't available, force a re-render so that the
-        // component can eventually be inserted in the container and not scroll
-        // with the rest of the area.
-        this.forceUpdate();
-        return component;
-      } else {
-        return createPortal(component, container);
-      }
     }
+
+    // The tab-bar portal is created by a sibling. Until it commits, show an
+    // ordinary inline header. Lifecycle/DOM observation will move it once.
+    const container = this.findTabsBarPortal();
+    this.waitingForTabsBarPortal = !container;
+    return container ? createPortal(component, container) : component;
   }
 
 }

@@ -11,13 +11,16 @@ import React from 'react';
 import { defineMessages, injectIntl } from 'react-intl';
 import ImmutablePropTypes from 'react-immutable-proptypes';
 import ImmutablePureComponent from 'react-immutable-pure-component';
+import { withEmojiMuteTextIndex } from 'mastodon/components/emoji_muted_html';
+import { presentEmojiMutePlain } from 'mastodon/features/emoji/emoji_mute_text';
+import { rememberEmojiMuteAttributeSource } from 'mastodon/features/emoji/emoji_mute_sources';
 
 const messages = defineMessages({
   reveal: { id: 'timeline.media.reveal', defaultMessage: 'Reveal media' },
   open: { id: 'timeline.media.open', defaultMessage: 'Open media' },
 });
 
-export default @injectIntl
+@injectIntl
 class MediaItem extends ImmutablePureComponent {
 
   static propTypes = {
@@ -27,6 +30,7 @@ class MediaItem extends ImmutablePureComponent {
     shape: PropTypes.oneOf(['square', 'original']),
     visibility: PropTypes.oneOf(['hide_sensitive', 'show_all', 'hide_all']),
     intl: PropTypes.object.isRequired,
+    emojiMuteTextIndex: PropTypes.object,
   };
 
   state = {
@@ -69,6 +73,47 @@ class MediaItem extends ImmutablePureComponent {
     return !autoPlayMedia && ['gifv', 'video'].includes(this.props.attachment.get('type'));
   }
 
+  setOpen = node => {
+    this.openNode = node;
+    this.bindOpenLabel();
+  }
+
+  bindOpenLabel = () => {
+    if (!this.openNode || this.isConcealed() || typeof this.rawDescription !== 'string') {
+      return;
+    }
+
+    rememberEmojiMuteAttributeSource(this.openNode, 'aria-label', this.rawDescription);
+  }
+
+  bindVideo = node => {
+    this.videoNode = node;
+
+    if (node && typeof this.rawDescription === 'string') {
+      rememberEmojiMuteAttributeSource(node, 'aria-label', this.rawDescription);
+    }
+  }
+
+  bindImage = node => {
+    this.imageNode = node;
+
+    if (node && typeof this.rawDescription === 'string') {
+      rememberEmojiMuteAttributeSource(node, 'alt', this.rawDescription);
+    }
+  }
+
+  componentDidMount () {
+    this.bindOpenLabel();
+    this.bindVideo(this.videoNode);
+    this.bindImage(this.imageNode);
+  }
+
+  componentDidUpdate () {
+    this.bindOpenLabel();
+    this.bindVideo(this.videoNode);
+    this.bindImage(this.imageNode);
+  }
+
   handleClick = e => {
     if (e.button !== 0 || e.ctrlKey || e.metaKey) {
       return;
@@ -94,7 +139,9 @@ class MediaItem extends ImmutablePureComponent {
   render () {
     const { attachment, shape, intl } = this.props;
     const status = attachment.get('status');
-    const description = attachment.get('description');
+    const rawDescription = attachment.get('description');
+    this.rawDescription = typeof rawDescription === 'string' ? rawDescription : undefined;
+    const description = typeof rawDescription === 'string' ? presentEmojiMutePlain(rawDescription, this.props.emojiMuteTextIndex) : rawDescription;
     const type = attachment.get('type');
     const original = shape === 'original';
     const concealed = this.isConcealed();
@@ -112,13 +159,14 @@ class MediaItem extends ImmutablePureComponent {
           const focusY = attachment.getIn(['meta', 'focus', 'y']) || 0;
           const x = ((focusX / 2) + 0.5) * 100;
           const y = ((focusY / -2) + 0.5) * 100;
-          content = <img src={preview} alt={description || ''} style={{ objectPosition: `${x}% ${y}%` }} loading='lazy' />;
+          content = <img ref={this.bindImage} src={preview} alt={description || ''} style={{ objectPosition: `${x}% ${y}%` }} loading='lazy' />;
         }
       } else if (type === 'gifv') {
         content = (
           <video
             className='media-gallery__item-gifv-thumbnail'
             aria-label={description || undefined}
+            ref={this.bindVideo}
             role='application'
             src={attachment.get('url')}
             onMouseEnter={this.handleMouseEnter}
@@ -141,6 +189,7 @@ class MediaItem extends ImmutablePureComponent {
             onClick={this.handleClick}
             target='_blank'
             rel='noopener noreferrer'
+            ref={this.setOpen}
             aria-label={concealed ? intl.formatMessage(messages.reveal) : (description || intl.formatMessage(messages.open))}
           >
             {blurred && (attachment.get('blurhash') ?
@@ -152,10 +201,12 @@ class MediaItem extends ImmutablePureComponent {
             {blurred && <span className='timeline-media-tile__concealed-icon'><Icon id='eye-slash' /></span>}
             {!concealed && ['audio', 'video'].includes(type) && <span className='timeline-media-tile__play'><Icon id={type === 'audio' ? 'music' : 'play'} /></span>}
           </a>
-          {description && <div className='media-gallery__item__badges'><AltTextBadge description={description} /></div>}
+          {description && <div className='media-gallery__item__badges'><AltTextBadge description={description} rawOriginal={typeof rawDescription === 'string' ? rawDescription : undefined} /></div>}
         </div>
       </div>
     );
   }
 
 }
+
+export default withEmojiMuteTextIndex(MediaItem);

@@ -161,8 +161,18 @@ export const projectStreamReaction = (payload, rules) => {
   const next = { ...payload, parts: kept, count: accountIds.length, account_ids: accountIds };
   const previousRepresentative = representativeId(parts);
   const keptRepresentative = representativeId(kept);
+  const ownsDisplay = part => {
+    const url = read(part, 'url');
+    const staticUrl = read(part, 'static_url');
 
-  if (previousRepresentative && previousRepresentative !== keptRepresentative) {
+    return (!!payload.url && url === payload.url) || (!!payload.static_url && staticUrl === payload.static_url);
+  };
+  const displayOwner = parts.find(ownsDisplay);
+  const displaySurvives = !!displayOwner && kept.some(part => partEmojiId(part) && partEmojiId(part) === partEmojiId(displayOwner));
+
+  if ((payload.url || payload.static_url) && !displaySurvives) {
+    Object.assign(next, displayFromParts(kept));
+  } else if (previousRepresentative && previousRepresentative !== keptRepresentative) {
     Object.assign(next, displayFromParts(kept));
   }
 
@@ -220,6 +230,45 @@ const projectable = (group, rules) => {
   }
 
   return !group.domain && !group.url && !group.static_url;
+};
+
+// Status groups often have no top-level custom_emoji_id. The local id lives
+// on parts[]. A name group keeps the parts the rules do not hide. A group
+// with no parts still uses the notification-style id or unicode check.
+// Count 0 with nothing hidden stays, so an ordinary removal can leave.
+export const barVisibleReaction = (reaction, rules) => {
+  if (!reaction) {
+    return null;
+  }
+
+  const parts = read(reaction, 'parts');
+
+  const partsAreList = !!parts && (Array.isArray(parts) || typeof parts.toArray === 'function');
+
+  if (!partsAreList) {
+    return storedReactionHidden(reaction, rules) ? null : reaction;
+  }
+
+  const list = typeof parts.toArray === 'function' ? parts.toArray() : parts;
+  const plain = typeof reaction.toJS === 'function' ? reaction.toJS() : { ...reaction, parts: list };
+  const result = projectStreamReaction(plain, rules);
+  const kept = result.payload && Array.isArray(result.payload.parts) ? result.payload.parts.length : list.length;
+
+  if (kept === list.length) {
+    const payload = result.payload || {};
+    const sameUrl = (read(reaction, 'url') || null) === (payload.url || null);
+    const sameStatic = (read(reaction, 'static_url') || null) === (payload.static_url || null);
+
+    if (sameUrl && sameStatic) {
+      return reaction;
+    }
+  }
+
+  if (result.hidden || !result.payload || result.payload.count <= 0) {
+    return null;
+  }
+
+  return result.payload;
 };
 
 export const projectStatusReactions = (groups, rules) => {

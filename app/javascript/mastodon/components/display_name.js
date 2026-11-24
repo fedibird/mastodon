@@ -3,6 +3,7 @@ import ImmutablePropTypes from 'react-immutable-proptypes';
 import PropTypes from 'prop-types';
 import { autoPlayEmoji } from 'mastodon/initial_state';
 import EmojiMutedHtml, { customEmojiTarget } from 'mastodon/components/emoji_muted_html';
+import { attachInlineEmojiMenus, isInlineEmojiLongPressClick, openInlineEmojiMenu } from 'mastodon/features/emoji/emoji_actions/inline_emoji';
 
 export default class DisplayName extends React.PureComponent {
 
@@ -22,13 +23,24 @@ export default class DisplayName extends React.PureComponent {
     if (this.clickNode) {
       this.clickNode.addEventListener('click', this.handleEmojiClick, true);
     }
+    this.updateInlineEmojiMenus();
+  }
+
+  componentDidUpdate () {
+    this.updateInlineEmojiMenus();
   }
 
   componentWillUnmount () {
+    this.detachInlineEmojiMenus?.();
     if (this.clickNode) {
       this.clickNode.removeEventListener('click', this.handleEmojiClick, true);
     }
   }
+
+  updateInlineEmojiMenus = () => {
+    this.detachInlineEmojiMenus?.();
+    this.detachInlineEmojiMenus = attachInlineEmojiMenus(this.node, { source: 'inline_display_name' });
+  };
 
   handleEmojiClick = e => {
     const emoji = customEmojiTarget(e);
@@ -41,6 +53,18 @@ export default class DisplayName extends React.PureComponent {
     const domain = emoji.getAttribute('data-domain');
 
     emoji.style.cursor = 'pointer';
+
+    if (isInlineEmojiLongPressClick(e, emoji)) {
+      e.preventDefault();
+      e.stopPropagation();
+      return;
+    }
+
+    if (openInlineEmojiMenu(emoji, { source: 'inline_display_name' })) {
+      e.preventDefault();
+      e.stopPropagation();
+      return;
+    }
 
     if (this.context.router) {
       e.preventDefault();

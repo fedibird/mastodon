@@ -43,15 +43,26 @@ class Api::V1::EmojiReactionsController < Api::BaseController
     cache_collection(results.map(&:status), Status)
   end
 
+  # The Status scope merged for visibility/media checks includes
+  # statuses.id DESC via Status.default_scope. Clear that order before
+  # pagination so the returned page follows the collection record id.
   def results
-    @_results ||= if legacy_media_filter?
-                    filtered_emoji_reactions.to_a_paginated_by_id(
+    @_results ||= if status_order?
+                    limited_representative_emoji_reactions
+                  elsif legacy_media_filter?
+                    # Clear Status.default_scope ordering inherited through the
+                    # visibility/media joins before cursor-based reaction ordering.
+                    filtered_emoji_reactions.reorder(nil).to_a_paginated_by_id(
                       limit_param(DEFAULT_STATUSES_LIMIT),
                       params_slice(:max_id, :since_id, :min_id)
                     )
                   else
                     limited_representative_emoji_reactions
                   end
+  end
+
+  def status_order?
+    params[:order] == 'status'
   end
 
   # Media filters stay on the pre-existing grouped query. emojis[] uses the
@@ -77,13 +88,17 @@ class Api::V1::EmojiReactionsController < Api::BaseController
       candidate_ids = representative_candidate_ids(batch_size: batch_size, ascending: ascending, lower_id: lower_id, upper_id: upper_id)
       break if candidate_ids.empty?
 
+      # In status order the candidates are [reaction_id, status_id] pairs.
+      # Keep the scan cursor in the same order as the returned page.
+      cursor = status_order? ? candidate_ids.last.last : candidate_ids.last
       if ascending
-        lower_id = candidate_ids.last
+        lower_id = cursor
       else
-        upper_id = candidate_ids.last
+        upper_id = cursor
       end
 
-      collected.concat(kept_representative_reactions(candidate_ids))
+      reaction_ids = status_order? ? candidate_ids.map(&:first) : candidate_ids
+      collected.concat(kept_representative_reactions(reaction_ids))
       break if collected.size >= limit || candidate_ids.size < batch_size
     end
 
@@ -98,25 +113,34 @@ class Api::V1::EmojiReactionsController < Api::BaseController
   def representative_candidate_ids(batch_size:, ascending:, lower_id:, upper_id:)
     scope = current_account.emoji_reactions.where(Arel.sql(REPRESENTATIVE_NOT_EXISTS_SQL))
     scope = scope.where(matching_emoji_exists_node) if emojis_requested?
-    scope = scope.where(EmojiReaction.arel_table[:id].gt(lower_id)) if lower_id.present?
-    scope = scope.where(EmojiReaction.arel_table[:id].lt(upper_id)) if upper_id.present?
-    scope = ascending ? scope.order(id: :asc) : scope.order(id: :desc)
-    scope.limit(batch_size).pluck(:id)
+    order_column = status_order? ? :status_id : :id
+    cursor_column = EmojiReaction.arel_table[order_column]
+    scope = scope.where(cursor_column.gt(lower_id)) if lower_id.present?
+    scope = scope.where(cursor_column.lt(upper_id)) if upper_id.present?
+    scope = scope.order(order_column => (ascending ? :asc : :desc))
+    status_order? ? scope.limit(batch_size).pluck(:id, :status_id) : scope.limit(batch_size).pluck(:id)
   end
 
   def kept_representative_reactions(ids)
     scope = EmojiReaction.where(id: ids).joins(:status).eager_load(:status).merge(ExternalBridge::ProjectionPrivacy.visible_status_relation(current_user.id))
     scope = scope.merge(media_only_scope) if media_only?
     scope = scope.merge(without_media_scope) if without_media?
+
+    # EmojiReaction#status deliberately includes expired statuses. The
+    # projection privacy and media relations use Status.default_scope, which
+    # adds expired_at IS NULL again. Remove only that condition, keeping
+    # deleted-status and projection visibility checks intact.
+    scope = scope.unscope(where: :expired_at)
     reactions = scope.index_by { |reaction| reaction.id.to_i }
     ids.filter_map { |id| reactions[id.to_i] }
   end
 
   def filtered_emoji_reactions
-    account_emoji_reactions.joins(:status).eager_load(:status).merge(ExternalBridge::ProjectionPrivacy.visible_status_relation(current_user.id)).tap do |emoji_reactions|
-      emoji_reactions.merge!(media_only_scope)    if media_only?
-      emoji_reactions.merge!(without_media_scope) if without_media?
-    end
+    scope = account_emoji_reactions.joins(:status).eager_load(:status).merge(ExternalBridge::ProjectionPrivacy.visible_status_relation(current_user.id))
+    scope = scope.merge(media_only_scope) if media_only?
+    scope = scope.merge(without_media_scope) if without_media?
+    # Keep the legacy media-filtered query consistent with the bounded scan.
+    scope.unscope(where: :expired_at)
   end
 
   def account_emoji_reactions
@@ -213,11 +237,11 @@ class Api::V1::EmojiReactionsController < Api::BaseController
   end
 
   def pagination_max_id
-    results.last.id
+    status_order? ? results.last.status_id : results.last.id
   end
 
   def pagination_since_id
-    results.first.id
+    status_order? ? results.first.status_id : results.first.id
   end
 
   def records_continue?
@@ -225,7 +249,7 @@ class Api::V1::EmojiReactionsController < Api::BaseController
   end
 
   def pagination_params(core_params)
-    params_slice(:limit, :compact, :only_media, :without_media).merge(emoji_reactions_params).merge(core_params)
+    params_slice(:limit, :compact, :only_media, :without_media, :order).merge(emoji_reactions_params).merge(core_params)
   end
 
   def emoji_reactions_params

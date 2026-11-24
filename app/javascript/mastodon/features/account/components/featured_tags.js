@@ -8,6 +8,8 @@ import classNames from 'classnames';
 import Permalink from 'mastodon/components/permalink';
 import ShortNumber from 'mastodon/components/short_number';
 import { List as ImmutableList, Map as ImmutableMap } from 'immutable';
+import { emojiMuteTextIndexFromState, presentEmojiMutePlain } from 'mastodon/features/emoji/emoji_mute_text';
+import { bindEmojiMuteElementSource, rememberEmojiMuteAttributeSource } from 'mastodon/features/emoji/emoji_mute_sources';
 
 const messages = defineMessages({
   hashtag_all: { id: 'account.hashtag_all', defaultMessage: 'All' },
@@ -33,9 +35,36 @@ class FeaturedTagPermalink extends React.PureComponent {
 
   static propTypes = {
     tagName: PropTypes.string,
+    titleSource: PropTypes.string,
     onSelectTag: PropTypes.func,
     children: PropTypes.node,
   };
+
+  setRoot = node => {
+    this.root = node;
+  }
+
+  bindLabel = () => {
+    const link = this.root && this.root.querySelector('a');
+
+    if (!link || typeof this.props.tagName !== 'string' || this.props.tagName === '') {
+      return;
+    }
+
+    bindEmojiMuteElementSource(link, `#${this.props.tagName}`);
+
+    if (typeof this.props.titleSource === 'string') {
+      rememberEmojiMuteAttributeSource(link, 'title', this.props.titleSource);
+    }
+  }
+
+  componentDidMount () {
+    this.bindLabel();
+  }
+
+  componentDidUpdate () {
+    this.bindLabel();
+  }
 
   handleInterceptClick = () => {
     this.props.onSelectTag?.(this.props.tagName || null);
@@ -43,11 +72,15 @@ class FeaturedTagPermalink extends React.PureComponent {
   }
 
   render () {
-    const { tagName, onSelectTag, children, ...other } = this.props;
+    const { tagName, titleSource, onSelectTag, children, ...other } = this.props;
+
+    void titleSource;
     return (
-      <Permalink {...other} onInterceptClick={onSelectTag ? this.handleInterceptClick : undefined}>
-        {children}
-      </Permalink>
+      <span ref={this.setRoot} style={{ display: 'contents' }}>
+        <Permalink {...other} onInterceptClick={onSelectTag ? this.handleInterceptClick : undefined}>
+          {children}
+        </Permalink>
+      </span>
     );
   }
 
@@ -55,6 +88,7 @@ class FeaturedTagPermalink extends React.PureComponent {
 
 const mapStateToProps = (state, { account }) => ({
   featuredTags: state.getIn(['user_lists', 'featured_tags', account.get('id'), 'items'], ImmutableList()),
+  emojiMuteTextIndex: emojiMuteTextIndexFromState(state),
 });
 
 export default @connect(mapStateToProps)
@@ -72,6 +106,7 @@ class FeaturedTags extends ImmutablePureComponent {
     routeBase: PropTypes.string,
     onSelectTag: PropTypes.func,
     intl: PropTypes.object.isRequired,
+    emojiMuteTextIndex: PropTypes.object,
   };
 
   render () {
@@ -97,17 +132,19 @@ class FeaturedTags extends ImmutablePureComponent {
             <FeaturedTagPermalink key='all' tagName={null} onSelectTag={onSelectTag} className={classNames('account__hashtag-link', { active: !tagged })} title={intl.formatMessage(messages.hashtag_all_description)} href={account.get('url')} to={routeBase}>{intl.formatMessage(messages.hashtag_all)}</FeaturedTagPermalink>
             {!suspended && displayed.map(featuredTag => {
               const name  = featuredTag.get('name');
+              const shown = presentEmojiMutePlain(name, this.props.emojiMuteTextIndex);
               const url   = featuredTag.get('url');
               const to    = `${routeBase}/${encodeURIComponent(name)}`;
-              const desc  = intl.formatMessage(messages.hashtag_select_description, { name });
+              const descSource = intl.formatMessage(messages.hashtag_select_description, { name });
+              const desc  = intl.formatMessage(messages.hashtag_select_description, { name: shown });
               const count = featuredTag.get('statuses_count');
               const temporary = !!featuredTag.get('temporary');
               const active = !!tagged && tagged.toLocaleLowerCase() === name.toLocaleLowerCase();
               const countBadge = !temporary && count !== null && count !== undefined && <span title={intl.formatMessage(messages.statuses_counter, { count, counter: intl.formatNumber(count) })}>({<ShortNumber value={count} />})</span>;
 
               return (
-                <FeaturedTagPermalink key={`#${name}`} tagName={name} onSelectTag={onSelectTag} className={classNames('account__hashtag-link', { active, 'account__hashtag-link--temporary': temporary })} title={desc} href={url || account.get('url')} to={to}>
-                  #{name} {countBadge}
+                <FeaturedTagPermalink key={`#${name}`} tagName={name} titleSource={descSource} onSelectTag={onSelectTag} className={classNames('account__hashtag-link', { active, 'account__hashtag-link--temporary': temporary })} title={desc} href={url || account.get('url')} to={to}>
+                  #{shown} {countBadge}
                 </FeaturedTagPermalink>
               );
             })}

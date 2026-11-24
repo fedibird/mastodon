@@ -119,9 +119,18 @@ class EmojiDetailPreview extends React.PureComponent {
     }
   }
 
+  handleContextMenu = event => {
+    event.preventDefault();
+    event.stopPropagation();
+    openEmojiActions(this.props.reference, {
+      anchor: event.currentTarget,
+      source: 'emoji_detail',
+    });
+  };
+
   render () {
     return (
-      <div className='custom-emoji__image' ref={this.setNode}>
+      <div className='custom-emoji__image' ref={this.setNode} onContextMenu={this.handleContextMenu}>
         {this.props.children}
       </div>
     );
@@ -329,6 +338,17 @@ class EmojiDetailItem extends React.PureComponent {
     this.node = c;
   }
 
+  handleEmojiContextMenu = event => {
+    const reference = this.customReference();
+    if (!reference) return;
+    event.preventDefault();
+    event.stopPropagation();
+    openEmojiActions(reference, {
+      anchor: event.currentTarget,
+      source: 'emoji_detail',
+    });
+  };
+
   componentDidMount () {
     this._updateLinks();
     this.target?.addEventListener('mouseenter', this.handleMouseEnter, { capture: true });
@@ -454,7 +474,7 @@ class EmojiDetailItem extends React.PureComponent {
 
     return (
       <div className='custom-emoji__detail' ref={this.setRef}>
-        <div className='custom-emoji__image' ref={this.setTargetRef}>
+        <div className='custom-emoji__image' ref={this.setTargetRef} onContextMenu={this.handleEmojiContextMenu}>
           <Emoji emoji={shortcode_with_domain} hovered={this.state.hovered} domain={domain} url={custom_emoji.get('url')} static_url={custom_emoji.get('static_url')} title={alternateName ?? shortcode} />
         </div>
         {reference && <EmojiActionsBar intl={intl} reference={reference} />}

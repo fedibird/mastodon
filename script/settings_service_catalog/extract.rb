@@ -129,6 +129,7 @@ module SettingsServiceCatalog
         'safety' => 'app/views/settings/preferences/safety/show.html.haml',
         'other' => 'app/views/settings/preferences/other/show.html.haml',
         'profile' => 'app/views/settings/profiles/show.html.haml',
+        'custom_emojis' => 'app/views/settings/custom_emojis/settings/show.html.haml',
       }
       paths.transform_values { |path| parse_form(path) }
     end
@@ -143,20 +144,20 @@ module SettingsServiceCatalog
         stripped = line.strip
         conditions << [indent, stripped] if stripped.start_with?('- if ', '- unless ')
         nested = line[/simple_fields_for :([A-Za-z0-9_]+)/, 1] if line.include?('simple_fields_for')
-        match = line.match(/(\w+)\.input :([A-Za-z0-9_]+)/)
+        match = line.match(/(\w+)\.(input|range_field) :([A-Za-z0-9_]+)/)
         next unless match
 
         commented = stripped.start_with?('-#', '#')
         receiver = match[1]
         {
-          'name' => match[2],
+          'name' => match[3],
           'nested' => receiver == 'f' ? nil : nested,
           'commented' => commented,
           'conditional' => !commented && conditions.any?,
           'condition' => conditions.last&.last,
           'line' => index + 1,
           'path' => path,
-          'widget' => widget_kind(line),
+          'widget' => match[2] == 'range_field' ? 'range' : widget_kind(line),
         }
       end
     end

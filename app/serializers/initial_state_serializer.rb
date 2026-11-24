@@ -5,6 +5,10 @@ class InitialStateSerializer < ActiveModel::Serializer
              :media_attachments, :status_references, :emoji_reactions,
              :settings, :max_toot_chars, :languages
 
+  # Guests and partial documents omit the key. The WebUI treats a missing
+  # value as unknown and keeps the historical prefetch.
+  attribute :feature_usage, if: :current_account?
+
   has_one :push_subscription, serializer: REST::WebPushSubscriptionSerializer
   has_one :role, serializer: REST::RoleSerializer
 
@@ -155,7 +159,16 @@ class InitialStateSerializer < ActiveModel::Serializer
       store[:disable_auto_focus_to_emoji_search]    = object.current_account.user.setting_disable_auto_focus_to_emoji_search
       store[:emoji_picker_prefer_personal]         = preference_effective('emoji_picker_prefer_personal')
       store[:emoji_picker_disable_personal]        = preference_effective('emoji_picker_disable_personal')
+      store[:emoji_picker_disable_standard] = preference_effective('emoji_picker_disable_standard')
       store[:emoji_picker_disable_actions]         = preference_effective('emoji_picker_disable_actions')
+      store[:emoji_actions_disable_personal_remove] = preference_effective('emoji_actions_disable_personal_remove')
+      store[:emoji_mute_disable_actions]           = object.current_account.user.setting_emoji_mute_disable_actions
+      emoji_mute_preference = EmojiMutes::Preference.new(object.current_account.user)
+      store[:emoji_mute_enabled]                  = emoji_mute_preference.enabled?
+      store[:emoji_mute_enabled_explicit]         = emoji_mute_preference.explicit?
+      store[:emoji_mute_enabled_known]            = true
+      store[:emoji_mute_modal]                    = emoji_mute_preference.modal?
+      store[:emoji_preview_click_action]           = object.current_account.user.setting_emoji_preview_click_action
       store[:emoji_picker_lazy_load_standard]      = preference_effective('emoji_picker_lazy_load_standard')
       store[:max_frequently_used_emojis]            = object.current_account.user.setting_max_frequently_used_emojis
       
@@ -221,9 +234,12 @@ class InitialStateSerializer < ActiveModel::Serializer
   end
 
   def lists
-    store = {}
-    store = ActiveModelSerializers::SerializableResource.new(object.current_account.owned_lists, each_serializer: REST::ListSerializer) if object.current_account
-    store
+    return {} unless object.current_account
+    # The existence probe already answered. Skip the row load when the
+    # account owns nothing; owners still receive the rows the tab bar paints.
+    return [] unless feature_usage[:has_lists]
+
+    ActiveModelSerializers::SerializableResource.new(object.current_account.owned_lists, each_serializer: REST::ListSerializer)
   end
 
   def media_attachments
@@ -243,6 +259,26 @@ class InitialStateSerializer < ActiveModel::Serializer
 
   def languages
     LanguagesHelper::SUPPORTED_LOCALES.map { |(key, value)| [key, value[0], value[1]] }
+  end
+
+  def current_account?
+    object.current_account.present?
+  end
+
+  # One indexed existence probe per flag. A personal-set row counts even when
+  # its category list is empty: "no row" and "row with no emoji" are different,
+  # and only the former may skip the stock request.
+  def feature_usage
+    @feature_usage ||= begin
+      account = object.current_account
+      user_id = account.user&.id
+
+      {
+        has_circles: Circle.exists?(account_id: account.id),
+        has_lists: List.exists?(account_id: account.id),
+        has_personal_emoji_set: user_id.present? && PersonalEmojiSet.exists?(user_id: user_id),
+      }
+    end
   end
 
   private

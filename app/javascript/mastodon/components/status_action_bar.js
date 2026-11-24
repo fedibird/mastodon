@@ -6,7 +6,7 @@ import IconButton from './icon_button';
 import DropdownMenuContainer from '../containers/dropdown_menu_container';
 import { defineMessages, injectIntl } from 'react-intl';
 import ImmutablePureComponent from 'react-immutable-pure-component';
-import { me, isStaff, show_bookmark_button, show_quote_button, show_share_button, enableReaction, compactReaction, enableStatusReference, maxReferences, matchVisibilityOfReferences, addReferenceModal, disablePost, disableReactions, disableBlock, disableDomainBlock, disableReport, translationBarVisibility } from '../initial_state';
+import { me, isStaff, show_bookmark_button, show_quote_button, show_share_button, enableReaction, compactReaction, enableStatusReference, maxReferences, matchVisibilityOfReferences, addReferenceModal, disablePost, disableReactions, emojiPickerDisabled, disableBlock, disableDomainBlock, disableReport, translationBarVisibility } from '../initial_state';
 import classNames from 'classnames';
 import { openModal } from '../actions/modal';
 import { revealStatusTranslationBar } from '../actions/translation_bar';
@@ -487,7 +487,7 @@ class StatusActionBar extends ImmutablePureComponent {
     }
 
     if (this.props.compactCardMode === 'reactions') {
-      return enableReaction ? (
+      return enableReaction && !emojiPickerDisabled ? (
         <ReactionPickerDropdownContainer
           scrollKey={scrollKey}
           disabled={disableReactions || expired || anonymousAccess || externalContent || reactionLimitReached}
@@ -702,7 +702,7 @@ class StatusActionBar extends ImmutablePureComponent {
         {shareButton}
         {show_bookmark_button && <IconButton className='status__action-bar-button bookmark-icon' disabled={!bookmarked && expired} active={bookmarked} pressed={bookmarked} title={intl.formatMessage(bookmarked ? messages.removeBookmark : messages.bookmark)} icon='bookmark' onClick={this.handleBookmarkClick} />}
 
-        {enableReaction && <div className={classNames('status__action-bar-dropdown', { 'icon-button--with-counter': reactionsCounter })}>
+        {enableReaction && !emojiPickerDisabled && <div className={classNames('status__action-bar-dropdown', { 'icon-button--with-counter': reactionsCounter })}>
           <ReactionPickerDropdownContainer
             scrollKey={scrollKey}
             disabled={disableReactions || expired || anonymousAccess || externalContent || reactionLimitReached}

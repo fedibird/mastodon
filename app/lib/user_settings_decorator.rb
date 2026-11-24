@@ -140,7 +140,12 @@ class UserSettingsDecorator
     disable_auto_focus_to_emoji_search
     emoji_picker_prefer_personal
     emoji_picker_disable_personal
+    emoji_picker_disable_standard
     emoji_picker_disable_actions
+    emoji_actions_disable_personal_remove
+    emoji_mute_disable_actions
+    emoji_mute_enabled
+    emoji_mute_modal
     emoji_picker_lazy_load_standard
     show_composer_posting_style_selector
   ).freeze
@@ -149,6 +154,7 @@ class UserSettingsDecorator
     default_privacy
     default_language
     emoji_reaction_fallback_policy
+    emoji_preview_click_action
     theme
     display_media
     translation_preferred_mode
@@ -187,6 +193,7 @@ class UserSettingsDecorator
   def process_update
     refuse_missing_legacy_writer!
     refuse_invalid_fallback_policy!
+    refuse_invalid_preview_click_action!
     NESTED_KEYS.each do |key|
       user.settings[key] = user.settings[key].merge coerced_settings(key) if change?(key)
     end
@@ -203,6 +210,7 @@ class UserSettingsDecorator
     end
 
     BOOLEAN_KEYS.each do |key|
+      next if key == EmojiMutes::Preference::KEY
       next unless change?("setting_#{key}")
 
       if legacy_key?(key)
@@ -211,6 +219,24 @@ class UserSettingsDecorator
         user.settings[key] = boolean_cast_setting("setting_#{key}")
       end
     end
+
+    # The appearance form and the preference API share this locked write.
+    # It publishes the value that committed, not a before/after pair read
+    # outside the lock.
+    return unless change?('setting_emoji_mute_enabled')
+
+    EmojiMutes::Preference.new(user).update!(boolean_cast_setting('setting_emoji_mute_enabled') == true)
+  end
+
+  # Reject an invalid enum before any other preference in the same form is
+  # written. Never persist an unknown behavior or fall back after saving it.
+  def refuse_invalid_preview_click_action!
+    return unless change?('setting_emoji_preview_click_action')
+
+    value = settings['setting_emoji_preview_click_action']
+    return if %w(none close detail copy).include?(value)
+
+    raise UserPreferences::InvalidInput, [{ 'key' => 'emoji_preview_click_action', 'code' => 'invalid_value' }]
   end
 
   # Reject before any key in this request is written. ask is refused while

@@ -10,6 +10,9 @@ import { useBlurhash } from 'mastodon/initial_state';
 import Blurhash from 'mastodon/components/blurhash';
 import Thumbhash from 'mastodon/components/thumbhash';
 import { debounce } from 'lodash';
+import { withEmojiMuteTextIndex } from 'mastodon/components/emoji_muted_html';
+import { bindEmojiMuteElementSource, bindEmojiMuteHtmlSources } from 'mastodon/features/emoji/emoji_mute_sources';
+import { presentEmojiMutePlain } from 'mastodon/features/emoji/emoji_mute_text';
 
 const IDNA_PREFIX = 'xn--';
 
@@ -38,6 +41,60 @@ const trim = (text, len) => {
 
 const domParser = new DOMParser();
 
+const EMBED_TEXT_SKIP = new Set(['SCRIPT', 'STYLE']);
+const EMBED_READABLE = ['alt', 'title', 'aria-label', 'aria-description', 'aria-valuetext'];
+
+// Provider embed HTML keeps its URLs and the existing autoplay query.
+// Only text nodes and readable labels are projected.
+const projectEmbedDisplay = (html, index) => {
+  if (!html || !index || index.active !== true) {
+    return html;
+  }
+
+  const parsed = domParser.parseFromString(html, 'text/html');
+  const body = parsed.body;
+  const walker = parsed.createTreeWalker(body, NodeFilter.SHOW_TEXT, null);
+  const texts = [];
+  let current = walker.nextNode();
+
+  while (current) {
+    texts.push(current);
+    current = walker.nextNode();
+  }
+
+  texts.forEach(node => {
+    const parent = node.parentElement;
+
+    if (parent && EMBED_TEXT_SKIP.has(parent.tagName)) {
+      return;
+    }
+
+    const next = presentEmojiMutePlain(node.nodeValue || '', index);
+
+    if (next !== undefined && next !== null && next !== node.nodeValue) {
+      node.nodeValue = next;
+    }
+  });
+
+  body.querySelectorAll(EMBED_READABLE.map(name => `[${name}]`).join(',')).forEach(element => {
+    EMBED_READABLE.forEach(name => {
+      const value = element.getAttribute(name);
+
+      if (!value) {
+        return;
+      }
+
+      const next = presentEmojiMutePlain(value, index);
+
+      if (next !== undefined && next !== null && next !== value) {
+        element.setAttribute(name, next);
+      }
+    });
+  });
+
+  return body.innerHTML;
+};
+
 const addAutoPlay = html => {
   const document = domParser.parseFromString(html, 'text/html').documentElement;
   const iframe = document.querySelector('iframe');
@@ -59,7 +116,7 @@ const addAutoPlay = html => {
   return html;
 };
 
-export default class Card extends React.PureComponent {
+class Card extends React.PureComponent {
 
   static contextTypes = {
     router: PropTypes.object,
@@ -74,6 +131,7 @@ export default class Card extends React.PureComponent {
     cacheWidth: PropTypes.func,
     sensitive: PropTypes.bool,
     quote: PropTypes.bool,
+    emojiMuteTextIndex: PropTypes.object,
   };
 
   static defaultProps = {
@@ -106,10 +164,32 @@ export default class Card extends React.PureComponent {
 
       this.setState(nextState);
     }
+
+    this.bindEmojiMuteSources();
+  }
+
+  bindEmojiMuteSources () {
+    const { card, maxDescription } = this.props;
+
+    if (!this.node || !card) {
+      return;
+    }
+
+    const providerName = card.get('provider_name') || '';
+    const providerSource = providerName.length === 0 ? decodeIDNA(getHostname(card.get('url'))) : providerName;
+
+    bindEmojiMuteElementSource(this.node.querySelector('.status-card__title'), card.get('title') || '');
+    bindEmojiMuteElementSource(this.node.querySelector('.status-card__description'), trim(card.get('description') || '', maxDescription));
+    bindEmojiMuteElementSource(this.node.querySelector('.status-card__host'), providerSource);
+
+    if (this.embedNode) {
+      bindEmojiMuteHtmlSources(this.embedNode, card.get('html') || '', { readableKind: 'plain', textKind: 'plain' });
+    }
   }
 
   componentDidMount () {
     window.addEventListener('resize', this.handleResize, { passive: true });
+    this.bindEmojiMuteSources();
   }
 
   componentWillUnmount () {
@@ -173,6 +253,11 @@ export default class Card extends React.PureComponent {
     }
   }
 
+  setEmbedRef = c => {
+    this.embedNode = c;
+    this.bindEmojiMuteSources();
+  }
+
   handleImageLoad = () => {
     this.setState({ previewLoaded: true });
   }
@@ -203,14 +288,14 @@ export default class Card extends React.PureComponent {
 
   renderVideo () {
     const { card }  = this.props;
-    const content   = { __html: addAutoPlay(card.get('html')) };
+    const content   = { __html: addAutoPlay(projectEmbedDisplay(card.get('html'), this.props.emojiMuteTextIndex)) };
     const { width } = this.state;
     const ratio     = card.get('width') / card.get('height');
     const height    = width / ratio;
 
     return (
       <div
-        ref={this.setRef}
+        ref={this.setEmbedRef}
         className='status-card__image status-card-video'
         dangerouslySetInnerHTML={content}
         style={{ height }}
@@ -226,11 +311,15 @@ export default class Card extends React.PureComponent {
       return null;
     }
 
-    const provider    = card.get('provider_name').length === 0 ? decodeIDNA(getHostname(card.get('url'))) : card.get('provider_name');
+    const providerName = card.get('provider_name');
+    const providerSource = providerName.length === 0 ? decodeIDNA(getHostname(card.get('url'))) : providerName;
+    const provider    = presentEmojiMutePlain(providerSource, this.props.emojiMuteTextIndex);
+    const titleText = presentEmojiMutePlain(card.get('title') || '', this.props.emojiMuteTextIndex);
+    const descriptionText = presentEmojiMutePlain(trim(card.get('description') || '', maxDescription), this.props.emojiMuteTextIndex);
     const horizontal  = (!compact && card.get('width') > card.get('height') && (card.get('width') + 100 >= width)) || card.get('type') !== 'link' || embedded;
     const interactive = card.get('type') !== 'link';
     const className   = classnames('status-card', { horizontal, compact, interactive });
-    const title       = interactive ? <a className='status-card__title' href={card.get('url')} title={card.get('title')} rel='noopener noreferrer' target='_blank'><strong>{card.get('title')}</strong></a> : <strong className='status-card__title' title={card.get('title')}>{card.get('title')}</strong>;
+    const title       = interactive ? <a className='status-card__title' href={card.get('url')} title={titleText} rel='noopener noreferrer' target='_blank'><strong>{titleText}</strong></a> : <strong className='status-card__title' title={titleText}>{titleText}</strong>;
     const ratio       = card.get('width') / card.get('height');
     let height      = (compact && !embedded) ? (width / (16 / 9)) : (width / ratio);
 
@@ -241,7 +330,7 @@ export default class Card extends React.PureComponent {
     const description = (
       <div className='status-card__content'>
         {title}
-        {!(horizontal || compact) && <p className='status-card__description'>{trim(card.get('description') || '', maxDescription)}</p>}
+        {!(horizontal || compact) && <p className='status-card__description'>{descriptionText}</p>}
         <span className='status-card__host'>{provider}</span>
       </div>
     );
@@ -328,3 +417,5 @@ export default class Card extends React.PureComponent {
   }
 
 }
+
+export default withEmojiMuteTextIndex(Card);
