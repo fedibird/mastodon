@@ -288,6 +288,44 @@ describe('personal emoji stock source', () => {
     expect(changed).not.toHaveBeenCalled();
   });
 
+  it('does not settle a follow-up that misses a newer commit queued while it is in flight', async () => {
+    const changed = jest.fn();
+    const pending = deferred();
+    const followUp = deferred();
+    const changeKey = 'mastodon:personal-emoji-set:account-1';
+
+    get.mockReturnValueOnce(pending.promise);
+    unsubscribers.push(source.subscribePersonalEmojiStock(changed));
+    expect(source.notifySavedPersonalEmojiSet(documentFor(4, 28))).toBe(true);
+    localStorage.setItem(changeKey, 'tab-b-rev5');
+    window.dispatchEvent(new StorageEvent('storage', { key: changeKey, newValue: 'tab-b-rev5' }));
+    expect(source.notifySavedPersonalEmojiSet(documentFor(6, 40))).toBe(false);
+
+    get.mockReturnValueOnce(followUp.promise);
+    pending.resolve({ status: 200, data: documentFor(5, 22), headers: { etag: 'rev5' } });
+    await Promise.resolve();
+    expect(get).toHaveBeenCalledTimes(2);
+
+    changed.mockClear();
+    expect(source.notifySavedPersonalEmojiSet(documentFor(7, 48))).toBe(false);
+    expect(source.getCachedPersonalEmojiStock()).toBeNull();
+    expect(source.getPickerEmojiSize()).toBe(28);
+    expect(localStorage.getItem(changeKey)).toBe('tab-b-rev5');
+    expect(get).toHaveBeenCalledTimes(2);
+
+    followUp.resolve({ status: 200, data: documentFor(6, 44), headers: { etag: 'rev6' } });
+    await expect(source.loadPersonalEmojiStock()).resolves.toEqual({ status: 'ready', stock: documentFor(7).stock });
+    expect(get).toHaveBeenCalledTimes(2);
+    expect(source.getCachedPersonalEmojiStock().stock.categories[0].name).toBe('Category 7');
+    expect(source.getPickerEmojiSize()).toBe(48);
+    expect(changed).toHaveBeenLastCalledWith({ status: 'ready', stock: documentFor(7).stock });
+    expect(changed).not.toHaveBeenCalledWith({ status: 'ready', stock: documentFor(6).stock });
+    const marker = localStorage.getItem(changeKey);
+    expect(marker).not.toBe('tab-b-rev5');
+    expect(marker).not.toContain('Category');
+    expect(localStorage.getItem(changeKey)).toBe(marker);
+  });
+
   it('leaves an error when the follow-up read after a stale success fails', async () => {
     const pending = deferred();
     const changeKey = 'mastodon:personal-emoji-set:account-1';

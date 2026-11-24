@@ -123,9 +123,44 @@ function announceCommit(revision) {
   }
 }
 
+function publishStockDocument(document, nextEtag) {
+  noteRevision(document.revision);
+  cachedDocument = document;
+  prepareEmojiStock(cachedDocument.stock);
+  etag = nextEtag || null;
+  applySize(cachedDocument.picker_emoji_size);
+  const result = ready(cachedDocument);
+  stockListeners.forEach(listener => listener(result));
+  return result;
+}
+
+// The floor is read when the response arrives, not when the request starts.
+// A commit queued while this one read is in flight raises it.
+function commitRevisionNow(neededRevision) {
+  const queuedRevision = queuedSave && queuedSave.revision;
+
+  if (Number.isInteger(queuedRevision) && queuedRevision > neededRevision) {
+    return queuedRevision;
+  }
+
+  return neededRevision;
+}
+
+function queuedCommitCovers(requiredRevision) {
+  return Boolean(
+    queuedSave
+    && Number.isInteger(queuedSave.revision)
+    && queuedSave.revision >= requiredRevision
+    && !revisionIsOlder(queuedSave.revision),
+  );
+}
+
+const supersededStock = () => ({ status: 'error', error: new Error('Personal emoji stock was superseded') });
+
 // One more server read after a successful GET that is older than a commit
-// queued during that read. The queued snapshot is not painted. A network
-// failure is not retried here.
+// queued during that read. There is no further automatic read. A newer
+// trusted commit queued during this read replaces a stale response. A network
+// failure stays retryable.
 function readCommittedStock(neededRevision, requestedGeneration) {
   const headers = {};
   const accessToken = initialState?.meta?.access_token;
@@ -142,24 +177,19 @@ function readCommittedStock(neededRevision, requestedGeneration) {
       return currentResult();
     }
 
+    const requiredRevision = commitRevisionNow(neededRevision);
+
     if (response.status === 304) {
-      return { status: 'error', error: new Error('Personal emoji stock was superseded') };
+      return queuedCommitCovers(requiredRevision) ? publishStockDocument(queuedSave, null) : supersededStock();
     }
 
     const incoming = validateDocument(response.data);
 
-    if (!Number.isInteger(incoming.revision) || incoming.revision < neededRevision || revisionIsOlder(incoming.revision)) {
-      return { status: 'error', error: new Error('Personal emoji stock was superseded') };
+    if (!Number.isInteger(incoming.revision) || incoming.revision < requiredRevision || revisionIsOlder(incoming.revision)) {
+      return queuedCommitCovers(requiredRevision) ? publishStockDocument(queuedSave, null) : supersededStock();
     }
 
-    noteRevision(incoming.revision);
-    cachedDocument = incoming;
-    prepareEmojiStock(cachedDocument.stock);
-    etag = response.headers?.etag || null;
-    applySize(cachedDocument.picker_emoji_size);
-    const result = ready(cachedDocument);
-    stockListeners.forEach(listener => listener(result));
-    return result;
+    return publishStockDocument(incoming, response.headers?.etag || null);
   });
 }
 
