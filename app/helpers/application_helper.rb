@@ -2,7 +2,6 @@
 
 module ApplicationHelper
   include InviteCreationHelper
-  include ThemeStylesheetHelper
 
   DANGEROUS_SCOPES = %w(
     read
