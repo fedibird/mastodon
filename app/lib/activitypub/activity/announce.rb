@@ -39,6 +39,7 @@ class ActivityPub::Activity::Announce < ActivityPub::Activity
   # window is held, the same as a second id while the first wrapper remains.
   def accept_or_hold_new_announce!
     return accept_new_announce! if @options[:applying_hold]
+    return if deliver_known_hold!
 
     remaining = ReboostCooldown.remaining_seconds(@account.id, @original_status.id)
     if remaining.positive?
@@ -117,7 +118,8 @@ class ActivityPub::Activity::Announce < ActivityPub::Activity
   end
 
   # A redelivery of the held id keeps that id even when published is missing.
-  # Inside the cooldown the hold stays. After it, the stored payload is applied once.
+  # The stored payload is used whether or not the old wrapper is still present.
+  # Inside the cooldown the hold stays. After it, that payload is applied once.
   def deliver_known_hold!
     return false if @options[:applying_hold]
 
@@ -131,7 +133,11 @@ class ActivityPub::Activity::Announce < ActivityPub::Activity
 
     adopt_open_hold!(hold)
     @json = hold.payload.deep_stringify_keys.with_indifferent_access if hold.payload.is_a?(Hash)
-    replace_announce!
+    if @status
+      replace_announce!
+    else
+      accept_new_announce!
+    end
     true
   end
 

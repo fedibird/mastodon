@@ -298,6 +298,52 @@ RSpec.describe ActivityPub::Activity::Announce do
     end
   end
 
+  it 'applies the stored payload when the same held id arrives after Undo' do
+    Fabricate(:user, account: status.account)
+    inbox = Fabricate(:account)
+    allow(DistributionWorker).to receive(:perform_async)
+    announce('https://example.com/announce/a', 10.minutes.ago.iso8601)
+    ActivityPub::Activity::Undo.new({
+      id: 'https://example.com/undo/a',
+      type: 'Undo',
+      actor: sender.uri,
+      object: { id: 'https://example.com/announce/a', type: 'Announce', object: object_uri },
+    }.with_indifferent_access, sender).perform
+    expect(sender.statuses.where(reblog_of_id: status.id)).to be_empty
+
+    published = nil
+    hold_id = nil
+    travel 60.seconds do
+      published = Time.current.iso8601
+      described_class.new(announce_json('https://example.com/announce/c', published), sender, delivery: true, override_timestamps: true, delivered_to_account_id: inbox.id).perform
+      hold = RemoteReboostHold.find_by!(account: sender, reblog_of: status)
+      hold_id = hold.id
+      expect(hold.activity_uri).to eq 'https://example.com/announce/c'
+      expect(hold.payload['published']).to eq published
+      expect(sender.statuses.where(reblog_of_id: status.id)).to be_empty
+    end
+
+    travel 301.seconds do
+      fetched = announce_json('https://example.com/announce/c', nil)
+      fetched.delete('published')
+      fetched['to'] = ActivityPub::TagManager::COLLECTIONS[:public]
+      described_class.new(fetched, sender, delivery: false).perform
+      boost = sender.statuses.find_by!(reblog_of_id: status.id)
+      expect(boost.uri).to eq 'https://example.com/announce/c'
+      expect(boost.created_at).to be_within(1.second).of(Time.zone.parse(published))
+      expect(boost.visibility).to eq 'private'
+      expect(sender.statuses.where(reblog_of_id: status.id).count).to eq 1
+      expect(boost.mentions.where(account_id: inbox.id)).to exist
+      expect(Notification.where(account: status.account, from_account: sender, activity: boost, type: :reblog).count).to eq 1
+      expect(DistributionWorker).to have_received(:perform_async).with(boost.id).once
+      expect(RemoteReboostHold.find_by(id: hold_id)).to be_nil
+
+      Reboost::RemoteApplyWorker.new.perform(hold_id)
+      expect(sender.statuses.where(reblog_of_id: status.id).count).to eq 1
+      expect(Notification.where(account: status.account, from_account: sender, type: :reblog).count).to eq 1
+    end
+  end
+
   it 'ends the held Announce when a newer id arrives after the cooldown' do
     announce('https://example.com/announce/a', 10.minutes.ago.iso8601)
 
