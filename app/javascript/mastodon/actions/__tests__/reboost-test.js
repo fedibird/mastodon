@@ -514,6 +514,52 @@ describe('reboost', () => {
     expect(harness.actions.some(action => action.type === REBLOG_SUCCESS)).toBe(true);
   });
 
+  it('does not start another request while unreblog is in flight', async () => {
+    let finishUnreblog;
+    let finishStatus;
+    api.post.mockImplementation((url) => {
+      if (String(url).endsWith('/unreblog')) {
+        return new Promise((resolve) => {
+          finishUnreblog = resolve;
+        });
+      }
+      return Promise.resolve({ status: 202, data: { operation_id: '9', state: 'pending' } });
+    });
+    followReboostOperation.mockResolvedValue({ id: '9', state: 'completed', new_status_id: '50' });
+    api.get.mockImplementation((url) => {
+      if (url === '/api/v1/statuses/50') {
+        return new Promise((resolve) => {
+          finishStatus = resolve;
+        });
+      }
+      return Promise.resolve({ data: { id: '1' } });
+    });
+    const harness = setup();
+    const running = reboost(status)(harness.dispatch, harness.getState);
+    await Promise.resolve();
+    await Promise.resolve();
+
+    const removing = unreblog(status)(harness.dispatch, harness.getState);
+    await Promise.resolve();
+    const posts = api.post.mock.calls.length;
+    await checkReboostOperation(status)(harness.dispatch, harness.getState);
+    await unreblog(status)(harness.dispatch, harness.getState);
+    await reblog(status)(harness.dispatch, harness.getState);
+
+    expect(api.post.mock.calls.length).toBe(posts);
+    expect(api.get.mock.calls.some((call) => String(call[0]).includes('reboost_operation'))).toBe(false);
+
+    finishStatus({ data: { id: '50', reblog: { id: '1', reblogged: true } } });
+    await Promise.resolve();
+    finishUnreblog({ data: { id: '1', reblogged: false } });
+    await removing;
+    await running;
+
+    expect(harness.getState().getIn(['statuses', '1', 'reblogged'])).toBe(false);
+    expect(harness.getState().getIn(['statuses', '1', 'reboost_operation'])).toBeUndefined();
+    expect(harness.actions.some(action => action.type === REBLOG_SUCCESS)).toBe(false);
+  });
+
   it('turns a cooldown into a deadline that expires', () => {
     jest.useFakeTimers('modern');
     jest.setSystemTime(new Date('2026-11-24T00:00:00Z'));

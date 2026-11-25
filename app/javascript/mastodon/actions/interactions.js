@@ -95,6 +95,10 @@ export const EMOJI_REACTION_UPDATE = 'EMOJI_REACTION_UPDATE';
 
 export function reblog(status, visibility) {
   return function (dispatch, getState) {
+    if (reboostUnreblogInFlight(status.get('id'))) {
+      return Promise.resolve();
+    }
+
     dispatch(reblogRequest(status));
 
     return api(getState).post(`/api/v1/statuses/${status.get('id')}/reblog`, { visibility }).then(function (response) {
@@ -152,7 +156,7 @@ export function reboost(status) {
   return (dispatch, getState) => {
     const statusId = status.get('id');
 
-    if (getState().getIn(['statuses', statusId, 'reboost_operation'])) {
+    if (reboostUnreblogInFlight(statusId) || getState().getIn(['statuses', statusId, 'reboost_operation'])) {
       return Promise.resolve();
     }
 
@@ -221,8 +225,17 @@ function failPostedReboost(dispatch, status, error) {
 const reboostWatch = new Map();
 let reboostWatchSerial = 0;
 
+function reboostUnreblogInFlight(statusId) {
+  const current = reboostWatch.get(String(statusId));
+  return !!(current && current.unreblogging);
+}
+
 function watchReboost(statusId, operationId) {
   const current = reboostWatch.get(String(statusId));
+  if (current && current.unreblogging) {
+    return current.suspended ? current.suspended.token : current.token;
+  }
+
   if (current && !current.committed && watchOperationCompatible(current.operationId, operationId)) {
     if (operationId !== null && operationId !== undefined) {
       current.operationId = operationId;
@@ -281,15 +294,30 @@ function bumpReboostWatch(statusId, token) {
 
 function suspendReboostWatch(statusId) {
   const current = reboostWatch.get(String(statusId));
-  if (!current) {
+  if (current && current.unreblogging) {
     return null;
   }
 
-  const suspended = { token: current.token, operationId: current.operationId, committed: current.committed, discarded: null };
-  current.suspended = suspended;
+  const entry = current || { token: ++reboostWatchSerial, operationId: null, committed: false };
+  const suspended = { token: entry.token, operationId: entry.operationId, committed: entry.committed, discarded: null };
+  entry.suspended = suspended;
+  entry.unreblogging = true;
+  entry.token = ++reboostWatchSerial;
+  entry.committed = true;
+  reboostWatch.set(String(statusId), entry);
+  return suspended;
+}
+
+function finishUnreblogWatch(statusId) {
+  const current = reboostWatch.get(String(statusId));
+  if (!current) {
+    return;
+  }
+
   current.token = ++reboostWatchSerial;
   current.committed = true;
-  return suspended;
+  current.unreblogging = false;
+  current.suspended = null;
 }
 
 function rememberSuspendedResult(statusId, token, discarded) {
@@ -313,6 +341,7 @@ function restoreReboostWatch(statusId, suspended) {
 
   current.token = suspended.token;
   current.committed = false;
+  current.unreblogging = false;
   current.suspended = null;
 }
 
@@ -332,6 +361,10 @@ function acceptReboostResponse(dispatch, getState, status, response) {
 export function checkReboostOperation(status) {
   return (dispatch, getState) => {
     const statusId = status.get('id');
+    if (reboostUnreblogInFlight(statusId)) {
+      return Promise.resolve();
+    }
+
     const operationId = getState().getIn(['statuses', statusId, 'reboost_operation', 'id']);
 
     if (!operationId) {
@@ -462,18 +495,19 @@ function applyReboostResult(dispatch, getState, status, operationId, operation, 
 export function unreblog(status) {
   return (dispatch, getState) => {
     const statusId = status.get('id');
+    if (reboostUnreblogInFlight(statusId)) {
+      return Promise.resolve();
+    }
+
     const suspended = suspendReboostWatch(statusId);
     dispatch(unreblogRequest(status));
 
     return api(getState).post(`/api/v1/statuses/${statusId}/unreblog`).then(response => {
       dispatch(importFetchedStatus(response.data));
       dispatch(unreblogSuccess(status));
-      if (!suspended) {
-        return null;
-      }
-
       reboostIdempotencyKeys.delete(statusId);
       dispatch(setReboostOperation(statusId, null));
+      finishUnreblogWatch(statusId);
       return null;
     }).catch(error => {
       const discarded = suspended?.discarded;
