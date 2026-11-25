@@ -169,12 +169,12 @@ export function createIndexedDbDraftBackend ({ openDatabase = openComposerDraftD
             return;
           }
 
-          tx.objectStore(COMPOSER_DRAFT_SYNC_STORE).put({
+          tx.objectStore(COMPOSER_DRAFT_SYNC_STORE).put(syncCursorRecord({
             ...tombstone,
             account_id: String(accountId),
             client_uuid: String(clientDraftUuid),
             tombstone: true,
-          });
+          }));
         };
 
         if (!conditional) {
@@ -292,6 +292,37 @@ export function createIndexedDbDraftBackend ({ openDatabase = openComposerDraftD
   };
 }
 
+function positiveInteger (value) {
+  const number = Number(value);
+
+  return Number.isInteger(number) && number > 0 ? number : null;
+}
+
+// One shape for the memory ledger and IndexedDB. A later write must not drop
+// conflict, tombstone, or the send intent that an earlier put stored.
+export function syncCursorRecord (record) {
+  const source = record || {};
+
+  return {
+    account_id: String(source.account_id),
+    client_uuid: String(source.client_uuid),
+    server_draft_id: source.server_draft_id || null,
+    server_revision: positiveInteger(source.server_revision),
+    acked_hash: source.acked_hash || null,
+    acked_generation: positiveInteger(source.acked_generation),
+    sync_generation: positiveInteger(source.sync_generation),
+    conflict: source.conflict === true,
+    conflict_revision: positiveInteger(source.conflict_revision),
+    delete_state: source.delete_state || null,
+    probe_hash: source.probe_hash || null,
+    tombstone: source.tombstone === true,
+    intent_kind: source.intent_kind || null,
+    intent_hash: source.intent_hash || null,
+    intent_base_revision: positiveInteger(source.intent_base_revision),
+    intent_expected_revision: positiveInteger(source.intent_expected_revision),
+  };
+}
+
 export function createIndexedDbSyncLedger ({ openDatabase = openComposerDraftDatabase } = {}) {
   let databasePromise = null;
 
@@ -306,15 +337,7 @@ export function createIndexedDbSyncLedger ({ openDatabase = openComposerDraftDat
     return databasePromise;
   };
 
-  const stored = (record) => ({
-    account_id: String(record.account_id),
-    client_uuid: String(record.client_uuid),
-    server_draft_id: record.server_draft_id || null,
-    server_revision: Number(record.server_revision) || null,
-    acked_hash: record.acked_hash || null,
-    acked_generation: Number(record.acked_generation) || null,
-    tombstone: record.tombstone === true,
-  });
+  const stored = (record) => syncCursorRecord(record);
 
   return {
     read (accountId, clientUuid) {

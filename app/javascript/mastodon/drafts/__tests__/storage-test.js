@@ -1,4 +1,4 @@
-import { compareAndDelete, compareAndPut, createIndexedDbDraftBackend, createMemoryDraftBackend, ensureComposerDraftStores, openComposerDraftDatabase } from '../storage';
+import { compareAndDelete, compareAndPut, createIndexedDbDraftBackend, createIndexedDbSyncLedger, createMemoryDraftBackend, ensureComposerDraftStores, openComposerDraftDatabase, syncCursorRecord } from '../storage';
 
 function fakeDatabase () {
   const rows = new Map();
@@ -248,6 +248,93 @@ describe('composer draft storage', () => {
       expect(await backend.readDraft('42', 'draft-1')).toBeFalsy();
       expect((await backend.readDraft('42', 'draft-2')).input.text).toBe('other');
     }));
+  });
+
+  it('round-trips conflict, tombstone, and send intent through the IndexedDB codec', async () => {
+    const rows = new Map();
+    const db = {
+      transaction () {
+        const tx = {};
+        const store = {
+          get (key) {
+            const request = {};
+
+            queueMicrotask(() => {
+              request.result = rows.get(JSON.stringify(key));
+
+              if (request.onsuccess) {
+                request.onsuccess();
+              }
+            });
+
+            return request;
+          },
+          put (record) {
+            rows.set(JSON.stringify([record.account_id, record.client_uuid]), record);
+            const request = {};
+
+            queueMicrotask(() => {
+              if (request.onsuccess) {
+                request.onsuccess();
+              }
+
+              if (tx.oncomplete) {
+                tx.oncomplete();
+              }
+            });
+
+            return request;
+          },
+          index () {
+            return {
+              getAll () {
+                const request = {};
+
+                queueMicrotask(() => {
+                  request.result = Array.from(rows.values());
+
+                  if (request.onsuccess) {
+                    request.onsuccess();
+                  }
+                });
+
+                return request;
+              },
+            };
+          },
+        };
+
+        tx.objectStore = () => store;
+
+        return tx;
+      },
+    };
+    const ledger = createIndexedDbSyncLedger({ openDatabase: () => Promise.resolve(db) });
+    const cursor = syncCursorRecord({
+      account_id: '42',
+      client_uuid: '11111111-1111-4111-8111-111111111111',
+      server_draft_id: '15',
+      server_revision: 5,
+      acked_hash: 'hash-a',
+      acked_generation: 2,
+      sync_generation: 8,
+      conflict: true,
+      conflict_revision: 6,
+      delete_state: 'blocked',
+      probe_hash: 'hash-probe',
+      tombstone: true,
+      intent_kind: 'patch',
+      intent_hash: 'hash-a',
+      intent_base_revision: 5,
+      intent_expected_revision: 6,
+    });
+
+    await ledger.write(cursor);
+
+    expect(await ledger.read('42', cursor.client_uuid)).toEqual(cursor);
+    expect((await ledger.list('42'))[0].sync_generation).toBe(8);
+    expect((await ledger.list('42'))[0].delete_state).toBe('blocked');
+    expect((await ledger.list('42'))[0].intent_expected_revision).toBe(6);
   });
 
   it('adds the sync store when an older draft database is opened', () => {

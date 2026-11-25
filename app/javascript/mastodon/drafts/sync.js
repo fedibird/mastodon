@@ -7,6 +7,8 @@
 // that finishes after that discard deletes the row it just created instead
 // of leaving the draft behind.
 //
+import { syncCursorRecord } from './storage';
+
 // A 409 does not copy the draft. #811 allows one media id on one server
 // draft, so a second server draft cannot reuse those ids. The local text,
 // settings, and media references stay. A later step can copy the text and
@@ -132,7 +134,7 @@ export function createMemorySyncLedger () {
     },
 
     write (record) {
-      const stored = { ...record, account_id: String(record.account_id), client_uuid: String(record.client_uuid) };
+      const stored = syncCursorRecord(record);
 
       rows.set(keyFor(stored.account_id, stored.client_uuid), stored);
 
@@ -238,6 +240,10 @@ export function createPostDraftSync ({
   const listeners = new Set();
   let bound = null;
   let epoch = 0;
+  let protection = 'pending';
+  let protectionTicket = 0;
+  let readyResolve = () => undefined;
+  let readyPromise = Promise.resolve();
   let inFlight = 0;
   const slotWaiters = [];
   let unavailable = false;
@@ -375,8 +381,12 @@ export function createPostDraftSync ({
     }
   }
 
+  function networkAllowed (job) {
+    return protection === 'ready' && !unavailable && job && !job.stopped && !job.conflict && !job.tombstone;
+  }
+
   function scheduleJob (job, delay) {
-    if (!job || job.tombstone || job.hold || job.running || job.conflict) {
+    if (!networkAllowed(job) || job.hold || job.running) {
       return;
     }
 
@@ -388,7 +398,7 @@ export function createPostDraftSync ({
   }
 
   function scheduleDelete (job, delay) {
-    if (!job || !job.tombstone || job.conflict || job.deleteState === 'deleted' || job.deleteState === 'blocked') {
+    if (protection !== 'ready' || !job || job.stopped || !job.tombstone || job.conflict || job.deleteState === 'deleted' || job.deleteState === 'blocked') {
       return;
     }
 
@@ -412,6 +422,10 @@ export function createPostDraftSync ({
       conflict_revision: extra.conflictRevision === undefined ? job.conflictRevision : extra.conflictRevision,
       delete_state: extra.deleteState === undefined ? job.deleteState : extra.deleteState,
       probe_hash: extra.probeHash === undefined ? job.probeHash : extra.probeHash,
+      intent_kind: job.intent ? job.intent.kind : null,
+      intent_hash: job.intent ? job.intent.hash : null,
+      intent_base_revision: job.intent ? job.intent.baseRevision : null,
+      intent_expected_revision: job.intent ? job.intent.expectedRevision : null,
       tombstone: extra.tombstone === undefined ? job.tombstone === true : extra.tombstone === true,
     };
   }
@@ -421,13 +435,29 @@ export function createPostDraftSync ({
       return Promise.resolve(false);
     }
 
-    return ledger.write(cursorFrom(job, extra)).then(() => true, () => {
-      if (job.tombstone && job.deleteState === 'deleted') {
-        job.deleteState = 'unknown';
-        job.status = 'local';
-        job.reason = 'ledger';
+    return ledger.read(job.accountId, job.clientUuid).then((existing) => {
+      const next = cursorFrom(job, extra);
+
+      next.tombstone = Boolean((existing && existing.tombstone) || next.tombstone);
+      next.conflict = Boolean((existing && existing.conflict) || next.conflict);
+
+      if (existing && existing.conflict && !next.conflict_revision) {
+        next.conflict_revision = existing.conflict_revision;
       }
 
+      return ledger.write(syncCursorRecord(next));
+    }).then(() => true, () => {
+      job.stopped = true;
+      job.reason = 'ledger';
+
+      if (job.conflict) {
+        job.status = 'conflict';
+      } else if (job.tombstone && job.deleteState === 'deleted') {
+        job.deleteState = 'unknown';
+        job.status = 'local';
+      }
+
+      emit();
       return false;
     });
   }
@@ -448,6 +478,21 @@ export function createPostDraftSync ({
     job.deleteState = cursor.delete_state || null;
     job.probeHash = cursor.probe_hash || null;
     job.tombstone = cursor.tombstone === true;
+
+    if (cursor.intent_kind) {
+      job.intent = {
+        kind: cursor.intent_kind,
+        hash: cursor.intent_hash || null,
+        baseRevision: positiveOrNull(cursor.intent_base_revision),
+        expectedRevision: positiveOrNull(cursor.intent_expected_revision),
+      };
+    }
+  }
+
+  function positiveOrNull (value) {
+    const number = Number(value);
+
+    return Number.isInteger(number) && number > 0 ? number : null;
   }
 
   async function call (job, spec, sentEpoch) {
@@ -556,6 +601,7 @@ export function createPostDraftSync ({
         job.deleteState = 'unknown';
         job.status = 'local';
         job.reason = 'delete_unknown';
+        emit();
         return;
       }
 
@@ -564,6 +610,7 @@ export function createPostDraftSync ({
       job.reason = 'retry';
       job.running = false;
       scheduleDelete(job, delay);
+      emit();
       return;
     }
 
@@ -576,6 +623,7 @@ export function createPostDraftSync ({
     job.reason = 'retry';
     job.running = false;
     scheduleJob(job, delay);
+    emit();
   }
 
   async function readServer (job, draftId, sentEpoch) {
@@ -612,7 +660,7 @@ export function createPostDraftSync ({
       return;
     }
 
-    if (resource && resource.hash && sent && resource.hash === sent.hash) {
+    if (resource && resource.hash && sent && resource.hash === sent.hash && (provedOwnWrite(job, resource) || sameAck(job, resource))) {
       if (job.tombstone || job.hold) {
         job.serverDraftId = resource.draftId;
         job.ackedRevision = resource.revision;
@@ -628,16 +676,21 @@ export function createPostDraftSync ({
     }
 
     if (sameAck(job, resource) && job.contentHash !== resource.hash && !job.tombstone && !job.hold && !job.pendingDirty) {
-      job.attempts = 0;
       job.status = 'local';
-      job.reason = 'coalesced';
+      job.reason = 'retry';
       await persist(job);
-      scheduleJob(job, 0);
+      scheduleRetry(job, epoch);
       return;
     }
 
     markConflict(job, resource);
-    await persist(job);
+    const stored = await persist(job);
+
+    if (!stored) {
+      job.stopped = true;
+      job.reason = 'ledger';
+      emit();
+    }
   }
 
   async function removeServer (job, sentEpoch) {
@@ -758,7 +811,7 @@ export function createPostDraftSync ({
           return;
         }
 
-        if (full && full.resource && job.probeHash && full.resource.hash === job.probeHash) {
+        if (full && full.resource && provedOwnWrite(job, full.resource)) {
           job.serverDraftId = full.resource.draftId;
           job.ackedRevision = full.resource.revision;
           job.ackedHash = full.resource.hash;
@@ -788,24 +841,29 @@ export function createPostDraftSync ({
       }
     }
 
-    job.serverDraftId = null;
-    job.ackedRevision = null;
-    job.deleteState = 'deleted';
-    job.status = 'deleted';
-    job.reason = null;
-    job.attempts = 0;
-    const stored = await persist(job, {
-      tombstone: true,
-      serverDraftId: null,
-      serverRevision: null,
-      deleteState: 'deleted',
-    });
+    job.deleteState = 'unknown';
+    job.status = 'local';
+    job.reason = 'delete_unknown';
+    await persist(job, { tombstone: true, deleteState: 'unknown' });
+    emit();
+  }
 
-    if (!stored) {
-      job.deleteState = 'unknown';
-      job.status = 'local';
-      job.reason = 'ledger';
+  function provedOwnWrite (job, resource) {
+    const intent = job.intent;
+
+    if (!intent || !resource || !resource.hash || resource.hash !== intent.hash) {
+      return false;
     }
+
+    if (intent.kind === 'create') {
+      return Number(resource.revision) === 1;
+    }
+
+    if (intent.kind === 'patch') {
+      return Number(resource.revision) === Number(intent.expectedRevision);
+    }
+
+    return false;
   }
 
   async function continueDiscard (job, sentEpoch) {
@@ -822,15 +880,21 @@ export function createPostDraftSync ({
     }
 
     if (!job.serverDraftId || !job.ackedRevision) {
-      if (!job.probeHash) {
+      if (!job.intent && !job.probeHash) {
         job.deleteState = 'deleted';
         job.status = 'deleted';
         job.reason = null;
         await persist(job, { tombstone: true, deleteState: 'deleted' });
+        emit();
         return;
       }
 
+      job.deleteState = 'unknown';
+      job.status = 'local';
+      job.reason = 'delete_unknown';
+      await persist(job, { tombstone: true, deleteState: 'unknown' });
       await probeDiscard(job, sentEpoch);
+      emit();
       return;
     }
 
@@ -840,18 +904,20 @@ export function createPostDraftSync ({
   async function push (job) {
     const sentEpoch = epoch;
 
-    if (!current(job, sentEpoch)) {
+    if (!current(job, sentEpoch) || protection !== 'ready' || job.stopped) {
       return;
     }
 
     if (job.hold) {
       job.status = 'held';
       job.reason = 'publish';
+      emit();
       return;
     }
 
     if (job.tombstone) {
       await continueDiscard(job, sentEpoch);
+      emit();
       return;
     }
 
@@ -859,6 +925,7 @@ export function createPostDraftSync ({
       job.status = 'local';
       job.reason = 'offline';
       job.waitingOnline = true;
+      emit();
       return;
     }
 
@@ -881,8 +948,28 @@ export function createPostDraftSync ({
     job.sendingGeneration = sent.generation;
     job.status = 'syncing';
     job.reason = null;
+    emit();
 
     const creating = !job.serverDraftId || !job.ackedRevision;
+
+    job.intent = {
+      kind: creating ? 'create' : 'patch',
+      hash: sent.hash,
+      baseRevision: job.ackedRevision,
+      expectedRevision: creating ? 1 : Number(job.ackedRevision) + 1,
+    };
+
+    const intentStored = await persist(job);
+
+    if (!intentStored) {
+      job.running = false;
+      job.status = 'local';
+      job.reason = 'ledger';
+      job.stopped = true;
+      emit();
+      return;
+    }
+
     const response = await call(job, creating ? {
       method: 'post',
       path: '/api/v1/fedibird/post_drafts',
@@ -898,22 +985,26 @@ export function createPostDraftSync ({
     job.sendingGeneration = null;
 
     if (!response || response.ignored || !current(job, sentEpoch)) {
-      if (response && !response.ignored && response.status && sent.hash) {
+      if (response && !response.ignored && (response.status === 200 || response.status === 201)) {
         const learned = draftResource(response.body);
 
-        if ((response.status === 200 || response.status === 201) && learned && learned.hash === sent.hash) {
-          await ledger.write({
-            account_id: job.accountId,
-            client_uuid: job.clientUuid,
-            server_draft_id: learned.draftId,
-            server_revision: learned.revision,
-            acked_hash: sent.hash,
-            acked_generation: sent.generation,
-            sync_generation: sent.generation,
-            conflict: false,
-            tombstone: false,
-            delete_state: null,
-          });
+        if (learned && provedOwnWrite(job, learned)) {
+          const existing = await ledger.read(job.accountId, job.clientUuid);
+
+          if (!existing || (!existing.tombstone && !existing.conflict)) {
+            await ledger.write(syncCursorRecord({
+              ...(existing || {}),
+              account_id: job.accountId,
+              client_uuid: job.clientUuid,
+              server_draft_id: learned.draftId,
+              server_revision: learned.revision,
+              acked_hash: sent.hash,
+              acked_generation: sent.generation,
+              sync_generation: sent.generation,
+              tombstone: existing ? existing.tombstone === true : false,
+              conflict: existing ? existing.conflict === true : false,
+            }));
+          }
         }
       }
 
@@ -939,11 +1030,12 @@ export function createPostDraftSync ({
     if (job.tombstone) {
       const learned = draftResource(response.body);
 
-      if ((response.status === 200 || response.status === 201) && learned && learned.hash === sent.hash) {
+      if ((response.status === 200 || response.status === 201) && learned && provedOwnWrite(job, learned)) {
         job.serverDraftId = learned.draftId;
         job.ackedRevision = learned.revision;
         job.ackedHash = sent.hash;
         await removeServer(job, sentEpoch);
+        emit();
         return;
       }
 
@@ -989,14 +1081,9 @@ export function createPostDraftSync ({
         return;
       }
 
-      if (fetched && fetched.missing) {
-        job.serverDraftId = null;
-        job.ackedRevision = null;
-        scheduleRetry(job, sentEpoch);
-        return;
-      }
-
-      scheduleRetry(job, sentEpoch);
+      markConflict(job, hinted);
+      await persist(job);
+      emit();
       return;
     }
 
@@ -1040,7 +1127,7 @@ export function createPostDraftSync ({
 
     const job = ensureJob(input.clientUuid);
 
-    job.observed = true;
+    job.editedDuringBoot = protection !== 'ready';
 
     if (job.tombstone || job.hold) {
       return false;
@@ -1084,9 +1171,18 @@ export function createPostDraftSync ({
 
     const job = ensureJob(input.clientUuid);
 
-    job.observed = true;
+    job.editedDuringBoot = protection !== 'ready';
 
-    if (job.tombstone || job.hold) {
+    if (job.tombstone || job.hold || job.conflict) {
+      if (job.conflict) {
+        acceptPageEdit(job, input);
+        job.pendingHash = input.contentHash || null;
+        job.pendingDirty = job.pendingHash !== job.contentHash;
+        job.status = 'conflict';
+        job.reason = 'conflict';
+        emit();
+      }
+
       return Promise.resolve(false);
     }
 
@@ -1098,6 +1194,12 @@ export function createPostDraftSync ({
 
     job.accountId = bound;
     job.localRevision = Number(input.localRevision) || 0;
+
+    if (input.contentHash !== previousHash) {
+      job.attempts = 0;
+      job.stopped = false;
+    }
+
     bumpSyncGeneration(job, input.contentHash || null);
     job.contentHash = input.contentHash || null;
     job.payload = input.payload;
@@ -1277,6 +1379,8 @@ export function createPostDraftSync ({
       job.status = 'held';
       job.reason = 'publish';
     }
+
+    emit();
   }
 
   function bindAccount (accountId) {
@@ -1287,28 +1391,46 @@ export function createPostDraftSync ({
     }
 
     epoch += 1;
+    protectionTicket += 1;
     bound = next;
     jobs.forEach((job) => clearTimer(job));
     jobs.clear();
+    protection = next ? 'pending' : 'unavailable';
+    readyPromise = new Promise((resolve) => {
+      readyResolve = resolve;
+    });
+    emit();
+  }
+
+  function finishProtection (state) {
+    protection = state;
+    unavailable = state === 'unavailable';
+    readyResolve();
+    emit();
   }
 
   async function resume (listLocal) {
     if (!bound) {
+      finishProtection('unavailable');
       return;
     }
 
     const sentEpoch = epoch;
+    const ticket = protectionTicket;
     const accountId = bound;
     let cursors = [];
 
     try {
       cursors = await ledger.list(accountId);
     } catch (_error) {
-      unavailable = true;
+      if (ticket === protectionTicket) {
+        finishProtection('unavailable');
+      }
+
       return;
     }
 
-    if (sentEpoch !== epoch || bound !== accountId) {
+    if (sentEpoch !== epoch || bound !== accountId || ticket !== protectionTicket) {
       return;
     }
 
@@ -1321,25 +1443,38 @@ export function createPostDraftSync ({
 
       byUuid.set(String(cursor.client_uuid), cursor);
 
-      if (cursor.tombstone) {
-        const job = ensureJob(cursor.client_uuid);
+      const job = ensureJob(cursor.client_uuid);
 
-        if (!job.observed) {
-          applyCursor(job, cursor);
+      applyCursor(job, cursor);
+      job.accountId = accountId;
+
+      if (cursor.tombstone || cursor.conflict || cursor.delete_state === 'blocked' || cursor.delete_state === 'unknown' || cursor.delete_state === 'deleted') {
+        if (cursor.conflict || cursor.delete_state === 'blocked') {
+          job.conflict = true;
+          job.tombstone = cursor.tombstone === true || job.tombstone;
+          job.deleteState = 'blocked';
+          job.status = 'conflict';
+          job.reason = cursor.tombstone ? 'discard_blocked' : 'conflict';
+        } else if (cursor.delete_state === 'deleted') {
           job.tombstone = true;
-          job.accountId = accountId;
-
-          if (cursor.conflict || cursor.delete_state === 'blocked') {
-            job.conflict = true;
-            job.deleteState = 'blocked';
-            job.status = 'conflict';
-            job.reason = 'discard_blocked';
-          } else if (cursor.delete_state === 'deleted') {
-            job.deleteState = 'deleted';
-            job.status = 'deleted';
-          } else {
-            serial(job.clientUuid, () => continueDiscard(job, epoch));
-          }
+          job.deleteState = 'deleted';
+          job.status = 'deleted';
+          job.reason = null;
+        } else if (cursor.delete_state === 'unknown') {
+          job.tombstone = true;
+          job.deleteState = 'unknown';
+          job.status = 'local';
+          job.reason = 'delete_unknown';
+        } else if (cursor.tombstone && cursor.server_revision) {
+          job.tombstone = true;
+          job.deleteState = 'pending';
+          job.status = 'local';
+          job.reason = 'discard';
+        } else if (cursor.tombstone) {
+          job.tombstone = true;
+          job.deleteState = 'unknown';
+          job.status = 'local';
+          job.reason = 'delete_unknown';
         }
       }
     });
@@ -1347,15 +1482,20 @@ export function createPostDraftSync ({
     let records = [];
 
     try {
-      records = await listLocal();
+      records = typeof listLocal === 'function' ? await listLocal() : [];
     } catch (_error) {
-      unavailable = true;
+      if (ticket === protectionTicket) {
+        finishProtection('unavailable');
+      }
+
       return;
     }
 
-    if (sentEpoch !== epoch || bound !== accountId) {
+    if (sentEpoch !== epoch || bound !== accountId || ticket !== protectionTicket) {
       return;
     }
+
+    protection = 'ready';
 
     (records || []).forEach((record) => {
       if (!record || String(record.account_id) !== accountId) {
@@ -1365,18 +1505,19 @@ export function createPostDraftSync ({
       const cursor = byUuid.get(String(record.client_draft_uuid));
       const existing = jobs.get(String(record.client_draft_uuid));
 
-      if (existing && existing.observed) {
+      if (existing && existing.editedDuringBoot) {
         return;
       }
 
-      if (cursor && (cursor.tombstone || cursor.conflict)) {
+      if (cursor && (cursor.tombstone || cursor.conflict || cursor.delete_state === 'blocked' || cursor.delete_state === 'unknown' || cursor.delete_state === 'deleted')) {
         const job = ensureJob(record.client_draft_uuid);
 
-        applyCursor(job, cursor);
-        job.contentHash = record.content_hash;
-        job.payload = record;
-        job.localRevision = Number(record.revision) || 0;
-        job.status = cursor.conflict || cursor.delete_state === 'blocked' ? 'conflict' : job.status;
+        if (!job.editedDuringBoot) {
+          job.contentHash = record.content_hash;
+          job.payload = record;
+          job.localRevision = Number(record.revision) || 0;
+        }
+
         return;
       }
 
@@ -1409,6 +1550,27 @@ export function createPostDraftSync ({
         sessionId: 'resume',
       }, { immediate: true });
     });
+
+    if (ticket !== protectionTicket) {
+      return;
+    }
+
+    finishProtection('ready');
+    jobs.forEach((job) => {
+      if (job.tombstone && job.deleteState === 'pending' && job.ackedRevision && !job.conflict) {
+        serial(job.clientUuid, () => continueDiscard(job, epoch));
+        return;
+      }
+
+      if (!job.editedDuringBoot || job.conflict || job.tombstone || job.stopped) {
+        return;
+      }
+
+      if (job.contentHash && job.contentHash !== job.ackedHash) {
+        scheduleJob(job, 0);
+      }
+    });
+    emit();
   }
 
   function snapshot () {
@@ -1438,6 +1600,7 @@ export function createPostDraftSync ({
     return {
       accountId: bound,
       unavailable,
+      protection,
       drafts,
     };
   }
@@ -1461,6 +1624,9 @@ export function createPostDraftSync ({
     resume,
     snapshot,
     settle,
+    whenReady () {
+      return readyPromise;
+    },
     subscribe (listener) {
       listeners.add(listener);
 

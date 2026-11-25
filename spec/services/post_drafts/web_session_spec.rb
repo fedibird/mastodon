@@ -12,6 +12,17 @@ RSpec.describe PostDrafts::WebSession do # rubocop:disable Metrics/BlockLength
     Fabricate(:session_activation, user: user, session_id: SecureRandom.hex)
   end
 
+  it 'does not lock a session while sync is off' do
+    activation = session_for(Fabricate(:user))
+
+    expect(SessionActivation).not_to receive(:lock)
+
+    result = described_class.prepare(activation)
+
+    expect(result.enabled).to be false
+    expect(result.reason).to eq 'disabled'
+  end
+
   it 'leaves an ordinary web session unchanged while sync is off' do
     user = Fabricate(:user)
     activation = session_for(user)

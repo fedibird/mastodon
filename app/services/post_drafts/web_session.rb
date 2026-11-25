@@ -21,6 +21,13 @@ module PostDrafts
       def prepare(session_activation)
         return Result.new(enabled: false, reason: 'missing_scope') if session_activation.nil?
 
+        # An open tab keeps the flag it loaded until the next full page load.
+        # This is not a live kill switch. Turning the setting off stops the
+        # next page, and it does not revoke an external OAuth token.
+        unless Feature.permitted?(session_activation.user)
+          return Result.new(enabled: false, reason: disabled_reason)
+        end
+
         enabled = false
         reason = nil
 

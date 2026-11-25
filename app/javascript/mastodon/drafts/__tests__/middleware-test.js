@@ -325,4 +325,62 @@ describe('composer draft middleware', () => {
     expect(syncStatus()).toBe('synced');
     expect(store.getState().getIn(['composerDraftRecovery', 'sync', 'drafts', 'draft-1', 'contentHash'])).not.toBe(calls[0]);
   });
+
+  it('publishes syncing, a publish hold, and an account change', async () => {
+    let release;
+    const serverSync = createPostDraftSync({
+      serverDebounceMs: 0,
+      schedule: (fn) => {
+        fn();
+        return 1;
+      },
+      cancel: () => undefined,
+      online: () => true,
+      subscribeOnline: () => () => undefined,
+      request: (spec) => new Promise((resolve) => {
+        release = () => resolve({
+          status: 201,
+          body: { draft_id: '15', revision: 1, payload: spec.body.payload },
+        });
+      }),
+    });
+    const backend = createMemoryDraftBackend();
+    const session = createComposerDraftSession({
+      backend,
+      serverSync,
+      now: () => '2026-11-26T00:00:00.000Z',
+      createId: () => 'draft-1',
+      schedule: (fn) => fn,
+      cancel: () => undefined,
+    });
+    const store = createStore(
+      combineReducers({
+        compose,
+        composers,
+        composerDraftRecovery,
+      }),
+      applyMiddleware(thunk, composerDraftMiddleware({
+        session,
+        backend,
+        accountId: '42',
+        target: null,
+      })),
+    );
+    const view = () => store.getState().getIn(['composerDraftRecovery', 'sync']);
+
+    store.dispatch(changeCompose('one'));
+    await session.flush();
+    await new Promise((resolve) => {
+      setTimeout(resolve, 0);
+    });
+    expect(view().getIn(['drafts', 'draft-1', 'status'])).toBe('syncing');
+
+    release();
+    await serverSync.settle();
+    serverSync.notePublish({ accountId: '42', clientUuid: 'draft-1' });
+    expect(view().getIn(['drafts', 'draft-1', 'status'])).toBe('held');
+
+    session.releaseServerSync();
+    expect(view().get('accountId')).toBeNull();
+  });
 });
