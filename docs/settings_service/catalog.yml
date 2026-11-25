@@ -9403,6 +9403,7 @@ entries:
     - app/serializers/initial_state_serializer.rb
     - app/serializers/rest/instance_serializer.rb
     - app/serializers/rest/v1/instance_serializer.rb
+    - app/services/post_drafts/media_links.rb
     - app/services/post_status_service.rb
     - app/services/update_status_service.rb
   raw_type: boolean
@@ -9448,6 +9449,7 @@ entries:
     - app/services/activitypub/process_status_update_service.rb
     - app/services/activitypub/process_status_update_text.rb
     - app/services/external_bridge/rss/media/sync.rb
+    - app/services/post_drafts/media_fields.rb
     - app/services/post_status_service.rb
     - app/services/posting_identity/delegated_media.rb
     - app/services/update_status_service.rb

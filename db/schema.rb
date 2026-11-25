@@ -10,11 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-<<<<<<< HEAD
-ActiveRecord::Schema.define(version: 2026_11_24_200000) do
-=======
 ActiveRecord::Schema.define(version: 2026_11_24_203000) do
->>>>>>> c3581b3efb (Keep one open reboost and recover a missed boost notification.)
   # These are extensions that must be enabled in order to support this database
   enable_extension "plpgsql"
 
