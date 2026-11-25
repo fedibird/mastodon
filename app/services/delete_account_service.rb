@@ -148,6 +148,7 @@ class DeleteAccountService < BaseService
     purge_profile!
     purge_statuses!
     purge_mentions!
+    purge_post_drafts!
     purge_media_attachments!
     purge_polls!
     purge_generated_notifications!
@@ -180,6 +181,35 @@ class DeleteAccountService < BaseService
 
   def purge_mentions!
     @account.mentions.reorder(nil).where.not(status_id: reported_status_ids).in_batches.delete_all
+  end
+
+  # Another account's draft still names this file. Clearing account_id does
+  # not authorize that account to read it. The join keeps the object out of
+  # the 1-day unattached cleanup, so the instance keeps paying for storage
+  # until that draft drops the reference. The same cleanup then deletes the
+  # row and the stored object. No new owner is assigned.
+  def detach_media_held_by_other_drafts!
+    held_by_others = PostDraftMediaAttachment.joins(:post_draft)
+                                             .where.not(post_drafts: { account_id: @account.id })
+                                             .select(:media_attachment_id)
+    MediaAttachment.where(account_id: @account.id, id: held_by_others).update_all(account_id: nil, updated_at: Time.now.utc)
+    @account.association(:media_attachments).reset
+  end
+
+  # Username reservation keeps the account row, so dependent: :destroy never
+  # runs and would leave the private body behind. Remove only this account's
+  # drafts and their join rows, then let purge_media_attachments! delete files
+  # that nothing else retains. Another account's draft is not selected.
+  # A later run finds no rows and finishes.
+  def purge_post_drafts!
+    PostDraft.transaction do
+      Account.where(id: @account.id).lock('FOR UPDATE').pick(:id)
+      draft_ids = PostDraft.where(account_id: @account.id).pluck(:id)
+      if draft_ids.any?
+        PostDraftMediaAttachment.where(post_draft_id: draft_ids).delete_all
+        PostDraft.where(id: draft_ids).delete_all
+      end
+    end
   end
 
   def purge_media_attachments!
@@ -241,6 +271,7 @@ class DeleteAccountService < BaseService
   # foreign key after the account is gone.
   def destroy_account_with_remaining_emoji_reactions!
     remaining = false
+    destroyed = false
 
     Account.transaction do
       Account.where(id: @account.id).lock('FOR UPDATE').pick(:id)
@@ -250,10 +281,15 @@ class DeleteAccountService < BaseService
         reactions.delete_all
         remaining = true
       end
-      @account.destroy
+      # A file another account's draft still names must stay. Clear the owner
+      # first so dependent media destroy does not abort this account delete.
+      # Roll back that clear when the account row itself stays.
+      detach_media_held_by_other_drafts!
+      destroyed = @account.destroy
+      raise ActiveRecord::Rollback unless destroyed
     end
 
-    RefreshDirtyEmojiReactionCachesWorker.perform_async if remaining
+    RefreshDirtyEmojiReactionCachesWorker.perform_async if destroyed && remaining
   end
 
   def purge_other_associations!

@@ -59,7 +59,7 @@ class Api::V1::Fedibird::PostDraftsController < Api::BaseController
   end
 
   def presenter
-    PostDrafts::Presenter.new
+    PostDrafts::Presenter.new(current_user)
   end
 
   def render_result(result, created:)

@@ -1,0 +1,28 @@
+{
+  "schema_version": 1,
+  "composer_id": "primary",
+  "media_incomplete": false,
+  "content_hash": "media-shape",
+  "account_id": "42",
+  "client_draft_uuid": "11111111-1111-4111-8111-111111111111",
+  "saved_at": "2026-11-14T00:00:00.000Z",
+  "input": {
+    "text": "photo\n\ncaption",
+    "privacy": "public",
+    "media": [
+      {
+        "id": "100",
+        "order": 1,
+        "description": "second line\nkept",
+        "focus": { "x": -0.25, "y": 0.5 }
+      },
+      {
+        "id": "90",
+        "order": 0,
+        "description": "",
+        "focus": { "x": 0, "y": 0 }
+      }
+    ],
+    "sender": { "id": "local:42", "selection_origin": "default" }
+  }
+}

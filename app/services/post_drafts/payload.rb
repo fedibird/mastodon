@@ -3,10 +3,12 @@
 module PostDrafts
   # Accepts a P0 schema v1 snapshot body. Unknown fields are rejected so a
   # client cannot store Redux state, HTML, tokens, or permission caches.
-  # Non-empty media is rejected until a later change retains attachments.
+  # input.media keeps id, order, description, and focus. The media record
+  # is not updated from those fields.
   class Payload
     include ContextFields
     include StyleFields
+    include MediaFields
 
     class Invalid < StandardError
       attr_reader :errors
@@ -353,14 +355,6 @@ module PostDrafts
       fail!('invalid_format', 'input.quote_url') unless value.is_a?(String) && URL_PATTERN.match?(value)
 
       value
-    end
-
-    def media(value)
-      return [] if value.nil?
-      fail!('invalid_type', 'input.media') unless value.is_a?(Array)
-      fail!('media_not_retained', 'input.media') if value.any?
-
-      []
     end
 
     def poll(value)

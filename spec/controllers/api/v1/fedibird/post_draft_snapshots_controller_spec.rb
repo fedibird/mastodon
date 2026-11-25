@@ -34,7 +34,9 @@ RSpec.describe Api::V1::Fedibird::PostDraftsController, type: :controller do
         post :create, body: { client_uuid: raw['client_draft_uuid'], payload: raw }.to_json, as: :json
 
         expect(response).to have_http_status(201)
-        expect(body_as_json[:media_retained]).to be false
+        expect(body_as_json[:media_retained]).to be true
+        expect(body_as_json[:media_restore]).to eq 'complete'
+        expect(body_as_json[:media]).to eq []
         expect(body_as_json.dig(:payload, :input, :text)).to eq raw['input']['text']
         expect(body_as_json.dig(:payload, :input, :media)).to eq []
         expect(Status.count).to eq statuses

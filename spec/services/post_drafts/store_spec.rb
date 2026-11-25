@@ -113,7 +113,7 @@ describe PostDrafts::Store do
     result = store.create(client_uuid: uuid, payload: payload('hello').deep_merge('input' => { 'media' => [{ 'id' => '99' }] }))
 
     expect(result.status).to eq :invalid
-    expect(result.error.errors.first['code']).to eq 'media_not_retained'
+    expect(result.error.errors.first['code']).to eq 'media_missing'
     expect(PostDraft.where(account_id: user.account_id)).to be_empty
   end
 end
