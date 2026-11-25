@@ -156,6 +156,7 @@ export function reboost(status) {
       return Promise.resolve();
     }
 
+    const token = watchReboost(statusId, null);
     dispatch(setReboostOperation(statusId, { state: 'pending' }));
 
     const idempotencyKey = idempotencyKeyFor(statusId);
@@ -163,38 +164,58 @@ export function reboost(status) {
     return api(getState).post(`/api/v1/statuses/${statusId}/reblog`, { reboost: true }, {
       headers: { 'Idempotency-Key': idempotencyKey },
     }).then((response) => {
-      if (response.status === 202) {
-        return acceptReboostResponse(dispatch, getState, status, response);
-      }
-
-      reboostIdempotencyKeys.delete(statusId);
-      dispatch(importFetchedStatus(response.data));
-      if (response.data.reblog) {
-        dispatch(importFetchedStatus(response.data.reblog));
-      }
-      dispatch(reblogSuccess(status));
-      dispatch(setReboostOperation(statusId, null));
-      return null;
-    }).catch((error) => {
-      if (error?.response) {
-        reboostIdempotencyKeys.delete(statusId);
-      }
-
-      dispatch(setReboostOperation(statusId, null));
-
-      if (error?.response?.status === 429) {
-        dispatch(showAlert(
-          reboostMessages.waitTitle,
-          reboostMessages.wait,
-          { seconds: error.response.data?.retry_after },
-        ));
+      if (!reboostWatchOwned(statusId, token)) {
+        rememberSuspendedResult(statusId, token, { kind: 'post', response });
         return null;
       }
 
-      dispatch(showAlertForError(error));
-      return null;
+      return settlePostedReboost(dispatch, getState, status, response);
+    }).catch((error) => {
+      if (!reboostWatchOwned(statusId, token)) {
+        rememberSuspendedResult(statusId, token, { kind: 'error', error });
+        return null;
+      }
+
+      return failPostedReboost(dispatch, status, error);
     });
   };
+}
+
+function settlePostedReboost(dispatch, getState, status, response) {
+  if (response.status === 202) {
+    return acceptReboostResponse(dispatch, getState, status, response);
+  }
+
+  const statusId = status.get('id');
+  reboostIdempotencyKeys.delete(statusId);
+  dispatch(importFetchedStatus(response.data));
+  if (response.data.reblog) {
+    dispatch(importFetchedStatus(response.data.reblog));
+  }
+  dispatch(reblogSuccess(status));
+  dispatch(setReboostOperation(statusId, null));
+  return null;
+}
+
+function failPostedReboost(dispatch, status, error) {
+  const statusId = status.get('id');
+  if (error?.response) {
+    reboostIdempotencyKeys.delete(statusId);
+  }
+
+  dispatch(setReboostOperation(statusId, null));
+
+  if (error?.response?.status === 429) {
+    dispatch(showAlert(
+      reboostMessages.waitTitle,
+      reboostMessages.wait,
+      { seconds: error.response.data?.retry_after },
+    ));
+    return null;
+  }
+
+  dispatch(showAlertForError(error));
+  return null;
 }
 
 const reboostWatch = new Map();
@@ -202,13 +223,32 @@ let reboostWatchSerial = 0;
 
 function watchReboost(statusId, operationId) {
   const current = reboostWatch.get(String(statusId));
-  if (current && String(current.operationId) === String(operationId) && !current.committed) {
+  if (current && !current.committed && watchOperationCompatible(current.operationId, operationId)) {
+    if (operationId !== null && operationId !== undefined) {
+      current.operationId = operationId;
+    }
     return current.token;
   }
 
   const token = ++reboostWatchSerial;
-  reboostWatch.set(String(statusId), { token, operationId, committed: false });
+  reboostWatch.set(String(statusId), {
+    token,
+    operationId: operationId === null || operationId === undefined ? null : operationId,
+    committed: false,
+  });
   return token;
+}
+
+function watchOperationCompatible(currentId, operationId) {
+  if (currentId === null || currentId === undefined) {
+    return true;
+  }
+
+  if (operationId === null || operationId === undefined) {
+    return false;
+  }
+
+  return String(currentId) === String(operationId);
 }
 
 function reboostWatchOpen(statusId, token) {
@@ -245,10 +285,20 @@ function suspendReboostWatch(statusId) {
     return null;
   }
 
-  const suspended = { token: current.token, operationId: current.operationId, committed: current.committed };
+  const suspended = { token: current.token, operationId: current.operationId, committed: current.committed, discarded: null };
+  current.suspended = suspended;
   current.token = ++reboostWatchSerial;
   current.committed = true;
   return suspended;
+}
+
+function rememberSuspendedResult(statusId, token, discarded) {
+  const current = reboostWatch.get(String(statusId));
+  if (!current?.suspended || current.suspended.token !== token) {
+    return;
+  }
+
+  current.suspended.discarded = discarded;
 }
 
 function restoreReboostWatch(statusId, suspended) {
@@ -262,7 +312,8 @@ function restoreReboostWatch(statusId, suspended) {
   }
 
   current.token = suspended.token;
-  current.committed = suspended.committed;
+  current.committed = false;
+  current.suspended = null;
 }
 
 function trackedOperationMatches(getState, statusId, operationId) {
@@ -350,6 +401,7 @@ function applyReboostResult(dispatch, getState, status, operationId, operation, 
   }
 
   if (!reboostWatchOwned(statusId, token)) {
+    rememberSuspendedResult(statusId, token, { kind: 'operation', operation });
     return null;
   }
 
@@ -370,6 +422,9 @@ function applyReboostResult(dispatch, getState, status, operationId, operation, 
   if (operation.state === 'completed' && operation.new_status_id) {
     return api(getState).get(`/api/v1/statuses/${operation.new_status_id}`).then((response) => {
       if (!reboostWatchOwned(statusId, token) || !trackedOperationMatches(getState, statusId, operationId)) {
+        if (!reboostWatchOwned(statusId, token)) {
+          rememberSuspendedResult(statusId, token, { kind: 'status', data: response.data });
+        }
         return null;
       }
 
@@ -421,11 +476,38 @@ export function unreblog(status) {
       dispatch(setReboostOperation(statusId, null));
       return null;
     }).catch(error => {
+      const discarded = suspended?.discarded;
       restoreReboostWatch(statusId, suspended);
       dispatch(unreblogFail(status, error));
+      return replayDiscardedReboost(dispatch, getState, status, discarded, suspended?.token);
     });
   };
 };
+
+function replayDiscardedReboost(dispatch, getState, status, discarded, token) {
+  if (!discarded || !reboostWatchOwned(status.get('id'), token)) {
+    return null;
+  }
+
+  if (discarded.kind === 'post') {
+    return settlePostedReboost(dispatch, getState, status, discarded.response);
+  }
+
+  if (discarded.kind === 'error') {
+    return failPostedReboost(dispatch, status, discarded.error);
+  }
+
+  if (discarded.kind === 'operation') {
+    return applyReboostResult(dispatch, getState, status, discarded.operation?.id, discarded.operation, token);
+  }
+
+  dispatch(importFetchedStatus(discarded.data));
+  dispatch(reblogSuccess(status));
+  reboostIdempotencyKeys.delete(status.get('id'));
+  dispatch(setReboostOperation(status.get('id'), null));
+  bumpReboostWatch(status.get('id'), token);
+  return null;
+}
 
 export function reblogRequest(status) {
   return {
