@@ -4,7 +4,9 @@ import { selectComposer } from '../selectors/composer';
 import { PRIMARY_COMPOSER_ID } from '../utils/composer';
 import { COMPOSER_DRAFT_STATUS } from '../actions/composer';
 import { createComposerDraftSession } from './session';
-import { createIndexedDbDraftBackend } from './storage';
+import { browserPostDraftRequest } from './sync_client';
+import { createPostDraftSync } from './sync';
+import { createIndexedDbDraftBackend, createIndexedDbSyncLedger } from './storage';
 
 let sharedSession = null;
 
@@ -36,6 +38,16 @@ function collectComposers (state) {
 }
 
 export function composerDraftMiddleware (options = {}) {
+  let storeRef = null;
+  const serverSync = options.serverSync || (options.enableServerSync ? createPostDraftSync({
+    ledger: options.ledger || createIndexedDbSyncLedger(),
+    request: (spec) => browserPostDraftRequest(() => storeRef && storeRef.getState(), spec),
+    schedule: options.serverSchedule,
+    cancel: options.serverCancel,
+    online: options.online,
+    subscribeOnline: options.subscribeOnline,
+    serverDebounceMs: options.serverDebounceMs,
+  }) : null);
   const session = options.session || createComposerDraftSession({
     backend: options.backend || createIndexedDbDraftBackend(),
     debounceMs: options.debounceMs,
@@ -43,6 +55,7 @@ export function composerDraftMiddleware (options = {}) {
     cancel: options.cancel,
     now: options.now,
     createId: options.createId,
+    serverSync,
   });
 
   sharedSession = session;
@@ -52,6 +65,7 @@ export function composerDraftMiddleware (options = {}) {
   const accountIdFor = () => (options.accountId === undefined ? me : options.accountId);
 
   return store => {
+    storeRef = store;
     const target = options.target === undefined && typeof window !== 'undefined' ? window : options.target;
 
     session.bindLifecycle(target);
@@ -80,6 +94,10 @@ export function composerDraftMiddleware (options = {}) {
       const accountId = accountIdFor();
 
       if (!accountId) {
+        if (session.releaseServerSync) {
+          session.releaseServerSync();
+        }
+
         return result;
       }
 

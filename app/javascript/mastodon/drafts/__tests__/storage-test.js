@@ -1,4 +1,4 @@
-import { compareAndDelete, compareAndPut, createIndexedDbDraftBackend, createMemoryDraftBackend, openComposerDraftDatabase } from '../storage';
+import { compareAndDelete, compareAndPut, createIndexedDbDraftBackend, createMemoryDraftBackend, ensureComposerDraftStores, openComposerDraftDatabase } from '../storage';
 
 function fakeDatabase () {
   const rows = new Map();
@@ -248,6 +248,27 @@ describe('composer draft storage', () => {
       expect(await backend.readDraft('42', 'draft-1')).toBeFalsy();
       expect((await backend.readDraft('42', 'draft-2')).input.text).toBe('other');
     }));
+  });
+
+  it('adds the sync store when an older draft database is opened', () => {
+    const created = [];
+    const names = new Set(['drafts']);
+    const db = {
+      objectStoreNames: {
+        contains: name => names.has(name),
+      },
+      createObjectStore (name) {
+        names.add(name);
+        created.push(name);
+
+        return { createIndex () {} };
+      },
+    };
+
+    ensureComposerDraftStores(db);
+    ensureComposerDraftStores(db);
+
+    expect(created).toEqual(['sync']);
   });
 
   it('reports an unavailable database without throwing to the caller of open', async () => {

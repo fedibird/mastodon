@@ -1,8 +1,9 @@
 import { COMPOSER_DRAFT_SCHEMA_VERSION } from './snapshot';
 
 export const COMPOSER_DRAFT_DB_NAME = 'fedibird-composer-drafts';
-export const COMPOSER_DRAFT_DB_VERSION = 1;
+export const COMPOSER_DRAFT_DB_VERSION = 2;
 export const COMPOSER_DRAFT_STORE = 'drafts';
+export const COMPOSER_DRAFT_SYNC_STORE = 'sync';
 
 const recordKey = record => `${record.account_id}\u0000${record.client_draft_uuid}`;
 
@@ -80,6 +81,24 @@ function requestToPromise (request) {
   });
 }
 
+export function ensureComposerDraftStores (db) {
+  if (!db.objectStoreNames.contains(COMPOSER_DRAFT_STORE)) {
+    const store = db.createObjectStore(COMPOSER_DRAFT_STORE, {
+      keyPath: ['account_id', 'client_draft_uuid'],
+    });
+
+    store.createIndex('account_id', 'account_id', { unique: false });
+  }
+
+  if (!db.objectStoreNames.contains(COMPOSER_DRAFT_SYNC_STORE)) {
+    const sync = db.createObjectStore(COMPOSER_DRAFT_SYNC_STORE, {
+      keyPath: ['account_id', 'client_uuid'],
+    });
+
+    sync.createIndex('account_id', 'account_id', { unique: false });
+  }
+}
+
 export function openComposerDraftDatabase (indexedDBImpl) {
   const factory = indexedDBImpl === undefined ? indexedDB : indexedDBImpl;
 
@@ -109,15 +128,7 @@ export function openComposerDraftDatabase (indexedDBImpl) {
       reject(error);
     };
     request.onupgradeneeded = () => {
-      const db = request.result;
-
-      if (!db.objectStoreNames.contains(COMPOSER_DRAFT_STORE)) {
-        const store = db.createObjectStore(COMPOSER_DRAFT_STORE, {
-          keyPath: ['account_id', 'client_draft_uuid'],
-        });
-
-        store.createIndex('account_id', 'account_id', { unique: false });
-      }
+      ensureComposerDraftStores(request.result);
     };
     request.onsuccess = () => resolve(request.result);
   });
@@ -261,6 +272,59 @@ export function createIndexedDbDraftBackend ({ openDatabase = openComposerDraftD
         };
         tx.onabort = () => reject(tx.error || new Error('indexedDB write aborted'));
       }));
+    },
+  };
+}
+
+export function createIndexedDbSyncLedger ({ openDatabase = openComposerDraftDatabase } = {}) {
+  let databasePromise = null;
+
+  const database = () => {
+    if (!databasePromise) {
+      databasePromise = openDatabase().catch((error) => {
+        databasePromise = null;
+        throw error;
+      });
+    }
+
+    return databasePromise;
+  };
+
+  const stored = (record) => ({
+    account_id: String(record.account_id),
+    client_uuid: String(record.client_uuid),
+    server_draft_id: record.server_draft_id || null,
+    server_revision: Number(record.server_revision) || null,
+    acked_hash: record.acked_hash || null,
+    acked_generation: Number(record.acked_generation) || null,
+    tombstone: record.tombstone === true,
+  });
+
+  return {
+    read (accountId, clientUuid) {
+      return database().then(db => requestToPromise(
+        db.transaction(COMPOSER_DRAFT_SYNC_STORE, 'readonly').objectStore(COMPOSER_DRAFT_SYNC_STORE).get([String(accountId), String(clientUuid)]),
+      ));
+    },
+
+    write (record) {
+      const row = stored(record);
+
+      return database().then(db => new Promise((resolve, reject) => {
+        const tx = db.transaction(COMPOSER_DRAFT_SYNC_STORE, 'readwrite');
+        const request = tx.objectStore(COMPOSER_DRAFT_SYNC_STORE).put(row);
+
+        request.onerror = () => reject(request.error || new Error('indexedDB sync put failed'));
+        tx.oncomplete = () => resolve(row);
+        tx.onerror = () => reject(tx.error || new Error('indexedDB sync write failed'));
+        tx.onabort = () => reject(tx.error || new Error('indexedDB sync write aborted'));
+      }));
+    },
+
+    list (accountId) {
+      return database().then(db => requestToPromise(
+        db.transaction(COMPOSER_DRAFT_SYNC_STORE, 'readonly').objectStore(COMPOSER_DRAFT_SYNC_STORE).index('account_id').getAll(String(accountId)),
+      )).then(rows => rows || []);
     },
   };
 }

@@ -12,7 +12,7 @@ class InitialStateSerializer < ActiveModel::Serializer
   has_one :push_subscription, serializer: REST::WebPushSubscriptionSerializer
   has_one :role, serializer: REST::RoleSerializer
 
-  def meta # rubocop:disable Metrics/AbcSize
+  def meta # rubocop:disable Metrics/AbcSize, Metrics/MethodLength
     store = {
       streaming_api_base_url: Rails.configuration.x.streaming_api_base_url,
       access_token: object.token,
@@ -38,6 +38,7 @@ class InitialStateSerializer < ActiveModel::Serializer
 
     if object.current_account
       store[:me]                                    = object.current_account.id.to_s
+      store[:post_draft_sync]                      = post_draft_sync_meta
       store[:external_feeds]                       = object.signed_in_user.present? && ExternalBridge::Feeds::Feature.permitted?(object.signed_in_user)
       store[:follow_modal]                          = object.current_account.user.setting_follow_modal
       store[:unfollow_modal]                        = object.current_account.user.setting_unfollow_modal
@@ -289,6 +290,20 @@ class InitialStateSerializer < ActiveModel::Serializer
 
   # One reader for this serializer instance. Logged-out rendering never calls it.
   # Values are Reader#effective so stored strings stay strings.
+  # Missing means the WebUI must not sync. A signed-in page sets this from
+  # PostDrafts::WebSession before the token is embedded, so the token and
+  # the flag describe the same session.
+  def post_draft_sync_meta
+    value = object.post_draft_sync
+    enabled = value.respond_to?(:enabled) && value.enabled == true
+    reason = value.respond_to?(:reason) ? value.reason : 'disabled'
+
+    {
+      enabled: enabled,
+      reason: enabled ? nil : (reason || 'disabled'),
+    }
+  end
+
   def preference_reader
     return @preference_reader if defined?(@preference_reader)
 

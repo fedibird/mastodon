@@ -15,6 +15,20 @@ function browserLocalStorage () {
   }
 }
 
+export function postDraftSyncEnabled (meta) {
+  if (!meta || typeof meta !== 'object') {
+    return false;
+  }
+
+  const sync = meta.post_draft_sync;
+
+  return Boolean(sync && sync.enabled === true);
+}
+
+export function composerDraftsActive (storage, meta) {
+  return composerDraftRecoveryEnabled(storage) || postDraftSyncEnabled(meta);
+}
+
 export function composerDraftRecoveryEnabled (storage) {
   const source = storage === undefined ? browserLocalStorage() : storage;
 

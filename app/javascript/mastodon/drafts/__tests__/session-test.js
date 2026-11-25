@@ -1538,4 +1538,79 @@ describe('composer draft session', () => {
 
     expect(await reloaded.refreshOffers('42')).toEqual([]);
   });
+
+  it('tells server sync about a local save, an explicit discard, and not a publish delete', async () => {
+    const events = [];
+    const serverSync = {
+      bindAccount () {},
+      resume () {},
+      snapshot () {
+        return { drafts: {} };
+      },
+      observeLocal (input) {
+        events.push(['observe', input.clientUuid, input.contentHash]);
+      },
+      noteDiscard (input) {
+        events.push(['discard', input.clientUuid]);
+      },
+      notePublish (input) {
+        events.push(['publish', input.clientUuid]);
+      },
+    };
+    const backend = createMemoryDraftBackend();
+    const session = createComposerDraftSession({
+      backend,
+      serverSync,
+      debounceMs: 300,
+      now: () => '2026-11-26T00:00:00.000Z',
+      createId: () => 'draft-1',
+      schedule: (fn) => fn,
+      cancel: () => undefined,
+    });
+    const typed = composerWith('hello', { idempotencyKey: 'token-a' });
+
+    session.sync({
+      accountId: '42',
+      action: { type: 'COMPOSE_CHANGE' },
+      composers: [{ composerId: 'primary', state: typed }],
+    });
+    await session.flush();
+    session.sync({
+      accountId: '42',
+      action: { type: COMPOSE_SUBMIT_REQUEST, submitId: 'submit-1' },
+      composers: [{ composerId: 'primary', state: typed.set('is_submitting', true) }],
+    });
+    session.sync({
+      accountId: '42',
+      action: {
+        type: COMPOSE_SUBMIT_SUCCESS,
+        submission: submissionSnapshot(typed, 'hello', 'submit-1'),
+      },
+      composers: [{ composerId: 'primary', state: composerWith('', { idempotencyKey: 'token-a' }) }],
+    });
+    await session.flush();
+
+    expect(events.some(event => event[0] === 'observe')).toBe(true);
+    expect(events.some(event => event[0] === 'publish')).toBe(true);
+    expect(events.some(event => event[0] === 'discard')).toBe(false);
+
+    const again = composerWith('again', { idempotencyKey: 'token-b', instanceId: 'composer-2' });
+
+    session.sync({
+      accountId: '42',
+      action: { type: 'COMPOSE_CHANGE' },
+      composers: [{ composerId: 'primary', state: again }],
+    });
+    await session.flush();
+    events.length = 0;
+    session.sync({
+      accountId: '42',
+      action: { type: COMPOSE_RESET },
+      composers: [{ composerId: 'primary', state: composerWith('', { idempotencyKey: 'token-b', instanceId: 'composer-2' }) }],
+    });
+    await session.flush();
+
+    expect(events.some(event => event[0] === 'discard')).toBe(true);
+    expect(events.some(event => event[0] === 'publish')).toBe(false);
+  });
 });

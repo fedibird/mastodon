@@ -78,6 +78,7 @@ export function createComposerDraftSession ({
   debounceMs = 300,
   schedule = (fn, ms) => setTimeout(fn, ms),
   cancel = (id) => clearTimeout(id),
+  serverSync = null,
 } = {}) {
   const surfaces = new Map();
   const claimed = new Map();
@@ -91,6 +92,8 @@ export function createComposerDraftSession ({
   const listeners = new Set();
   let offers = [];
   let unavailable = false;
+  let serverAccount;
+  let serverAccountSet = false;
 
   const notify = () => {
     listeners.forEach((listener) => listener());
@@ -231,7 +234,7 @@ export function createComposerDraftSession ({
     });
   }
 
-  function retireDraft (accountId, composerId, clientDraftUuid, expected) {
+  function retireDraft (accountId, composerId, clientDraftUuid, expected, reason) {
     if (!clientDraftUuid) {
       return Promise.resolve();
     }
@@ -269,7 +272,20 @@ export function createComposerDraftSession ({
     const run = previous.then(
       () => backend.deleteDraft(accountId, clientDraftUuid, expected),
       () => backend.deleteDraft(accountId, clientDraftUuid, expected),
-    ).then(() => {
+    ).then((decision) => {
+      if (serverSync && decision && decision.status === 'deleted') {
+        const notice = {
+          accountId: String(accountId),
+          clientUuid: String(clientDraftUuid),
+        };
+
+        if (reason === 'publish') {
+          serverSync.notePublish(notice);
+        } else if (reason === 'discard') {
+          serverSync.noteDiscard(notice);
+        }
+      }
+
       refreshOffers(accountId);
     }, () => undefined);
 
@@ -297,7 +313,7 @@ export function createComposerDraftSession ({
       return;
     }
 
-    retireDraft(accountId, surface.composerId, clientDraftUuid, heldDraftExpectation(surface));
+    retireDraft(accountId, surface.composerId, clientDraftUuid, heldDraftExpectation(surface), 'discard');
   }
 
   function writeOptions (composerId, epoch, clientDraftUuid) {
@@ -370,6 +386,17 @@ export function createComposerDraftSession ({
       if (latest) {
         current.lastHash = snapshot.content_hash;
         setPersistence(composerId, 'saved', null, snapshot.media_incomplete);
+      }
+
+      if (serverSync && String(snapshot.account_id) === String(accountId)) {
+        serverSync.observeLocal({
+          accountId: String(accountId),
+          clientUuid: snapshot.client_draft_uuid,
+          localRevision: Number(result.record.revision) || 0,
+          contentHash: snapshot.content_hash,
+          payload: snapshot,
+          editGeneration: epoch,
+        });
       }
     }
 
@@ -548,7 +575,18 @@ export function createComposerDraftSession ({
         offers: offers.slice(),
         persistence: byComposer,
         unavailable,
+        sync: serverSync && typeof serverSync.snapshot === 'function' ? serverSync.snapshot() : null,
       };
+    },
+
+    releaseServerSync () {
+      if (!serverSync) {
+        return;
+      }
+
+      serverAccount = null;
+      serverAccountSet = true;
+      serverSync.bindAccount(null);
     },
 
     claim (clientDraftUuid, composerId) {
@@ -622,6 +660,24 @@ export function createComposerDraftSession ({
     },
 
     sync ({ accountId, action, composers }) {
+      if (serverSync) {
+        const nextAccount = accountId ? String(accountId) : null;
+
+        if (!serverAccountSet || nextAccount !== serverAccount) {
+          serverAccount = nextAccount;
+          serverAccountSet = true;
+          serverSync.bindAccount(nextAccount);
+
+          if (nextAccount && typeof serverSync.resume === 'function') {
+            Promise.resolve(serverSync.resume(() => backend.listDrafts(nextAccount))).catch(() => undefined);
+          }
+        }
+
+        if (!nextAccount) {
+          return;
+        }
+      }
+
       if (!accountId) {
         return;
       }
@@ -835,7 +891,7 @@ export function createComposerDraftSession ({
         }
 
         if (sentUuid) {
-          retireDraft(publishAccountId, composerId, sentUuid, sentExpectation(sent));
+          retireDraft(publishAccountId, composerId, sentUuid, sentExpectation(sent), 'publish');
         }
 
         let current = surfaces.get(composerId);
@@ -1049,7 +1105,7 @@ export function createComposerDraftSession ({
           const uuid = (taken.record && taken.record.uuid) || (!taken.tracked && legacySentUuid(surface, submission));
 
           if (uuid) {
-            retireDraft(accountId, composerId, uuid, sentExpectation(taken.record));
+            retireDraft(accountId, composerId, uuid, sentExpectation(taken.record), 'publish');
           }
 
           surfaces.delete(composerId);
@@ -1079,7 +1135,7 @@ export function createComposerDraftSession ({
           const uuid = taken.record && taken.record.uuid;
 
           if (uuid) {
-            retireDraft(accountId, target, uuid, sentExpectation(taken.record));
+            retireDraft(accountId, target, uuid, sentExpectation(taken.record), 'publish');
           }
         }
       }

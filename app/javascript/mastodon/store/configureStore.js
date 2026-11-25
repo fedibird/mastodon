@@ -6,7 +6,8 @@ import errorsMiddleware from '../middleware/errors';
 import soundsMiddleware from '../middleware/sounds';
 import externalPlayerMiddleware from '../external_player/middleware';
 import { filterReconciliationMiddleware } from '../filter_reconciliation/scheduler';
-import { composerDraftRecoveryEnabled } from '../drafts/feature';
+import initialState from '../initial_state';
+import { composerDraftsActive, postDraftSyncEnabled } from '../drafts/feature';
 import { composerDraftMiddleware } from '../drafts/middleware';
 
 export default function configureStore() {
@@ -19,8 +20,12 @@ export default function configureStore() {
     soundsMiddleware(),
   ];
 
-  if (composerDraftRecoveryEnabled()) {
-    middleware.splice(1, 0, composerDraftMiddleware());
+  const meta = initialState && initialState.meta;
+
+  if (composerDraftsActive(undefined, meta)) {
+    middleware.splice(1, 0, composerDraftMiddleware({
+      enableServerSync: postDraftSyncEnabled(meta),
+    }));
   }
 
   return createStore(appReducer, compose(applyMiddleware(...middleware), window.__REDUX_DEVTOOLS_EXTENSION__ ? window.__REDUX_DEVTOOLS_EXTENSION__() : f => f));
