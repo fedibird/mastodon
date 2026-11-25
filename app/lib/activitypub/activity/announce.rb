@@ -55,6 +55,7 @@ class ActivityPub::Activity::Announce < ActivityPub::Activity
     process_status
     remember_current_announce!
     ReboostCooldown.stamp!(@account.id, @original_status.id)
+    consume_open_hold!
   end
 
   def receive_another_announce!
@@ -120,7 +121,12 @@ class ActivityPub::Activity::Announce < ActivityPub::Activity
     return false if @options[:applying_hold]
 
     hold = RemoteReboostHold.find_by(account_id: @account.id, reblog_of_id: @original_status.id)
-    return false if hold.nil? || hold.activity_uri == @json['id']
+    return false if hold.nil?
+
+    if hold.activity_uri == @json['id']
+      adopt_open_hold!(hold)
+      return false
+    end
 
     if incoming && (hold.published_at.nil? || incoming > hold.published_at)
       ReboostAnnounceState.supersede!(@account.id, hold.activity_uri, reblog_of_id: @original_status.id)
@@ -130,6 +136,38 @@ class ActivityPub::Activity::Announce < ActivityPub::Activity
 
     ReboostAnnounceState.supersede!(@account.id, @json['id'], reblog_of_id: @original_status.id)
     true
+  end
+
+  # A fetch of the held id must keep the inboxes and delivery flag already stored.
+  # The hold stays until that accept commits, so a failed accept can still be applied.
+  def adopt_open_hold!(hold)
+    incoming = {
+      'delivery' => @options[:delivery] == true,
+      'override_timestamps' => @options[:override_timestamps] == true,
+      'delivered_to_account_id' => @options[:delivered_to_account_id],
+      'relayed_through_account_id' => @options[:relayed_through_account]&.id,
+    }
+    merged = RemoteReboostHold.merge_delivery_options(hold.delivery_options, incoming)
+    hold.update!(delivery_options: merged)
+    apply_merged_delivery!(merged)
+    @consumed_hold = hold
+  end
+
+  def apply_merged_delivery!(merged)
+    ids = Array(merged['delivered_to_account_ids']).compact
+    @options[:delivery] = merged['delivery'] == true
+    @options[:override_timestamps] = merged['override_timestamps'] == true
+    @options[:delivered_to_account_ids] = ids
+    @options[:delivered_to_account_id] = ids.first
+    relay_id = merged['relayed_through_account_id']
+    @options[:relayed_through_account] = Account.find_by(id: relay_id) if relay_id.present?
+  end
+
+  def consume_open_hold!
+    return if @consumed_hold.nil?
+
+    RemoteReboostHold.where(id: @consumed_hold.id, activity_uri: @json['id']).delete_all
+    @consumed_hold = nil
   end
 
   def hold_newer_announce!(published)
