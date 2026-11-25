@@ -558,8 +558,101 @@ RSpec.describe ReblogService do
 
       Scheduler::ReboostDeliveryScheduler.new.perform
 
-      expect(operation.reload).to have_attributes(state: 'cancelled', error_code: 'reboost_disabled')
+      expect(operation.reload).to have_attributes(state: 'cancelled', error_code: 'reboost_disabled', undo_payload: nil)
       expect(Status.find_by(id: first.id)).to be_present
+      expect(ActivityPub::DeliveryWorker).not_to have_received(:push_bulk)
+    end
+
+    it 'cancels without an Undo when recovery was saved before the old boost was removed' do
+      allow(ActivityPub::DeliveryWorker).to receive(:push_bulk)
+      allow(Reboost::RecoveryRecord).to receive(:save!).and_wrap_original do |method, **kwargs|
+        result = method.call(**kwargs)
+        raise 'stopped before removal'
+      end
+
+      travel 301.seconds do
+        expect { described_class.new.call(account, original, reboost: true) }.to raise_error(RuntimeError, 'stopped before removal')
+      end
+      operation = ReboostOperation.order(:id).last
+      expect(operation.state).to eq 'pending'
+      expect(Status.find_by(id: first.id)).to be_present
+      operation.update_column(:updated_at, 31.seconds.ago)
+      disable_reboost!
+
+      Scheduler::ReboostDeliveryScheduler.new.perform
+
+      expect(operation.reload).to have_attributes(state: 'cancelled', error_code: 'reboost_disabled', undo_payload: nil)
+      expect(Status.find_by(id: first.id)).to be_present
+      expect(ActivityPub::DeliveryWorker).not_to have_received(:push_bulk)
+      expect(account.statuses.where(reblog_of_id: original.id).pluck(:id)).to eq [first.id]
+    end
+
+    it 'sends the saved Undo when recovery is cancelled after the old boost was removed' do
+      Fabricate(:account, domain: 'remote.example', inbox_url: 'https://remote.example/inbox', protocol: :activitypub).follow!(account)
+      allow(ActivityPub::DeliveryWorker).to receive(:push_bulk)
+      stop_after_removing!(first)
+
+      travel 301.seconds do
+        expect { described_class.new.call(account, original, reboost: true) }.to raise_error(RuntimeError, 'stopped after removal')
+      end
+      operation = ReboostOperation.order(:id).last
+      expect(Status.find_by(id: first.id)).to be_nil
+      operation.update_column(:updated_at, 31.seconds.ago)
+      disable_reboost!
+
+      Scheduler::ReboostDeliveryScheduler.new.perform
+
+      expect(operation.reload).to have_attributes(state: 'cancelled', error_code: 'reboost_disabled')
+      expect(operation.undo_enqueued_at).to be_present
+      expect(ActivityPub::DeliveryWorker).to have_received(:push_bulk).with(array_including('https://remote.example/inbox'))
+      expect(account.statuses.where(reblog_of_id: original.id)).to be_empty
+    end
+
+    it 'sends the saved Undo on the next pass when the first enqueue fails' do
+      Fabricate(:account, domain: 'remote.example', inbox_url: 'https://remote.example/inbox', protocol: :activitypub).follow!(account)
+      allow(ActivityPub::DeliveryWorker).to receive(:push_bulk)
+      stop_after_removing!(first)
+      calls = 0
+      allow(Reboost::FederationWorker).to receive(:perform_async).and_wrap_original do |method, *args|
+        calls += 1
+        raise Redis::BaseConnectionError if calls == 1
+
+        method.call(*args)
+      end
+
+      travel 301.seconds do
+        expect { described_class.new.call(account, original, reboost: true) }.to raise_error(RuntimeError, 'stopped after removal')
+      end
+      operation = ReboostOperation.order(:id).last
+      operation.update_column(:updated_at, 31.seconds.ago)
+      disable_reboost!
+
+      Scheduler::ReboostDeliveryScheduler.new.perform
+
+      expect(calls).to eq 2
+      expect(operation.reload).to have_attributes(state: 'cancelled', error_code: 'reboost_disabled')
+      expect(operation.undo_enqueued_at).to be_present
+      expect(ActivityPub::DeliveryWorker).to have_received(:push_bulk).with(array_including('https://remote.example/inbox')).once
+      expect(account.statuses.where(reblog_of_id: original.id)).to be_empty
+
+      Scheduler::ReboostDeliveryScheduler.new.perform
+
+      expect(calls).to eq 2
+      expect(ActivityPub::DeliveryWorker).to have_received(:push_bulk).once
+    end
+
+    it 'sends the saved Undo when the removed boost was kept for a report' do
+      allow(ActivityPub::DeliveryWorker).to receive(:push_bulk)
+      first.discard
+      operation = stranded_operation
+      user.settings.enable_reboost = false
+      user.save!
+
+      Scheduler::ReboostDeliveryScheduler.new.perform
+
+      expect(operation.reload).to have_attributes(state: 'cancelled', error_code: 'reboost_disabled')
+      expect(operation.undo_enqueued_at).to be_present
+      expect(Status.unscoped.find_by(id: first.id).deleted_at).to be_present
       expect(ActivityPub::DeliveryWorker).to have_received(:push_bulk).with(['https://remote.example/inbox'])
     end
 
@@ -569,8 +662,9 @@ RSpec.describe ReblogService do
 
       Scheduler::ReboostDeliveryScheduler.new.perform
 
-      expect(operation.reload).to have_attributes(state: 'failed', error_code: 'cooldown')
+      expect(operation.reload).to have_attributes(state: 'failed', error_code: 'cooldown', undo_payload: nil)
       expect(Status.find_by(id: first.id)).to be_present
+      expect(ActivityPub::DeliveryWorker).not_to have_received(:push_bulk)
     end
 
     it 'does not finish a stranded reboost that was cancelled while resuming' do
@@ -649,9 +743,11 @@ RSpec.describe ReblogService do
 
     it 'delivers a saved Undo when a pending operation can no longer finish' do
       allow(ActivityPub::DeliveryWorker).to receive(:push_bulk)
+      first.discard
       operation = ReboostOperation.create!(
         account: account,
         reblog_of_id: original.id,
+        old_status_id: first.id,
         state: 'pending',
         reboost: true,
         undo_payload: '{"type":"Undo"}',
@@ -895,6 +991,11 @@ RSpec.describe ReblogService do
         end
         result
       end
+    end
+
+    def disable_reboost!
+      user.settings.enable_reboost = false
+      Rails.cache.delete(UserPreferences::CacheKey.for_revision('enable_reboost', user, UserPreferences::Revision.current(user.id)))
     end
 
     def stranded_operation

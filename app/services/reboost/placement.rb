@@ -48,20 +48,15 @@ class Reboost::Placement
     with_redis_lock(lock_name) do
       now = Time.current
       pending = ReboostOperation.where(account_id: account.id, reblog_of_id: options[:lock_status_id], state: 'pending')
-      rows = pending.pluck(:id, :undo_payload)
-      rows.each do |operation_id, undo_payload|
-        Reboost::UndoDelivery.mark!(ReboostOperation.new(id: operation_id, undo_payload: undo_payload)) if undo_payload.present?
-      end
+      ids = pending.pluck(:id)
       pending.update_all(
         state: 'cancelled',
         error_code: 'unreblogged',
         completed_at: now,
         updated_at: now
       )
-      rows.each do |operation_id, undo_payload|
-        next if undo_payload.blank?
-
-        Reboost::UndoDelivery.deliver!(ReboostOperation.find(operation_id))
+      ids.each do |operation_id|
+        Reboost::UndoDelivery.settle!(ReboostOperation.find(operation_id))
       end
     end
   end

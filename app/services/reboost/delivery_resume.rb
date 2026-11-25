@@ -45,6 +45,17 @@ class Reboost::DeliveryResume
       next
     end
     resume_stranded_pending!
+    resume_unsent_undos!
+  end
+
+  # A terminal row can still owe its saved Undo when the enqueue raised.
+  # The next pass sends that Undo and does not create another wrapper.
+  def resume_unsent_undos!
+    ReboostOperation.where(state: %w(cancelled failed), undo_enqueued_at: nil).where.not(undo_payload: [nil, '']).find_each(batch_size: 100) do |operation|
+      Reboost::UndoDelivery.settle!(operation)
+    rescue StandardError
+      next
+    end
   end
 
   # The same resume worker used after a 202 applies the disabled, cooldown,

@@ -11,7 +11,7 @@ class Reboost::ResumeWorker
 
     operation.reload
     if operation.terminal?
-      Reboost::UndoDelivery.deliver!(operation)
+      Reboost::UndoDelivery.settle!(operation)
       return
     end
 

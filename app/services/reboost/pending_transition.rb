@@ -45,9 +45,8 @@ class Reboost::PendingTransition
       end
       return unless operation.state == 'pending' || (code == 'missing_status' && operation.state == 'federating')
 
-      Reboost::UndoDelivery.mark!(operation)
       operation.fail!(code)
-      Reboost::UndoDelivery.deliver!(operation)
+      Reboost::UndoDelivery.settle!(operation)
     end
   end
 
@@ -59,9 +58,8 @@ class Reboost::PendingTransition
       return unless operation.state == 'pending'
       return if operation.account.user&.reboost_enabled?
 
-      Reboost::UndoDelivery.mark!(operation)
       operation.update!(state: 'cancelled', error_code: 'reboost_disabled', completed_at: Time.current)
-      Reboost::UndoDelivery.deliver!(operation)
+      Reboost::UndoDelivery.settle!(operation)
       Reboost::Log.emit('cancelled', operation_id: operation.id, error: 'reboost_disabled')
     end
   end
