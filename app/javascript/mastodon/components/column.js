@@ -3,7 +3,7 @@ import PropTypes from 'prop-types';
 import { supportsPassiveEvents } from 'detect-passive-events';
 import { scrollTop } from '../scroll';
 import classNames from 'classnames';
-import { forgetEmojiMuteAttributeSource, rememberEmojiMuteDisplayAttribute } from 'mastodon/features/emoji/emoji_mute_sources';
+import { forgetEmojiMuteAttributeSource, rememberEmojiMuteAttributeSource, rememberEmojiMuteDisplayAttribute } from 'mastodon/features/emoji/emoji_mute_sources';
 
 export default class Column extends React.PureComponent {
 
@@ -37,31 +37,45 @@ export default class Column extends React.PureComponent {
     this.node = c;
   }
 
-  // Group timelines publish a viewer-specific landmark without changing
-  // `label`. A label prop change would re-render every child in the column.
+  // Only a caller that sets a landmark override may rewrite the mounted
+  // aria-label. Other columns keep whatever the live guard wrote.
   setLandmarkLabel(label, source) {
-    this.landmarkLabel = typeof label === 'string' ? label : undefined;
-    this.landmarkSource = source && typeof source.html === 'string' ? source : null;
+    if (typeof label !== 'string') {
+      this.landmarkActive = false;
+      this.landmarkLabel = undefined;
+      this.landmarkSource = null;
+
+      if (this.node) {
+        forgetEmojiMuteAttributeSource(this.node, 'aria-label');
+      }
+
+      return;
+    }
+
+    this.landmarkActive = true;
+    this.landmarkLabel = label;
+    this.landmarkSource = source && typeof source.plain === 'string' ? source : null;
     this.applyLandmarkLabel();
   }
 
   applyLandmarkLabel() {
-    if (!this.node) {
+    if (!this.landmarkActive || !this.node || typeof this.landmarkLabel !== 'string') {
       return;
     }
 
-    const label = this.landmarkLabel !== undefined ? this.landmarkLabel : this.props.label;
-
-    if (typeof label === 'string' && this.node.getAttribute('aria-label') !== label) {
-      this.node.setAttribute('aria-label', label);
+    if (this.node.getAttribute('aria-label') !== this.landmarkLabel) {
+      this.node.setAttribute('aria-label', this.landmarkLabel);
     }
 
-    if (!this.node.hasAttribute('aria-label')) {
+    const source = this.landmarkSource;
+
+    if (source && typeof source.html === 'string' && source.html !== '') {
+      rememberEmojiMuteDisplayAttribute(this.node, 'aria-label', source.plain || '', source.html);
       return;
     }
 
-    if (this.landmarkSource) {
-      rememberEmojiMuteDisplayAttribute(this.node, 'aria-label', this.landmarkSource.plain || '', this.landmarkSource.html);
+    if (source) {
+      rememberEmojiMuteAttributeSource(this.node, 'aria-label', source.plain);
       return;
     }
 
@@ -69,7 +83,9 @@ export default class Column extends React.PureComponent {
   }
 
   componentDidMount () {
-    this.applyLandmarkLabel();
+    if (this.landmarkActive) {
+      this.applyLandmarkLabel();
+    }
 
     if (this.props.bindToDocument) {
       document.addEventListener('wheel', this.handleWheel, supportsPassiveEvents ? { passive: true } : false);
@@ -79,7 +95,9 @@ export default class Column extends React.PureComponent {
   }
 
   componentDidUpdate () {
-    this.applyLandmarkLabel();
+    if (this.landmarkActive) {
+      this.applyLandmarkLabel();
+    }
   }
 
   componentWillUnmount () {

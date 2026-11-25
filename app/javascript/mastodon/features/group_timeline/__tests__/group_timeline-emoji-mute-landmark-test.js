@@ -407,4 +407,59 @@ describe('group column emoji mute landmark', () => {
     expect(region(container).getAttribute('aria-label')).toBe('😺 :blob:');
     expect(headingText()).toBe('😺 :blob:');
   });
+
+  it('keeps an HTML-less display name on the same plain source as the heading', () => {
+    const plain = 'Name 👍';
+    const store = buildStore(account('7', { display_name: plain, display_name_html: '' }));
+    const guard = createUnverifiedEmojiGuard();
+    let during = null;
+
+    store.subscribe(() => guard(store.getState()));
+    store.subscribe(() => {
+      during = {
+        region: document.querySelector('.emoji-mutes-privacy-portal [role="region"]')?.getAttribute('aria-label'),
+        heading: document.querySelector('#tabs-bar__portal h1 button')?.textContent,
+      };
+    });
+
+    const privacy = document.createElement('div');
+    const mount = document.createElement('div');
+
+    privacy.className = 'emoji-mutes-privacy-portal';
+    privacy.appendChild(mount);
+    privacy.appendChild(document.getElementById('tabs-bar__portal'));
+    document.body.appendChild(privacy);
+
+    const { container } = render(
+      <Provider store={store}>
+        <GroupTimeline params={{ id: '7' }} multiColumn={false} location={{ key: 'loc-plain', pathname: '/timelines/groups/7' }} />
+      </Provider>,
+      { container: mount },
+    );
+
+    apply(store, [
+      rule({ kind: 'unicode', native: '👍' }, '😺'),
+      rule({ kind: 'unicode', native: '😺' }, '[cat]'),
+    ], '2');
+
+    expect(headingText()).toBe('Name 😺');
+    expect(region(container).getAttribute('aria-label')).toBe('Name 😺');
+
+    act(() => {
+      store.dispatch({ type: EMOJI_MUTES_REVISION, revision: '3' });
+      expect(during.region).not.toContain('👍');
+      expect(during.heading).not.toContain('👍');
+      expect(during.region).toBe(during.heading);
+      store.dispatch({ type: EMOJI_MUTES_APPLY, revision: '3', mutes: [
+        rule({ kind: 'unicode', native: '👍' }, '😺'),
+        rule({ kind: 'unicode', native: '😺' }, '[cat]'),
+      ], availability: 'enabled' });
+      expect(during.region).toBe('Name 😺');
+      expect(during.heading).toBe('Name 😺');
+      expect(during.region).not.toContain('[cat]');
+    });
+
+    expect(region(container).getAttribute('aria-label')).toBe('Name 😺');
+    expect(headingText()).toBe('Name 😺');
+  });
 });

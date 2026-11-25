@@ -81,11 +81,14 @@ class GroupColumnLandmark extends React.Component {
   }
 
   source() {
-    if (!this.props.project || typeof this.props.html !== 'string' || this.props.html === '') {
+    if (!this.props.project) {
       return null;
     }
 
-    return { plain: this.props.plain, html: this.props.html };
+    return {
+      plain: this.props.plain,
+      html: typeof this.props.html === 'string' ? this.props.html : '',
+    };
   }
 
   write(label) {
