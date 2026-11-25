@@ -261,6 +261,43 @@ RSpec.describe ActivityPub::Activity::Announce do
     end
   end
 
+  it 'keeps a held Announce when the same id arrives without published' do
+    Fabricate(:user, account: status.account)
+    inbox = Fabricate(:account)
+    allow(DistributionWorker).to receive(:perform_async)
+    announce('https://example.com/announce/a', 10.minutes.ago.iso8601)
+
+    published = nil
+    travel 60.seconds do
+      published = Time.current.iso8601
+      described_class.new(announce_json('https://example.com/announce/c', published), sender, delivery: true, override_timestamps: true, delivered_to_account_id: inbox.id).perform
+      undated = announce_json('https://example.com/announce/c', nil)
+      undated.delete('published')
+      described_class.new(undated, sender, delivery: false).perform
+
+      hold = RemoteReboostHold.find_by!(account: sender, reblog_of: status)
+      expect(hold.activity_uri).to eq 'https://example.com/announce/c'
+      expect(hold.payload['published']).to eq published
+      expect(hold.delivery_options['delivered_to_account_ids']).to contain_exactly(inbox.id)
+      expect(ReboostAnnounceState.superseded?(sender.id, 'https://example.com/announce/c')).to be false
+      expect(sender.statuses.where(reblog_of_id: status.id).pick(:uri)).to eq 'https://example.com/announce/a'
+    end
+
+    travel 301.seconds do
+      undated = announce_json('https://example.com/announce/c', nil)
+      undated.delete('published')
+      described_class.new(undated, sender, delivery: false).perform
+      boost = sender.statuses.find_by!(reblog_of_id: status.id)
+      expect(boost.uri).to eq 'https://example.com/announce/c'
+      expect(sender.statuses.where(reblog_of_id: status.id).count).to eq 1
+      expect(boost.mentions.where(account_id: inbox.id)).to exist
+      expect(Notification.where(account: status.account, from_account: sender, activity: boost, type: :reblog).count).to eq 1
+      expect(DistributionWorker).to have_received(:perform_async).with(boost.id).once
+      expect(RemoteReboostHold.find_by(account: sender, reblog_of: status)).to be_nil
+      expect(ReboostAnnounceState.superseded?(sender.id, 'https://example.com/announce/c')).to be false
+    end
+  end
+
   it 'ends the held Announce when a newer id arrives after the cooldown' do
     announce('https://example.com/announce/a', 10.minutes.ago.iso8601)
 

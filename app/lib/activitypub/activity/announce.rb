@@ -61,6 +61,7 @@ class ActivityPub::Activity::Announce < ActivityPub::Activity
   def receive_another_announce!
     return postprocess_audience_and_deliver if @status.uri == @json['id'] && @options[:delivered_to_account_id].present?
     return if @status.uri == @json['id']
+    return if deliver_known_hold!
 
     incoming = parsed_published
     current = ReboostAnnounceState.current_for(@account.id, @original_status.id)&.published_at || @status.created_at
@@ -113,6 +114,25 @@ class ActivityPub::Activity::Announce < ActivityPub::Activity
     else
       RemoveStatusService.new.call(discarded, skip_remote: true, immediate: true)
     end
+  end
+
+  # A redelivery of the held id keeps that id even when published is missing.
+  # Inside the cooldown the hold stays. After it, the stored payload is applied once.
+  def deliver_known_hold!
+    return false if @options[:applying_hold]
+
+    hold = RemoteReboostHold.find_by(account_id: @account.id, reblog_of_id: @original_status.id)
+    return false unless hold&.activity_uri == @json['id']
+
+    if ReboostCooldown.remaining_seconds(@account.id, @original_status.id).positive?
+      hold_newer_announce!(hold.published_at)
+      return true
+    end
+
+    adopt_open_hold!(hold)
+    @json = hold.payload.deep_stringify_keys.with_indifferent_access if hold.payload.is_a?(Hash)
+    replace_announce!
+    true
   end
 
   # The cooldown can be over while the newest Announce is still waiting.
