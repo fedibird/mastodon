@@ -327,6 +327,7 @@ describe('composer draft storage', () => {
       intent_hash: 'hash-a',
       intent_base_revision: 5,
       intent_expected_revision: 6,
+      cursor_version: 1,
     });
 
     await ledger.write(cursor);

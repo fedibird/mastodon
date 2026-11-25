@@ -174,11 +174,13 @@ export function createIndexedDbDraftBackend ({ openDatabase = openComposerDraftD
           const current = syncStore.get(syncKey);
 
           current.onsuccess = () => {
-            const merged = mergeSyncCursor(current.result || null, {
+            const merged = transitionSyncCursor(current.result || null, {
               ...tombstone,
               account_id: String(accountId),
               client_uuid: String(clientDraftUuid),
               tombstone: true,
+              transition: 'discard',
+              cursor_version: current.result ? current.result.cursor_version : 0,
             });
 
             syncStore.put(merged.record);
@@ -301,6 +303,18 @@ export function createIndexedDbDraftBackend ({ openDatabase = openComposerDraftD
   };
 }
 
+function intentState (source) {
+  if (source.intent_state === 'unknown') {
+    return 'unknown';
+  }
+
+  if (source.intent_kind) {
+    return 'open';
+  }
+
+  return null;
+}
+
 function positiveInteger (value) {
   const number = Number(value);
 
@@ -329,62 +343,279 @@ export function syncCursorRecord (record) {
     intent_hash: source.intent_hash || null,
     intent_base_revision: positiveInteger(source.intent_base_revision),
     intent_expected_revision: positiveInteger(source.intent_expected_revision),
+    intent_draft_id: source.intent_draft_id || null,
+    intent_state: intentState(source),
+    operation_id: source.operation_id || null,
+    operation_owner: source.operation_owner || null,
+    delete_revision: positiveInteger(source.delete_revision),
+    delete_draft_id: source.delete_draft_id || null,
+    cursor_version: cursorVersion(source.cursor_version),
   };
 }
 
-// Read and write happen together. Protection, the acknowledged revision, and
-// an unresolved send intent never move backwards.
-export function mergeSyncCursor (existing, proposed) {
-  const next = syncCursorRecord(proposed);
-  const current = existing ? syncCursorRecord(existing) : null;
+function cursorVersion (value) {
+  const number = Number(value);
 
-  if (!current) {
-    return { record: next, blocked: false, heldIntent: false };
+  return Number.isInteger(number) && number >= 0 ? number : 0;
+}
+
+function sameOperation (current, command) {
+  return Boolean(current.operation_id)
+    && current.operation_id === command.operation_id
+    && current.operation_owner === command.operation_owner
+    && current.intent_kind === command.intent_kind
+    && current.intent_hash === command.intent_hash
+    && Number(current.intent_base_revision || 0) === Number(command.intent_base_revision || 0)
+    && Number(current.intent_expected_revision || 0) === Number(command.intent_expected_revision || 0)
+    && String(current.intent_draft_id || '') === String(command.intent_draft_id || '');
+}
+
+function clearedIntent (record) {
+  return {
+    ...record,
+    intent_kind: null,
+    intent_hash: null,
+    intent_base_revision: null,
+    intent_expected_revision: null,
+    intent_draft_id: null,
+    intent_state: null,
+    operation_id: null,
+    operation_owner: null,
+  };
+}
+
+// One accepted transition or no write. A newer acknowledgement is not lent
+// to an operation that named an older base revision.
+export function transitionSyncCursor (existing, command) {
+  const proposed = syncCursorRecord(command);
+  const action = command && command.transition;
+
+  if (!existing) {
+    return {
+      record: { ...proposed, cursor_version: proposed.cursor_version || 1 },
+      accepted: true,
+      rejected: false,
+      reason: 'created',
+    };
   }
 
-  const record = { ...next };
+  const current = syncCursorRecord(existing);
 
-  record.tombstone = current.tombstone || next.tombstone;
-  record.conflict = current.conflict || next.conflict;
-
-  if (current.conflict) {
-    record.conflict_revision = current.conflict_revision || next.conflict_revision;
+  if (current.delete_state === 'deleted') {
+    return {
+      record: current, accepted: false, rejected: true, reason: 'deleted', blocked: true,
+    };
   }
 
-  if (current.server_revision && (!next.server_revision || next.server_revision < current.server_revision)) {
-    record.server_revision = current.server_revision;
-    record.server_draft_id = current.server_draft_id || record.server_draft_id;
-    record.acked_hash = current.acked_hash || record.acked_hash;
-    record.acked_generation = current.acked_generation || record.acked_generation;
+  if (!action) {
+    return {
+      record: current, accepted: false, rejected: true, reason: 'missing_transition',
+    };
   }
 
-  const sameIntent = Boolean(current.intent_kind)
-    && current.intent_kind === next.intent_kind
-    && current.intent_hash === next.intent_hash;
-  const clearIntent = Boolean(proposed && proposed.intent_resolved === true && (!current.intent_kind || sameIntent));
-  let heldIntent = false;
+  const expectedVersion = cursorVersion(command.cursor_version);
+  const staleCursor = expectedVersion !== current.cursor_version;
 
-  if (clearIntent) {
-    record.intent_kind = null;
-    record.intent_hash = null;
-    record.intent_base_revision = null;
-    record.intent_expected_revision = null;
-  } else if (current.intent_kind && !sameIntent) {
-    record.intent_kind = current.intent_kind;
-    record.intent_hash = current.intent_hash;
-    record.intent_base_revision = current.intent_base_revision;
-    record.intent_expected_revision = current.intent_expected_revision;
-    heldIntent = Boolean(next.intent_kind) || Boolean(proposed && proposed.intent_resolved === true);
+  if (staleCursor && action !== 'discard') {
+    return {
+      record: current, accepted: false, rejected: true, reason: 'stale_cursor',
+    };
   }
 
-  if ((current.delete_state === 'unknown' || current.delete_state === 'blocked') && next.delete_state !== 'deleted') {
-    record.delete_state = current.delete_state;
+  if (action === 'claim') {
+    if (current.tombstone || current.conflict) {
+      return {
+        record: current, accepted: false, rejected: true, reason: 'protected', blocked: true,
+      };
+    }
+
+    if (current.intent_kind && !sameOperation(current, command)) {
+      return {
+        record: current, accepted: false, rejected: true, reason: 'intent_held', heldIntent: true,
+      };
+    }
+
+    if (current.intent_kind && sameOperation(current, command)) {
+      return {
+        record: current, accepted: true, rejected: false, reason: current.intent_state === 'unknown' ? 'unknown' : 'retry',
+      };
+    }
+
+    if (Number(command.intent_base_revision || 0) !== Number(current.server_revision || 0)) {
+      return {
+        record: current, accepted: false, rejected: true, reason: 'stale_base',
+      };
+    }
+
+    if (String(command.intent_draft_id || '') !== String(current.server_draft_id || '')) {
+      return {
+        record: current, accepted: false, rejected: true, reason: 'stale_base',
+      };
+    }
+
+    return {
+      record: {
+        ...current,
+        intent_kind: proposed.intent_kind,
+        intent_hash: proposed.intent_hash,
+        intent_base_revision: proposed.intent_base_revision,
+        intent_expected_revision: proposed.intent_expected_revision,
+        intent_draft_id: proposed.intent_draft_id,
+        intent_state: 'open',
+        operation_id: proposed.operation_id,
+        operation_owner: proposed.operation_owner,
+        cursor_version: current.cursor_version + 1,
+      },
+      accepted: true,
+      rejected: false,
+      reason: 'claimed',
+    };
+  }
+
+  if (action === 'finish' || action === 'reject' || action === 'unknown') {
+    if (!sameOperation(current, command)) {
+      return {
+        record: current, accepted: false, rejected: true, reason: 'intent_held', heldIntent: true,
+      };
+    }
+
+    if (action === 'unknown') {
+      return {
+        record: {
+          ...current,
+          intent_state: 'unknown',
+          cursor_version: current.cursor_version + 1,
+        },
+        accepted: true,
+        rejected: false,
+        reason: 'unknown',
+      };
+    }
+
+    if (action === 'finish' && Number(command.server_revision) !== Number(current.intent_expected_revision)) {
+      return {
+        record: current, accepted: false, rejected: true, reason: 'stale_base',
+      };
+    }
+
+    const finished = action === 'finish';
+
+    return {
+      record: {
+        ...clearedIntent(current),
+        server_revision: finished ? current.intent_expected_revision : current.server_revision,
+        server_draft_id: finished ? (command.server_draft_id || current.server_draft_id) : current.server_draft_id,
+        acked_hash: finished ? current.intent_hash : current.acked_hash,
+        acked_generation: finished ? (positiveInteger(command.acked_generation) || current.acked_generation) : current.acked_generation,
+        cursor_version: current.cursor_version + 1,
+      },
+      accepted: true,
+      rejected: false,
+      reason: finished ? 'finished' : 'rejected',
+    };
+  }
+
+  if (action === 'conflict') {
+    return {
+      record: {
+        ...current,
+        conflict: true,
+        conflict_revision: current.conflict_revision || proposed.conflict_revision,
+        cursor_version: current.cursor_version + 1,
+      },
+      accepted: true,
+      rejected: false,
+      reason: 'conflict',
+      blocked: true,
+    };
+  }
+
+  if (action === 'discard') {
+    if (staleCursor) {
+      return {
+        record: {
+          ...current,
+          tombstone: true,
+          delete_state: current.conflict ? 'blocked' : 'unknown',
+          cursor_version: current.cursor_version + 1,
+        },
+        accepted: true,
+        rejected: false,
+        reason: 'discarded',
+      };
+    }
+
+    const unresolved = Boolean(current.intent_kind);
+    let deleteState = 'unknown';
+    let deleteRevision = current.delete_revision || positiveInteger(command.delete_revision);
+    let deleteDraftId = current.delete_draft_id || command.delete_draft_id || null;
+
+    if (current.conflict || command.conflict === true) {
+      deleteState = 'blocked';
+    } else if (unresolved || current.delete_state === 'unknown') {
+      deleteState = 'unknown';
+    } else if (deleteRevision && Number(deleteRevision) === Number(current.server_revision) && String(deleteDraftId || '') === String(current.server_draft_id || '')) {
+      deleteState = 'pending';
+    } else if (!current.server_revision && !deleteRevision) {
+      deleteState = 'deleted';
+    }
+
+    if (current.delete_revision) {
+      deleteRevision = current.delete_revision;
+      deleteDraftId = current.delete_draft_id;
+    }
+
+    return {
+      record: {
+        ...current,
+        tombstone: true,
+        conflict: current.conflict || command.conflict === true,
+        conflict_revision: current.conflict_revision || proposed.conflict_revision,
+        delete_state: deleteState,
+        delete_revision: deleteRevision,
+        delete_draft_id: deleteDraftId,
+        server_revision: deleteState === 'deleted' ? null : current.server_revision,
+        server_draft_id: deleteState === 'deleted' ? null : current.server_draft_id,
+        cursor_version: current.cursor_version + 1,
+      },
+      accepted: true,
+      rejected: false,
+      reason: 'discarded',
+      blocked: deleteState === 'blocked',
+    };
+  }
+
+  if (action === 'deleted') {
+    if (current.intent_kind || current.delete_state === 'unknown' || current.delete_state === 'blocked') {
+      return {
+        record: current, accepted: false, rejected: true, reason: 'intent_held', heldIntent: Boolean(current.intent_kind),
+      };
+    }
+
+    if (Number(current.delete_revision) !== Number(command.delete_revision) || Number(current.server_revision) !== Number(command.delete_revision)) {
+      return {
+        record: current, accepted: false, rejected: true, reason: 'stale_base',
+      };
+    }
+
+    return {
+      record: {
+        ...clearedIntent(current),
+        tombstone: true,
+        delete_state: 'deleted',
+        server_revision: null,
+        server_draft_id: null,
+        acked_hash: null,
+        cursor_version: current.cursor_version + 1,
+      },
+      accepted: true,
+      rejected: false,
+      reason: 'deleted',
+    };
   }
 
   return {
-    record,
-    blocked: current.tombstone || current.conflict,
-    heldIntent,
+    record: current, accepted: false, rejected: true, reason: 'missing_transition',
   };
 }
 
@@ -418,7 +649,7 @@ export function createIndexedDbSyncLedger ({ openDatabase = openComposerDraftDat
         const current = store.get(key);
 
         current.onsuccess = () => {
-          merged = mergeSyncCursor(current.result || null, {
+          merged = transitionSyncCursor(current.result || null, {
             ...(proposed || {}),
             account_id: accountId,
             client_uuid: clientUuid,
