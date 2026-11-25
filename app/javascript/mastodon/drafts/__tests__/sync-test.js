@@ -3,6 +3,7 @@ import {
   canonicalJson,
   createMemorySyncLedger,
   createPostDraftSync,
+  createSyncLedgerState,
   serverDraftPayload,
   storedPayloadBytes,
 } from '../sync';
@@ -241,10 +242,9 @@ describe('post draft server sync', () => {
     await edit(sync, 'edited', 2);
     await fire(2000);
 
-    expect(calls.map(call => call.method)).toEqual(['post', 'patch', 'get']);
-    expect(sync.snapshot().drafts[UUID].status).toBe('synced');
-    expect(sync.snapshot().drafts[UUID].serverRevision).toBe(2);
-    expect(sync.snapshot().drafts[UUID].ackedHash).toBe('hash-edited');
+    expect(calls.map(call => call.method)).toEqual(['post', 'patch']);
+    expect(sync.snapshot().drafts[UUID].status).not.toBe('synced');
+    expect(sync.snapshot().drafts[UUID].intentUnresolved).toBe(true);
   });
 
   it('patches again when a lost patch did not change the server', async () => {
@@ -315,7 +315,7 @@ describe('post draft server sync', () => {
     await fire(2000);
     await fire(60000);
 
-    expect(calls.map(call => call.method)).toEqual(['post', 'get']);
+    expect(calls.map(call => call.method)).toEqual(['post']);
     expect(sync.snapshot().drafts[UUID]).toMatchObject({
       status: 'conflict',
       reason: 'conflict',
@@ -422,7 +422,11 @@ describe('post draft server sync', () => {
     expect(sync.snapshot().accountId).toBe('7');
     expect(sync.snapshot().drafts[UUID]).toBeUndefined();
     expect((await ledger.read('7', UUID))).toBeNull();
-    expect((await ledger.read('42', UUID)).server_draft_id).toBe('15');
+    expect(await ledger.read('42', UUID)).toMatchObject({
+      server_draft_id: null,
+      tombstone: false,
+      intent_kind: 'create',
+    });
     await fire(2000);
     expect(calls[1].accountId).toBe('7');
     expect(calls[1].body.payload.input.text).toBe('other');
@@ -561,7 +565,7 @@ describe('post draft server sync', () => {
     await fire(2000);
     await fire(60000);
 
-    expect(calls.map(call => call.method)).toEqual(['post', 'get']);
+    expect(calls.map(call => call.method)).toEqual(['post']);
     expect(sync.snapshot().drafts[UUID].status).toBe('conflict');
     expect(sync.snapshot().drafts[UUID].serverRevision).toBeNull();
 
@@ -718,24 +722,22 @@ describe('post draft server sync', () => {
     await discarded;
     await sync.settle();
 
-    expect(calls.map(call => call.method)).toEqual(['post', 'get', 'get', 'delete']);
-    expect(calls[3].body).toEqual({ expected_revision: 1 });
-    expect(sync.snapshot().drafts[UUID].status).toBe('deleted');
+    expect(calls.some(call => call.method === 'delete')).toBe(false);
+    expect(sync.snapshot().drafts[UUID].deleteState).not.toBe('deleted');
+    expect(sync.snapshot().drafts[UUID].reason).toBe('delete_unknown');
   });
 
   it('stops when a conflict cannot be stored', async () => {
-    const rows = new Map();
+    const inner = createMemorySyncLedger();
     const ledger = {
-      read: (accountId, clientUuid) => Promise.resolve(rows.get(`${accountId}\u0000${clientUuid}`) || null),
-      list: () => Promise.resolve([]),
-      write: (record) => {
-        if (record.conflict === true) {
+      read: (...args) => inner.read(...args),
+      list: (...args) => inner.list(...args),
+      commit: (accountId, clientUuid, proposed) => {
+        if (proposed && proposed.conflict === true) {
           return Promise.reject(new Error('full'));
         }
 
-        rows.set(`${record.account_id}\u0000${record.client_uuid}`, record);
-
-        return Promise.resolve(record);
+        return inner.commit(accountId, clientUuid, proposed);
       },
     };
     const { sync, calls, fire } = harness((spec) => {
@@ -812,12 +814,142 @@ describe('post draft server sync', () => {
     }));
 
     await edit(sync, 'new', 1);
+    await waitFor(() => typeof release === 'function');
     release();
     await pending;
     await fire(0);
 
     expect(calls).toHaveLength(1);
     expect(calls[0].body.payload.input.text).toBe('new');
+  });
+
+  it('keeps tombstone and conflict when two ledgers commit in either order', async () => {
+    const state = createSyncLedgerState();
+    const ledgerA = createMemorySyncLedger(state);
+    const ledgerB = createMemorySyncLedger(state);
+    const base = {
+      account_id: '42',
+      client_uuid: UUID,
+      server_draft_id: '15',
+      server_revision: 5,
+      acked_hash: 'hash-a',
+      intent_kind: 'patch',
+      intent_hash: 'hash-a',
+      intent_base_revision: 5,
+      intent_expected_revision: 6,
+    };
+
+    await ledgerA.commit('42', UUID, base);
+    await Promise.all([
+      ledgerA.commit('42', UUID, {
+        ...base,
+        server_revision: 2,
+        conflict: false,
+        tombstone: false,
+        intent_kind: 'create',
+        intent_hash: 'hash-b',
+      }),
+      ledgerB.commit('42', UUID, {
+        account_id: '42',
+        client_uuid: UUID,
+        tombstone: true,
+        conflict: true,
+        conflict_revision: 9,
+        delete_state: 'blocked',
+      }),
+    ]);
+
+    const row = await ledgerA.read('42', UUID);
+
+    expect(row.tombstone).toBe(true);
+    expect(row.conflict).toBe(true);
+    expect(row.conflict_revision).toBe(9);
+    expect(row.server_revision).toBe(5);
+    expect(row.intent_kind).toBe('patch');
+    expect(row.intent_hash).toBe('hash-a');
+  });
+
+  it('merges a stale snapshot after another ledger has committed protection', async () => {
+    const state = createSyncLedgerState();
+    const ledgerA = createMemorySyncLedger(state);
+    const ledgerB = createMemorySyncLedger(state);
+    const base = {
+      account_id: '42',
+      client_uuid: UUID,
+      server_draft_id: '15',
+      server_revision: 5,
+      acked_hash: 'hash-a',
+      intent_kind: 'patch',
+      intent_hash: 'hash-a',
+      intent_base_revision: 5,
+      intent_expected_revision: 6,
+    };
+
+    await ledgerA.commit('42', UUID, base);
+    const stale = await ledgerA.read('42', UUID);
+
+    await ledgerB.commit('42', UUID, {
+      account_id: '42',
+      client_uuid: UUID,
+      tombstone: true,
+      conflict: true,
+      conflict_revision: 9,
+      delete_state: 'blocked',
+    });
+    await ledgerA.write({
+      ...stale,
+      server_revision: 2,
+      tombstone: false,
+      conflict: false,
+      intent_kind: 'create',
+      intent_hash: 'hash-b',
+      intent_expected_revision: 1,
+    });
+
+    const row = await ledgerB.read('42', UUID);
+
+    expect(row.tombstone).toBe(true);
+    expect(row.conflict).toBe(true);
+    expect(row.conflict_revision).toBe(9);
+    expect(row.server_revision).toBe(5);
+    expect(row.intent_kind).toBe('patch');
+    expect(row.delete_state).toBe('blocked');
+  });
+
+  it('holds a discard that starts before the cursor is loaded', async () => {
+    const ledger = createMemorySyncLedger();
+
+    await ledger.write({
+      account_id: '42',
+      client_uuid: UUID,
+      server_draft_id: '15',
+      server_revision: 4,
+      acked_hash: 'hash-old',
+      intent_kind: 'create',
+      intent_hash: 'hash-old',
+      intent_expected_revision: 1,
+    });
+
+    const { sync, calls } = harness(() => Promise.resolve({ status: 200, body: {} }), { ledger, deferResume: true });
+
+    sync.bindAccount('42');
+    const discarded = sync.noteDiscard({ accountId: '42', clientUuid: UUID });
+
+    await discarded;
+    expect(calls).toHaveLength(0);
+
+    await sync.resume(() => Promise.resolve([]));
+    await sync.settle();
+
+    expect(calls.some(call => call.method === 'delete' || call.method === 'post')).toBe(false);
+
+    const row = await ledger.read('42', UUID);
+
+    expect(row.tombstone).toBe(true);
+    expect(row.server_revision).toBe(4);
+    expect(row.intent_kind).toBe('create');
+    expect(row.delete_state).not.toBe('deleted');
+    expect(sync.snapshot().drafts[UUID].status).not.toBe('deleted');
   });
 
   it('does not post over a tombstone or patch over a conflict learned during boot', async () => {

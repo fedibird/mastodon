@@ -169,12 +169,21 @@ export function createIndexedDbDraftBackend ({ openDatabase = openComposerDraftD
             return;
           }
 
-          tx.objectStore(COMPOSER_DRAFT_SYNC_STORE).put(syncCursorRecord({
-            ...tombstone,
-            account_id: String(accountId),
-            client_uuid: String(clientDraftUuid),
-            tombstone: true,
-          }));
+          const syncStore = tx.objectStore(COMPOSER_DRAFT_SYNC_STORE);
+          const syncKey = [String(accountId), String(clientDraftUuid)];
+          const current = syncStore.get(syncKey);
+
+          current.onsuccess = () => {
+            const merged = mergeSyncCursor(current.result || null, {
+              ...tombstone,
+              account_id: String(accountId),
+              client_uuid: String(clientDraftUuid),
+              tombstone: true,
+            });
+
+            syncStore.put(merged.record);
+          };
+          current.onerror = () => reject(current.error || new Error('indexedDB sync get failed'));
         };
 
         if (!conditional) {
@@ -323,6 +332,62 @@ export function syncCursorRecord (record) {
   };
 }
 
+// Read and write happen together. Protection, the acknowledged revision, and
+// an unresolved send intent never move backwards.
+export function mergeSyncCursor (existing, proposed) {
+  const next = syncCursorRecord(proposed);
+  const current = existing ? syncCursorRecord(existing) : null;
+
+  if (!current) {
+    return { record: next, blocked: false, heldIntent: false };
+  }
+
+  const record = { ...next };
+
+  record.tombstone = current.tombstone || next.tombstone;
+  record.conflict = current.conflict || next.conflict;
+
+  if (current.conflict) {
+    record.conflict_revision = current.conflict_revision || next.conflict_revision;
+  }
+
+  if (current.server_revision && (!next.server_revision || next.server_revision < current.server_revision)) {
+    record.server_revision = current.server_revision;
+    record.server_draft_id = current.server_draft_id || record.server_draft_id;
+    record.acked_hash = current.acked_hash || record.acked_hash;
+    record.acked_generation = current.acked_generation || record.acked_generation;
+  }
+
+  const sameIntent = Boolean(current.intent_kind)
+    && current.intent_kind === next.intent_kind
+    && current.intent_hash === next.intent_hash;
+  const clearIntent = Boolean(proposed && proposed.intent_resolved === true && (!current.intent_kind || sameIntent));
+  let heldIntent = false;
+
+  if (clearIntent) {
+    record.intent_kind = null;
+    record.intent_hash = null;
+    record.intent_base_revision = null;
+    record.intent_expected_revision = null;
+  } else if (current.intent_kind && !sameIntent) {
+    record.intent_kind = current.intent_kind;
+    record.intent_hash = current.intent_hash;
+    record.intent_base_revision = current.intent_base_revision;
+    record.intent_expected_revision = current.intent_expected_revision;
+    heldIntent = Boolean(next.intent_kind) || Boolean(proposed && proposed.intent_resolved === true);
+  }
+
+  if ((current.delete_state === 'unknown' || current.delete_state === 'blocked') && next.delete_state !== 'deleted') {
+    record.delete_state = current.delete_state;
+  }
+
+  return {
+    record,
+    blocked: current.tombstone || current.conflict,
+    heldIntent,
+  };
+}
+
 export function createIndexedDbSyncLedger ({ openDatabase = openComposerDraftDatabase } = {}) {
   let databasePromise = null;
 
@@ -337,8 +402,6 @@ export function createIndexedDbSyncLedger ({ openDatabase = openComposerDraftDat
     return databasePromise;
   };
 
-  const stored = (record) => syncCursorRecord(record);
-
   return {
     read (accountId, clientUuid) {
       return database().then(db => requestToPromise(
@@ -346,18 +409,33 @@ export function createIndexedDbSyncLedger ({ openDatabase = openComposerDraftDat
       ));
     },
 
-    write (record) {
-      const row = stored(record);
-
+    commit (accountId, clientUuid, proposed) {
       return database().then(db => new Promise((resolve, reject) => {
         const tx = db.transaction(COMPOSER_DRAFT_SYNC_STORE, 'readwrite');
-        const request = tx.objectStore(COMPOSER_DRAFT_SYNC_STORE).put(row);
+        const store = tx.objectStore(COMPOSER_DRAFT_SYNC_STORE);
+        const key = [String(accountId), String(clientUuid)];
+        let merged = null;
+        const current = store.get(key);
 
-        request.onerror = () => reject(request.error || new Error('indexedDB sync put failed'));
-        tx.oncomplete = () => resolve(row);
+        current.onsuccess = () => {
+          merged = mergeSyncCursor(current.result || null, {
+            ...(proposed || {}),
+            account_id: accountId,
+            client_uuid: clientUuid,
+          });
+          const put = store.put(merged.record);
+
+          put.onerror = () => reject(put.error || new Error('indexedDB sync put failed'));
+        };
+        current.onerror = () => reject(current.error || new Error('indexedDB sync get failed'));
+        tx.oncomplete = () => resolve(merged);
         tx.onerror = () => reject(tx.error || new Error('indexedDB sync write failed'));
         tx.onabort = () => reject(tx.error || new Error('indexedDB sync write aborted'));
       }));
+    },
+
+    write (record) {
+      return this.commit(record.account_id, record.client_uuid, record).then(merged => merged.record);
     },
 
     list (accountId) {
