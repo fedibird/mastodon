@@ -113,13 +113,13 @@ class BatchedRemoveStatusService < BaseService
     return unless status.public_visibility? && status.id > @status_id_cutoff
 
     payload = Oj.dump(event: :delete, payload: status.id.to_s)
-    domain  = status.account.domain.mb_chars.downcase
+    # Domain channels are remote-only. A local account has no domain.
+    domain = status.account.domain.mb_chars.downcase unless status.local?
 
     redis.pipelined do
       redis.publish('timeline:public', payload)
       redis.publish('timeline:public:nobot', payload) unless status.account.bot?
-      if status.local?
-      else
+      unless status.local?
         redis.publish('timeline:public:remote', payload)
         redis.publish('timeline:public:remote:nobot', payload) unless status.account.bot?
         redis.publish("timeline:public:domain:#{domain}", payload)
@@ -129,8 +129,7 @@ class BatchedRemoveStatusService < BaseService
       if status.media_attachments.any?
         redis.publish('timeline:public:media', payload)
         redis.publish('timeline:public:nobot:media', payload) unless status.account.bot?
-        if status.local?
-        else
+        unless status.local?
           redis.publish('timeline:public:remote:media', payload)
           redis.publish('timeline:public:remote:nobot:media', payload) unless status.account.bot?
           redis.publish("timeline:public:domain:media:#{domain}", payload)
@@ -139,8 +138,7 @@ class BatchedRemoveStatusService < BaseService
       else
         redis.publish('timeline:public:nomedia', payload)
         redis.publish('timeline:public:nobot:nomedia', payload) unless status.account.bot?
-        if status.local?
-        else
+        unless status.local?
           redis.publish('timeline:public:remote:nomedia', payload)
           redis.publish('timeline:public:remote:nobot:nomedia', payload) unless status.account.bot?
           redis.publish("timeline:public:domain:nomedia:#{domain}", payload)

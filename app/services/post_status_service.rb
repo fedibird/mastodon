@@ -183,6 +183,7 @@ class PostStatusService < BaseService
     # commit together. A failed mention or audit write rolls the status
     # back before publish or distribution starts.
     ApplicationRecord.transaction do
+      PostDrafts::MediaGuard.publication_allowed!((@media || []).map(&:id))
       @status.save!
       @status.capability_tokens.create! if @status.limited_visibility?
       mention_service.persist_mentions!(@status) if explicit_mentions
@@ -229,6 +230,7 @@ class PostStatusService < BaseService
       # the media attachments when the scheduled status is created
 
       ApplicationRecord.transaction do
+        PostDrafts::MediaGuard.publication_allowed!((@media || []).map(&:id))
         @status = @account.scheduled_statuses.create!(scheduled_status_attributes)
       end
     else
@@ -302,6 +304,7 @@ class PostStatusService < BaseService
     # A missing or still-attached id must fail the post. Dropping it would
     # publish a redraft that silently lost part of the original media.
     raise Mastodon::ValidationError, I18n.t('media_attachments.validations.missing') unless @media.size == requested_ids.size
+    raise Mastodon::ValidationError, I18n.t('media_attachments.validations.retained_by_draft') if PostDrafts::MediaGuard.referenced?(@media.map(&:id))
     raise Mastodon::ValidationError, I18n.t('media_attachments.validations.images_and_video') if @media.size > 1 && @media.find(&:audio_or_video?)
     raise Mastodon::ValidationError, I18n.t('media_attachments.validations.not_ready') if @media.any?(&:not_processed?)
   end

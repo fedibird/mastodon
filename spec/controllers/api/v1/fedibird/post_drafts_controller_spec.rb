@@ -67,7 +67,9 @@ RSpec.describe Api::V1::Fedibird::PostDraftsController, type: :controller do
       expect(response.headers['Cache-Control']).to eq 'private, no-store'
       body = body_as_json
       expect(body[:revision]).to eq 1
-      expect(body[:media_retained]).to be false
+      expect(body[:media_retained]).to be true
+      expect(body[:media_restore]).to eq 'complete'
+      expect(body[:media]).to eq []
       expect(body[:payload][:input][:privacy]).to eq 'personal'
       expect(Status.count).to eq statuses
 
@@ -140,7 +142,8 @@ RSpec.describe Api::V1::Fedibird::PostDraftsController, type: :controller do
       patch :update, params: { id: draft_id }, body: { expected_revision: 1, payload: draft_body('next')[:payload] }.to_json, as: :json
       expect(response).to have_http_status(200)
       expect(body_as_json[:revision]).to eq 2
-      expect(body_as_json[:media_retained]).to be false
+      expect(body_as_json[:media_retained]).to be true
+      expect(body_as_json[:media_restore]).to eq 'complete'
 
       reset_request_body
       delete :destroy, params: { id: draft_id }, body: { expected_revision: 2 }.to_json, as: :json
@@ -173,6 +176,97 @@ RSpec.describe Api::V1::Fedibird::PostDraftsController, type: :controller do
       expect(response).to have_http_status(200)
       expect(response.body).not_to include('edited')
       expect(PostDraft.where(id: draft_id)).to be_empty
+    end
+  end
+
+  describe 'retained media' do
+    before { authorize(user, 'read:post_drafts write:post_drafts') }
+
+    def media_payload(text, attachments)
+      {
+        client_uuid: uuid,
+        payload: {
+          schema_version: 1,
+          input: {
+            text: text,
+            privacy: 'personal',
+            media: attachments,
+          },
+        },
+      }
+    end
+
+    it 'returns the draft alt and focus with the server file to another token' do
+      first = Fabricate(:media_attachment, account: user.account, description: "one\nline")
+      second = Fabricate(:media_attachment, account: user.account, description: 'two')
+      first.update!(focus: '0.25,-0.5', thumbnail_file_name: nil)
+      first.update_columns(thumbnail_file_name: 'custom-thumb.jpg')
+      reset_request_body
+      post :create, body: media_payload('photos', [
+        { id: second.id.to_s, order: 1, description: 'two', focus: { x: 0, y: 0 } },
+        { id: first.id.to_s, order: 0, description: "draft\none", focus: { x: -0.25, y: 0.5 } },
+      ]).to_json, as: :json
+
+      expect(response).to have_http_status(201)
+      created = body_as_json
+      expect(created[:media_retained]).to be true
+      expect(created[:media_restore]).to eq 'complete'
+      expect(created[:media].map { |item| item[:id] }).to eq [first.id.to_s, second.id.to_s]
+      expect(created[:media].first[:description]).to eq "draft\none"
+      expect(created[:media].first[:type]).to eq 'image'
+      expect(created[:media].first[:url]).to be_present
+      expect(created[:media].first[:preview_url]).to be_present
+      expect(created[:media].first.dig(:meta, :focus, :x)).to eq(-0.25)
+      expect(created[:media].first.dig(:meta, :focus, :y)).to eq 0.5
+      expect(created[:media].second[:description]).to eq 'two'
+      expect(created[:payload][:input][:media].first[:description]).to eq "draft\none"
+      expect(created[:payload][:input][:media].first).not_to have_key(:url)
+      expect(first.reload.description).to eq "one\nline"
+      expect(first.focus).to eq '0.25,-0.5'
+      expect(first.thumbnail_file_name).to eq 'custom-thumb.jpg'
+      expect(second.reload.description).to eq 'two'
+
+      reset_request_body
+      patch :update, params: { id: created[:draft_id] }, body: {
+        expected_revision: 0,
+        payload: {
+          schema_version: 1,
+          input: {
+            text: 'older',
+            privacy: 'personal',
+            media: [{ id: first.id.to_s, description: 'older alt', focus: { x: 1, y: 1 } }],
+          },
+        },
+      }.to_json, as: :json
+      expect(response).to have_http_status(409)
+      expect(first.reload.description).to eq "one\nline"
+
+      get :show, params: { id: created[:draft_id] }
+      expect(body_as_json[:media].first[:description]).to eq "draft\none"
+      expect(body_as_json[:media].first.dig(:meta, :focus, :x)).to eq(-0.25)
+
+      get :index
+      expect(body_as_json.first).not_to have_key(:media)
+      expect(body_as_json.first[:media_count]).to eq 2
+
+      other_token = authorize(user, 'read:post_drafts')
+      expect(other_token).to be_present
+      get :show, params: { id: created[:draft_id] }
+      expect(response).to have_http_status(200)
+      restored = body_as_json
+      expect(restored[:media].map { |item| item[:id] }).to eq [first.id.to_s, second.id.to_s]
+      expect(restored[:media].first[:description]).to eq "draft\none"
+      expect(restored[:media].first.dig(:meta, :focus, :y)).to eq 0.5
+      expect(restored[:media].second[:description]).to eq 'two'
+
+      stranger = Fabricate(:media_attachment, account: Fabricate(:account))
+      reset_request_body
+      authorize(user, 'write:post_drafts')
+      post :create, body: media_payload('stolen', [{ id: stranger.id.to_s }]).merge(client_uuid: '33333333-3333-4333-8333-333333333333').to_json, as: :json
+      expect(response).to have_http_status(422)
+      expect(body_as_json[:errors].first[:code]).to eq 'media_forbidden'
+      expect(PostDraft.where(account_id: user.account_id).count).to eq 1
+      expect(stranger.reload).to be_persisted
     end
   end
 end
