@@ -52,6 +52,49 @@ describe Api::V1::Statuses::ReblogsController do
       end
     end
 
+    describe 'POST #create with mutual visibility' do
+      let(:status) { Fabricate(:status, account: user.account) }
+      let(:mutual) { Fabricate(:account) }
+      let(:stranger) { Fabricate(:account) }
+
+      before do
+        mutual.follow!(user.account)
+        user.account.follow!(mutual)
+        stranger.follow!(user.account)
+      end
+
+      it 'addresses only mutual followers' do
+        post :create, params: { status_id: status.id, visibility: 'mutual' }
+
+        boost = user.account.statuses.find_by!(reblog_of_id: status.id)
+        expect(response).to have_http_status(200)
+        expect(boost.visibility).to eq 'limited'
+        expect(boost.mentions.pluck(:account_id)).to contain_exactly(mutual.id)
+      end
+
+      it 'addresses only mutual followers when reboost is off' do
+        user.settings.enable_reboost = false
+
+        post :create, params: { status_id: status.id, visibility: 'mutual' }
+
+        boost = user.account.statuses.find_by!(reblog_of_id: status.id)
+        expect(response).to have_http_status(200)
+        expect(boost.mentions.pluck(:account_id)).to contain_exactly(mutual.id)
+      end
+
+      it 'addresses only mutual followers on a reboost' do
+        ReblogService.new.call(user.account, status, visibility: 'limited', circle: user.account, visibility_explicit: true)
+
+        travel 301.seconds do
+          post :create, params: { status_id: status.id, visibility: 'mutual', reboost: true }
+        end
+
+        boost = user.account.statuses.find_by!(reblog_of_id: status.id)
+        expect(response).to have_http_status(200)
+        expect(boost.mentions.pluck(:account_id)).to contain_exactly(mutual.id)
+      end
+    end
+
     describe 'POST #destroy' do
       context 'with public status' do
         let(:status) { Fabricate(:status, account: user.account) }

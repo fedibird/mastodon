@@ -40,8 +40,11 @@ class Reboost::RecoveryRecord
     stored = stored_options.is_a?(Hash) ? stored_options['audience'] : nil
     return pairs(audience) if audience.present?
     return stored if stored.is_a?(Array)
-    # A chosen visibility does not keep the previous boost's mentions.
-    return [] if request_options[:visibility_explicit] && !request_options[:circle_explicit]
+    # An explicit visibility does not inherit the previous boost's mentions.
+    # A circle resolved for this request, including mutual followers, is the audience.
+    if request_options[:visibility_explicit] && !request_options[:circle_explicit]
+      return pairs(circle_pairs(circle) || [])
+    end
 
     pairs(circle_pairs(circle) || mention_pairs(existing))
   end

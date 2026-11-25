@@ -479,6 +479,28 @@ RSpec.describe ReblogService do
       expect(recover_limited_audience!(:before_operation_link!).pluck(:account_id)).to contain_exactly(*@limited_member_ids)
     end
 
+    it 'keeps the audience saved before removal when a circle member is added' do
+      member = Fabricate(:account)
+      late = Fabricate(:account)
+      member.follow!(account)
+      late.follow!(account)
+      circle = Fabricate(:circle, account: account, title: 'One')
+      circle.accounts << member
+      target = Fabricate(:status, account: account, visibility: 'public')
+      described_class.new.call(account, target, visibility: 'limited', circle: circle, visibility_explicit: true, circle_explicit: true)
+      allow_any_instance_of(RemoveStatusService).to receive(:call).and_wrap_original do |method, *args, **kwargs|
+        circle.accounts << late unless circle.accounts.exists?(id: late.id)
+        method.call(*args, **kwargs)
+      end
+
+      travel 301.seconds do
+        described_class.new.call(account, target, reboost: true, visibility: 'limited', circle: circle, visibility_explicit: true, circle_explicit: true)
+      end
+
+      created = account.statuses.find_by!(reblog_of_id: target.id)
+      expect(created.mentions.pluck(:account_id)).to contain_exactly(member.id)
+    end
+
     it 'keeps one federating reboost when resume runs again without an idempotency key' do
       expect(second_resume_keeps_the_federating_boost(nil).state).to eq 'federating'
     end

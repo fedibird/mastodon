@@ -36,7 +36,7 @@ module Reboost::CreatedBoost
   # Status, the decided audience, the cooldown, and the operation link commit
   # together. A raise before that commit leaves no wrapper to deliver.
   def commit_created_boost!(visibility, audience, existing)
-    decided = Reboost::RecoveryRecord.audience_for(audience, resumed_operation&.options, @resolved_circle, existing, options)
+    decided = Reboost::RecoveryRecord.audience_for(audience, decided_audience_options, @resolved_circle, existing, options)
     created = nil
     ApplicationRecord.transaction do
       created = account.statuses.create!(reblog: original, text: '', visibility: visibility, rate_limit: options[:with_rate_limit])
@@ -50,6 +50,13 @@ module Reboost::CreatedBoost
       attach_created!(created, existing)
     end
     created
+  end
+
+  def decided_audience_options
+    recovery_options = @recovery&.options
+    return recovery_options if recovery_options.is_a?(Hash) && recovery_options['audience'].is_a?(Array)
+
+    resumed_operation&.options
   end
 
   def after_status_record!(_created); end
