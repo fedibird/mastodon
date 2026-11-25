@@ -27,7 +27,7 @@ jest.mock('../importer', () => ({
 import api from '../../api';
 import { followReboostOperation } from '../../features/reboost/follow_operation';
 import { importFetchedStatus, STATUS_IMPORT } from '../importer';
-import { checkReboostOperation, reblog, reboost, REBOOST_OPERATION, REBLOG_SUCCESS } from '../interactions';
+import { checkReboostOperation, reblog, reboost, unreblog, REBOOST_OPERATION, REBLOG_SUCCESS, UNREBLOG_FAIL, UNREBLOG_REQUEST } from '../interactions';
 import { reboostRemainingSeconds } from '../../features/reboost/menu';
 import statuses from '../../reducers/statuses';
 
@@ -43,7 +43,7 @@ const setup = () => {
       return action(dispatch, () => state);
     }
     actions.push(action);
-    if (action.type === REBOOST_OPERATION || action.type === STATUS_IMPORT) {
+    if ([REBOOST_OPERATION, STATUS_IMPORT, REBLOG_SUCCESS, UNREBLOG_REQUEST, UNREBLOG_FAIL].includes(action.type)) {
       state = state.set('statuses', statuses(state.get('statuses'), action));
     }
     return action;
@@ -368,6 +368,68 @@ describe('reboost', () => {
 
     expect(harness.getState().getIn(['statuses', '1', 'reboost_operation']).toJS()).toEqual({ id: '10', state: 'pending' });
     expect(harness.actions.some(action => action.type === REBLOG_SUCCESS)).toBe(false);
+  });
+
+  it('does not let a late replacement fetch restore a boost after unreblog', async () => {
+    api.post.mockImplementation((url) => {
+      if (String(url).endsWith('/unreblog')) {
+        return Promise.resolve({ data: { id: '1', reblogged: false } });
+      }
+      return Promise.resolve({ status: 202, data: { operation_id: '9', state: 'pending' } });
+    });
+    followReboostOperation.mockResolvedValue({ id: '9', state: 'completed', new_status_id: '50' });
+    let finishStatus;
+    api.get.mockImplementation((url) => {
+      if (url === '/api/v1/statuses/50') {
+        return new Promise((resolve) => {
+          finishStatus = resolve;
+        });
+      }
+      return Promise.resolve({ data: { id: '1' } });
+    });
+    const harness = setup();
+    const running = reboost(status)(harness.dispatch, harness.getState);
+    await Promise.resolve();
+    await Promise.resolve();
+
+    await unreblog(status)(harness.dispatch, harness.getState);
+    finishStatus({ data: { id: '50', reblog: { id: '1', reblogged: true } } });
+    await running;
+
+    expect(harness.getState().getIn(['statuses', '1', 'reblogged'])).toBe(false);
+    expect(harness.getState().getIn(['statuses', '1', 'reboost_operation'])).toBeUndefined();
+    expect(harness.actions.some(action => action.type === REBLOG_SUCCESS)).toBe(false);
+  });
+
+  it('keeps the replacement fetch when unreblog fails', async () => {
+    api.post.mockImplementation((url) => {
+      if (String(url).endsWith('/unreblog')) {
+        return Promise.reject(new Error('unreblog failed'));
+      }
+      return Promise.resolve({ status: 202, data: { operation_id: '9', state: 'pending' } });
+    });
+    followReboostOperation.mockResolvedValue({ id: '9', state: 'completed', new_status_id: '50' });
+    let finishStatus;
+    api.get.mockImplementation((url) => {
+      if (url === '/api/v1/statuses/50') {
+        return new Promise((resolve) => {
+          finishStatus = resolve;
+        });
+      }
+      return Promise.resolve({ data: { id: '1' } });
+    });
+    const harness = setup();
+    const running = reboost(status)(harness.dispatch, harness.getState);
+    await Promise.resolve();
+    await Promise.resolve();
+
+    await unreblog(status)(harness.dispatch, harness.getState);
+    finishStatus({ data: { id: '50', reblog: { id: '1', reblogged: true } } });
+    await running;
+
+    expect(harness.getState().getIn(['statuses', '1', 'reblogged'])).toBe(true);
+    expect(harness.getState().getIn(['statuses', '1', 'reboost_operation'])).toBeUndefined();
+    expect(harness.actions.some(action => action.type === REBLOG_SUCCESS)).toBe(true);
   });
 
   it('turns a cooldown into a deadline that expires', () => {

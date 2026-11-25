@@ -239,6 +239,32 @@ function bumpReboostWatch(statusId, token) {
   }
 }
 
+function suspendReboostWatch(statusId) {
+  const current = reboostWatch.get(String(statusId));
+  if (!current) {
+    return null;
+  }
+
+  const suspended = { token: current.token, operationId: current.operationId, committed: current.committed };
+  current.token = ++reboostWatchSerial;
+  current.committed = true;
+  return suspended;
+}
+
+function restoreReboostWatch(statusId, suspended) {
+  if (!suspended) {
+    return;
+  }
+
+  const current = reboostWatch.get(String(statusId));
+  if (!current || String(current.operationId) !== String(suspended.operationId)) {
+    return;
+  }
+
+  current.token = suspended.token;
+  current.committed = suspended.committed;
+}
+
 function trackedOperationMatches(getState, statusId, operationId) {
   const trackedId = getState().getIn(['statuses', statusId, 'reboost_operation', 'id']);
   return !trackedId || String(trackedId) === String(operationId);
@@ -380,12 +406,22 @@ function applyReboostResult(dispatch, getState, status, operationId, operation, 
 
 export function unreblog(status) {
   return (dispatch, getState) => {
+    const statusId = status.get('id');
+    const suspended = suspendReboostWatch(statusId);
     dispatch(unreblogRequest(status));
 
-    api(getState).post(`/api/v1/statuses/${status.get('id')}/unreblog`).then(response => {
+    return api(getState).post(`/api/v1/statuses/${statusId}/unreblog`).then(response => {
       dispatch(importFetchedStatus(response.data));
       dispatch(unreblogSuccess(status));
+      if (!suspended) {
+        return null;
+      }
+
+      reboostIdempotencyKeys.delete(statusId);
+      dispatch(setReboostOperation(statusId, null));
+      return null;
     }).catch(error => {
+      restoreReboostWatch(statusId, suspended);
       dispatch(unreblogFail(status, error));
     });
   };
