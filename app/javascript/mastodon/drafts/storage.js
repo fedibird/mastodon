@@ -155,16 +155,31 @@ export function createIndexedDbDraftBackend ({ openDatabase = openComposerDraftD
       return database().then(db => requestToPromise(db.transaction(COMPOSER_DRAFT_STORE, 'readonly').objectStore(COMPOSER_DRAFT_STORE).get([String(accountId), String(clientDraftUuid)])));
     },
 
-    deleteDraft (accountId, clientDraftUuid, expected) {
+    deleteDraft (accountId, clientDraftUuid, expected, extras) {
       return database().then(db => new Promise((resolve, reject) => {
-        const tx = db.transaction(COMPOSER_DRAFT_STORE, 'readwrite');
+        const tombstone = extras && extras.tombstone;
+        const names = tombstone ? [COMPOSER_DRAFT_STORE, COMPOSER_DRAFT_SYNC_STORE] : [COMPOSER_DRAFT_STORE];
+        const tx = db.transaction(names, 'readwrite');
         const store = tx.objectStore(COMPOSER_DRAFT_STORE);
         const key = [String(accountId), String(clientDraftUuid)];
         const conditional = expected && (specified(expected.contentHash) || specified(expected.savedHash) || specified(expected.revision));
         let decision = { status: 'deleted' };
+        const writeTombstone = () => {
+          if (!tombstone) {
+            return;
+          }
+
+          tx.objectStore(COMPOSER_DRAFT_SYNC_STORE).put({
+            ...tombstone,
+            account_id: String(accountId),
+            client_uuid: String(clientDraftUuid),
+            tombstone: true,
+          });
+        };
 
         if (!conditional) {
           store.delete(key);
+          writeTombstone();
         } else {
           const getRequest = store.get(key);
 
@@ -173,6 +188,7 @@ export function createIndexedDbDraftBackend ({ openDatabase = openComposerDraftD
 
             if (decision.status === 'deleted') {
               store.delete(key);
+              writeTombstone();
             }
           };
           getRequest.onerror = () => reject(getRequest.error || new Error('indexedDB get failed'));
@@ -348,14 +364,26 @@ export function createMemoryDraftBackend () {
       return exclusive(async () => records.get(`${accountId}\u0000${clientDraftUuid}`) || null);
     },
 
-    deleteDraft (accountId, clientDraftUuid, expected) {
+    deleteDraft (accountId, clientDraftUuid, expected, extras) {
       return exclusive(async () => {
         const key = `${accountId}\u0000${clientDraftUuid}`;
         const conditional = expected && (specified(expected.contentHash) || specified(expected.savedHash) || specified(expected.revision));
+        const finish = async (decision) => {
+          if (decision.status === 'deleted' && extras && extras.tombstone && extras.writeTombstone) {
+            await extras.writeTombstone({
+              ...extras.tombstone,
+              account_id: String(accountId),
+              client_uuid: String(clientDraftUuid),
+              tombstone: true,
+            });
+          }
+
+          return decision;
+        };
 
         if (!conditional) {
           records.delete(key);
-          return { status: 'deleted' };
+          return finish({ status: 'deleted' });
         }
 
         const decision = compareAndDelete(records.get(key) || null, expected);
@@ -364,7 +392,7 @@ export function createMemoryDraftBackend () {
           records.delete(key);
         }
 
-        return decision;
+        return finish(decision);
       });
     },
 

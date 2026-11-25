@@ -235,17 +235,34 @@ export function createPostDraftSync ({
 } = {}) {
   const jobs = new Map();
   const chains = new Map();
-  const knownHashes = new Map();
+  const listeners = new Set();
   let bound = null;
   let epoch = 0;
   let inFlight = 0;
   const slotWaiters = [];
   let unavailable = false;
 
+  function emit () {
+    listeners.forEach((listener) => {
+      try {
+        listener();
+      } catch (_error) {
+        // A listener cannot stop the sync state machine.
+      }
+    });
+  }
+
   const unsubscribeOnline = subscribeOnline(() => {
     jobs.forEach((job) => {
-      if (job.waitingOnline) {
-        job.waitingOnline = false;
+      if (!job.waitingOnline || job.conflict) {
+        return;
+      }
+
+      job.waitingOnline = false;
+
+      if (job.tombstone) {
+        scheduleDelete(job, 0);
+      } else {
         scheduleJob(job, 0);
       }
     });
@@ -299,6 +316,17 @@ export function createPostDraftSync ({
         serverRevision: null,
         ackedHash: null,
         ackedGeneration: null,
+        ackedRevision: null,
+        syncGeneration: 0,
+        pageSession: null,
+        pageEpoch: 0,
+        conflict: false,
+        conflictRevision: null,
+        deleteState: null,
+        probeHash: null,
+        pendingHash: null,
+        pendingDirty: false,
+        observed: false,
         status: 'local',
         reason: null,
         tombstone: false,
@@ -311,22 +339,33 @@ export function createPostDraftSync ({
         waitingOnline: false,
       };
       jobs.set(key, job);
-      knownHashes.set(key, new Set());
     }
 
     return job;
   }
 
-  function hashesFor (clientUuid) {
-    const key = String(clientUuid);
-    let known = knownHashes.get(key);
+  function acceptPageEdit (job, input) {
+    const sessionId = input.sessionId ? String(input.sessionId) : 'draft-sync';
+    const pageEpoch = Number(input.editGeneration) || 0;
 
-    if (!known) {
-      known = new Set();
-      knownHashes.set(key, known);
+    if (job.pageSession === sessionId && pageEpoch < job.pageEpoch) {
+      return false;
     }
 
-    return known;
+    job.pageSession = sessionId;
+    job.pageEpoch = pageEpoch;
+
+    return true;
+  }
+
+  function bumpSyncGeneration (job, hash) {
+    if (hash && hash !== job.contentHash) {
+      job.syncGeneration = (Number(job.syncGeneration) || 0) + 1;
+    } else if (!job.syncGeneration) {
+      job.syncGeneration = 1;
+    }
+
+    job.editGeneration = job.syncGeneration;
   }
 
   function clearTimer (job) {
@@ -337,7 +376,7 @@ export function createPostDraftSync ({
   }
 
   function scheduleJob (job, delay) {
-    if (!job || job.tombstone || job.hold || job.running) {
+    if (!job || job.tombstone || job.hold || job.running || job.conflict) {
       return;
     }
 
@@ -348,24 +387,49 @@ export function createPostDraftSync ({
     }, delay);
   }
 
+  function scheduleDelete (job, delay) {
+    if (!job || !job.tombstone || job.conflict || job.deleteState === 'deleted' || job.deleteState === 'blocked') {
+      return;
+    }
+
+    clearTimer(job);
+    job.timer = schedule(() => {
+      job.timer = null;
+      serial(job.clientUuid, () => continueDiscard(job, epoch));
+    }, delay);
+  }
+
   function cursorFrom (job, extra = {}) {
     return {
       account_id: job.accountId,
       client_uuid: job.clientUuid,
       server_draft_id: extra.serverDraftId === undefined ? job.serverDraftId : extra.serverDraftId,
-      server_revision: extra.serverRevision === undefined ? job.serverRevision : extra.serverRevision,
+      server_revision: extra.serverRevision === undefined ? job.ackedRevision : extra.serverRevision,
       acked_hash: extra.ackedHash === undefined ? job.ackedHash : extra.ackedHash,
       acked_generation: extra.ackedGeneration === undefined ? job.ackedGeneration : extra.ackedGeneration,
+      sync_generation: extra.syncGeneration === undefined ? job.syncGeneration : extra.syncGeneration,
+      conflict: extra.conflict === undefined ? job.conflict === true : extra.conflict === true,
+      conflict_revision: extra.conflictRevision === undefined ? job.conflictRevision : extra.conflictRevision,
+      delete_state: extra.deleteState === undefined ? job.deleteState : extra.deleteState,
+      probe_hash: extra.probeHash === undefined ? job.probeHash : extra.probeHash,
       tombstone: extra.tombstone === undefined ? job.tombstone === true : extra.tombstone === true,
     };
   }
 
   function persist (job, extra) {
     if (!job.accountId) {
-      return Promise.resolve(null);
+      return Promise.resolve(false);
     }
 
-    return ledger.write(cursorFrom(job, extra)).then(() => undefined, () => undefined);
+    return ledger.write(cursorFrom(job, extra)).then(() => true, () => {
+      if (job.tombstone && job.deleteState === 'deleted') {
+        job.deleteState = 'unknown';
+        job.status = 'local';
+        job.reason = 'ledger';
+      }
+
+      return false;
+    });
   }
 
   function applyCursor (job, cursor) {
@@ -374,14 +438,16 @@ export function createPostDraftSync ({
     }
 
     job.serverDraftId = cursor.server_draft_id || null;
-    job.serverRevision = Number(cursor.server_revision) || null;
+    job.ackedRevision = Number(cursor.server_revision) || null;
     job.ackedHash = cursor.acked_hash || null;
     job.ackedGeneration = Number(cursor.acked_generation) || null;
+    job.syncGeneration = Number(cursor.sync_generation) || job.syncGeneration || 0;
+    job.editGeneration = job.syncGeneration;
+    job.conflict = cursor.conflict === true;
+    job.conflictRevision = Number(cursor.conflict_revision) || null;
+    job.deleteState = cursor.delete_state || null;
+    job.probeHash = cursor.probe_hash || null;
     job.tombstone = cursor.tombstone === true;
-
-    if (job.ackedHash) {
-      hashesFor(job.clientUuid).add(job.ackedHash);
-    }
   }
 
   async function call (job, spec, sentEpoch) {
@@ -413,61 +479,98 @@ export function createPostDraftSync ({
     return sentEpoch === epoch && bound === job.accountId && jobs.get(job.clientUuid) === job;
   }
 
+  function currentEditMatches (job, sent) {
+    if (job.pendingDirty && job.pendingHash !== sent.hash) {
+      return false;
+    }
+
+    return job.contentHash === sent.hash && job.syncGeneration === sent.generation;
+  }
+
   function markSynced (job, resource, sent) {
     job.serverDraftId = resource.draftId;
-    job.serverRevision = resource.revision;
+    job.ackedRevision = resource.revision;
     job.ackedHash = sent.hash;
     job.ackedGeneration = sent.generation;
-    hashesFor(job.clientUuid).add(sent.hash);
     job.attempts = 0;
     job.waitingOnline = false;
 
-    if (job.tombstone || job.hold) {
+    if (job.tombstone || job.hold || job.conflict) {
       return;
     }
 
-    if (job.contentHash === sent.hash && job.editGeneration === sent.generation) {
+    if (currentEditMatches(job, sent)) {
       job.status = 'synced';
       job.reason = null;
+      job.pendingDirty = false;
+      job.pendingHash = null;
+      emit();
       return;
     }
 
     job.status = 'local';
     job.reason = 'coalesced';
-    scheduleJob(job, 0);
+
+    if (!job.pendingDirty && job.contentHash !== sent.hash) {
+      scheduleJob(job, 0);
+    }
   }
 
   function markConflict (job, resource) {
-    if (resource) {
-      job.serverDraftId = resource.draftId || job.serverDraftId;
-      job.serverRevision = resource.revision || job.serverRevision;
+    job.conflict = true;
+
+    if (resource && resource.draftId) {
+      job.serverDraftId = resource.draftId;
     }
 
+    if (resource && resource.revision) {
+      job.conflictRevision = resource.revision;
+    }
+
+    clearTimer(job);
     job.status = 'conflict';
     job.reason = 'conflict';
     job.attempts = 0;
     job.waitingOnline = false;
+    emit();
   }
 
   function markFailed (job, reason) {
     job.status = 'failed';
     job.reason = reason;
     job.waitingOnline = false;
+    emit();
   }
 
   function scheduleRetry (job, sentEpoch) {
-    if (!current(job, sentEpoch) || job.tombstone || job.hold) {
+    if (!current(job, sentEpoch) || job.hold || job.conflict) {
       return;
     }
 
     job.attempts += 1;
+    const exhausted = job.attempts >= maxAttempts;
+    const delay = Math.min(retryCapMs, retryBaseMs * (2 ** Math.max(job.attempts - 1, 0)));
 
-    if (job.attempts >= maxAttempts) {
-      markFailed(job, 'retry_exhausted');
+    if (job.tombstone) {
+      if (exhausted) {
+        job.deleteState = 'unknown';
+        job.status = 'local';
+        job.reason = 'delete_unknown';
+        return;
+      }
+
+      job.deleteState = job.ackedRevision ? 'pending' : 'unknown';
+      job.status = 'local';
+      job.reason = 'retry';
+      job.running = false;
+      scheduleDelete(job, delay);
       return;
     }
 
-    const delay = Math.min(retryCapMs, retryBaseMs * (2 ** (job.attempts - 1)));
+    if (exhausted) {
+      markFailed(job, 'retry_exhausted');
+      return;
+    }
 
     job.status = 'local';
     job.reason = 'retry';
@@ -496,39 +599,40 @@ export function createPostDraftSync ({
     return { failed: true, response };
   }
 
-  function produced (job, hash) {
-    return Boolean(hash) && (hash === job.ackedHash || hashesFor(job.clientUuid).has(hash));
+  function sameAck (job, resource) {
+    return Boolean(resource)
+      && resource.hash
+      && resource.hash === job.ackedHash
+      && Number(resource.revision) === Number(job.ackedRevision);
   }
 
-  async function reconcile (job, resource, sent, sentEpoch) {
-    if (!resource) {
-      markConflict(job, null);
+  async function reconcile (job, resource, sent) {
+    if (job.conflict) {
       await persist(job);
       return;
     }
 
-    if (resource.hash && resource.hash === job.contentHash && !job.tombstone && !job.hold) {
-      markSynced(job, resource, {
-        hash: job.contentHash,
-        generation: job.editGeneration,
-      });
-      await persist(job);
-      return;
-    }
-
-    if (resource.hash && (resource.hash === sent.hash || produced(job, resource.hash))) {
-      job.serverDraftId = resource.draftId;
-      job.serverRevision = resource.revision;
-      hashesFor(job.clientUuid).add(resource.hash);
-      await persist(job);
-
-      if (current(job, sentEpoch) && !job.tombstone && !job.hold && job.contentHash !== resource.hash) {
-        job.status = 'local';
-        job.reason = 'coalesced';
-        job.attempts = 0;
-        scheduleJob(job, 0);
+    if (resource && resource.hash && sent && resource.hash === sent.hash) {
+      if (job.tombstone || job.hold) {
+        job.serverDraftId = resource.draftId;
+        job.ackedRevision = resource.revision;
+        job.ackedHash = sent.hash;
+        job.ackedGeneration = sent.generation;
+        await persist(job);
+        return;
       }
 
+      markSynced(job, resource, sent);
+      await persist(job);
+      return;
+    }
+
+    if (sameAck(job, resource) && job.contentHash !== resource.hash && !job.tombstone && !job.hold && !job.pendingDirty) {
+      job.attempts = 0;
+      job.status = 'local';
+      job.reason = 'coalesced';
+      await persist(job);
+      scheduleJob(job, 0);
       return;
     }
 
@@ -536,27 +640,44 @@ export function createPostDraftSync ({
     await persist(job);
   }
 
-  async function removeServer (job, sentEpoch, followed = false) {
-    if (!job.serverDraftId || !job.serverRevision) {
-      job.status = 'deleted';
-      job.reason = null;
-      await persist(job, { tombstone: true });
+  async function removeServer (job, sentEpoch) {
+    if (job.conflict || job.deleteState === 'blocked') {
+      job.deleteState = 'blocked';
+      job.status = 'conflict';
+      job.reason = 'discard_blocked';
+      await persist(job, { tombstone: true, deleteState: 'blocked' });
+      return;
+    }
+
+    if (!job.serverDraftId || !job.ackedRevision) {
+      job.deleteState = 'unknown';
+      job.status = 'local';
+      job.reason = 'delete_unknown';
+      await persist(job, { tombstone: true, deleteState: 'unknown' });
       return;
     }
 
     const response = await call(job, {
       method: 'delete',
       path: `/api/v1/fedibird/post_drafts/${job.serverDraftId}`,
-      body: { expected_revision: job.serverRevision },
+      body: { expected_revision: job.ackedRevision },
     }, sentEpoch);
 
     if (!response || response.ignored) {
+      job.deleteState = 'unknown';
+      job.reason = 'delete_unknown';
+      await persist(job, { tombstone: true, deleteState: 'unknown' });
       return;
     }
 
     if (!current(job, sentEpoch)) {
       if (response.status === 200 || response.status === 404) {
-        await ledger.write(cursorFrom(job, { tombstone: true, serverDraftId: null, serverRevision: null }));
+        await ledger.write(cursorFrom(job, {
+          tombstone: true,
+          serverDraftId: null,
+          serverRevision: null,
+          deleteState: 'deleted',
+        }));
       }
 
       return;
@@ -564,26 +685,36 @@ export function createPostDraftSync ({
 
     if (response.status === 200 || response.status === 404) {
       job.serverDraftId = null;
-      job.serverRevision = null;
+      job.ackedRevision = null;
+      job.deleteState = 'deleted';
       job.status = 'deleted';
       job.reason = null;
       job.attempts = 0;
-      await persist(job, { tombstone: true, serverDraftId: null, serverRevision: null });
+      const stored = await persist(job, {
+        tombstone: true,
+        serverDraftId: null,
+        serverRevision: null,
+        deleteState: 'deleted',
+      });
+
+      if (!stored) {
+        job.deleteState = 'unknown';
+        job.status = 'local';
+        job.reason = 'ledger';
+      }
+
       return;
     }
 
     if (response.status === 409) {
-      const fetched = await readServer(job, draftResource(response.body)?.draftId || job.serverDraftId, sentEpoch);
+      const hinted = draftResource(response.body);
 
-      if (!followed && fetched && fetched.resource && produced(job, fetched.resource.hash)) {
-        job.serverDraftId = fetched.resource.draftId;
-        job.serverRevision = fetched.resource.revision;
-        await removeServer(job, sentEpoch, true);
-        return;
-      }
-
-      markConflict(job, fetched && fetched.resource);
-      await persist(job, { tombstone: true });
+      job.conflict = true;
+      job.conflictRevision = hinted ? hinted.revision : job.conflictRevision;
+      job.deleteState = 'blocked';
+      job.status = 'conflict';
+      job.reason = 'discard_blocked';
+      await persist(job, { tombstone: true, deleteState: 'blocked', conflict: true });
       return;
     }
 
@@ -594,8 +725,116 @@ export function createPostDraftSync ({
       return;
     }
 
-    markFailed(job, kind);
-    await persist(job, { tombstone: true });
+    job.deleteState = 'unknown';
+    job.status = 'local';
+    job.reason = 'delete_unknown';
+    await persist(job, { tombstone: true, deleteState: 'unknown' });
+  }
+
+  async function probeDiscard (job, sentEpoch) {
+    if (!current(job, sentEpoch) || job.conflict || job.deleteState === 'blocked') {
+      return;
+    }
+
+    let maxId = null;
+
+    for (let page = 0; page < 4; page += 1) {
+      const path = maxId
+        ? `/api/v1/fedibird/post_drafts?limit=40&max_id=${maxId}`
+        : '/api/v1/fedibird/post_drafts?limit=40';
+      const response = await call(job, { method: 'get', path }, sentEpoch);
+
+      if (!response || response.ignored || response.status !== 200 || !Array.isArray(response.body)) {
+        scheduleRetry(job, sentEpoch);
+        return;
+      }
+
+      const found = response.body.find(row => row && String(row.client_uuid) === String(job.clientUuid));
+
+      if (found && found.draft_id) {
+        const full = await readServer(job, found.draft_id, sentEpoch);
+
+        if (full && full.ignored) {
+          return;
+        }
+
+        if (full && full.resource && job.probeHash && full.resource.hash === job.probeHash) {
+          job.serverDraftId = full.resource.draftId;
+          job.ackedRevision = full.resource.revision;
+          job.ackedHash = full.resource.hash;
+          await removeServer(job, sentEpoch);
+          return;
+        }
+
+        job.conflict = true;
+        job.conflictRevision = full && full.resource ? full.resource.revision : (Number(found.revision) || null);
+        job.serverDraftId = String(found.draft_id);
+        job.deleteState = 'blocked';
+        job.status = 'conflict';
+        job.reason = 'discard_blocked';
+        await persist(job, { tombstone: true, deleteState: 'blocked', conflict: true });
+        return;
+      }
+
+      if (response.body.length < 40) {
+        break;
+      }
+
+      const last = response.body[response.body.length - 1];
+
+      maxId = last && last.draft_id;
+      if (!maxId) {
+        break;
+      }
+    }
+
+    job.serverDraftId = null;
+    job.ackedRevision = null;
+    job.deleteState = 'deleted';
+    job.status = 'deleted';
+    job.reason = null;
+    job.attempts = 0;
+    const stored = await persist(job, {
+      tombstone: true,
+      serverDraftId: null,
+      serverRevision: null,
+      deleteState: 'deleted',
+    });
+
+    if (!stored) {
+      job.deleteState = 'unknown';
+      job.status = 'local';
+      job.reason = 'ledger';
+    }
+  }
+
+  async function continueDiscard (job, sentEpoch) {
+    if (!current(job, sentEpoch) || !job.tombstone || job.deleteState === 'deleted') {
+      return;
+    }
+
+    if (job.conflict || job.deleteState === 'blocked') {
+      job.deleteState = 'blocked';
+      job.status = 'conflict';
+      job.reason = 'discard_blocked';
+      await persist(job, { tombstone: true, deleteState: 'blocked' });
+      return;
+    }
+
+    if (!job.serverDraftId || !job.ackedRevision) {
+      if (!job.probeHash) {
+        job.deleteState = 'deleted';
+        job.status = 'deleted';
+        job.reason = null;
+        await persist(job, { tombstone: true, deleteState: 'deleted' });
+        return;
+      }
+
+      await probeDiscard(job, sentEpoch);
+      return;
+    }
+
+    await removeServer(job, sentEpoch);
   }
 
   async function push (job) {
@@ -612,7 +851,7 @@ export function createPostDraftSync ({
     }
 
     if (job.tombstone) {
-      await removeServer(job, sentEpoch);
+      await continueDiscard(job, sentEpoch);
       return;
     }
 
@@ -633,7 +872,7 @@ export function createPostDraftSync ({
 
     const sent = {
       hash: job.contentHash,
-      generation: job.editGeneration,
+      generation: job.syncGeneration,
       payload,
     };
 
@@ -642,9 +881,8 @@ export function createPostDraftSync ({
     job.sendingGeneration = sent.generation;
     job.status = 'syncing';
     job.reason = null;
-    hashesFor(job.clientUuid).add(sent.hash);
 
-    const creating = !job.serverDraftId;
+    const creating = !job.serverDraftId || !job.ackedRevision;
     const response = await call(job, creating ? {
       method: 'post',
       path: '/api/v1/fedibird/post_drafts',
@@ -652,7 +890,7 @@ export function createPostDraftSync ({
     } : {
       method: 'patch',
       path: `/api/v1/fedibird/post_drafts/${job.serverDraftId}`,
-      body: { expected_revision: job.serverRevision, payload },
+      body: { expected_revision: job.ackedRevision, payload },
     }, sentEpoch);
 
     job.running = false;
@@ -663,7 +901,7 @@ export function createPostDraftSync ({
       if (response && !response.ignored && response.status && sent.hash) {
         const learned = draftResource(response.body);
 
-        if (learned && learned.hash === sent.hash) {
+        if ((response.status === 200 || response.status === 201) && learned && learned.hash === sent.hash) {
           await ledger.write({
             account_id: job.accountId,
             client_uuid: job.clientUuid,
@@ -671,7 +909,10 @@ export function createPostDraftSync ({
             server_revision: learned.revision,
             acked_hash: sent.hash,
             acked_generation: sent.generation,
+            sync_generation: sent.generation,
+            conflict: false,
             tombstone: false,
+            delete_state: null,
           });
         }
       }
@@ -682,10 +923,10 @@ export function createPostDraftSync ({
     if (job.hold) {
       const learned = draftResource(response.body);
 
-      if (learned) {
+      if ((response.status === 200 || response.status === 201) && learned && learned.hash === sent.hash) {
         job.serverDraftId = learned.draftId;
-        job.serverRevision = learned.revision;
-        job.ackedHash = learned.hash || sent.hash;
+        job.ackedRevision = learned.revision;
+        job.ackedHash = sent.hash;
         job.ackedGeneration = sent.generation;
       }
 
@@ -698,12 +939,27 @@ export function createPostDraftSync ({
     if (job.tombstone) {
       const learned = draftResource(response.body);
 
-      if (learned) {
+      if ((response.status === 200 || response.status === 201) && learned && learned.hash === sent.hash) {
         job.serverDraftId = learned.draftId;
-        job.serverRevision = learned.revision;
+        job.ackedRevision = learned.revision;
+        job.ackedHash = sent.hash;
+        await removeServer(job, sentEpoch);
+        return;
       }
 
-      await removeServer(job, sentEpoch);
+      if (response.status === 409) {
+        markConflict(job, learned);
+        job.deleteState = 'blocked';
+        job.reason = 'discard_blocked';
+        await persist(job, { tombstone: true, deleteState: 'blocked', conflict: true });
+        return;
+      }
+
+      job.probeHash = sent.hash;
+      job.deleteState = 'unknown';
+      job.reason = 'delete_unknown';
+      await persist(job, { tombstone: true, deleteState: 'unknown', probeHash: sent.hash });
+      await probeDiscard(job, sentEpoch);
       return;
     }
 
@@ -735,7 +991,7 @@ export function createPostDraftSync ({
 
       if (fetched && fetched.missing) {
         job.serverDraftId = null;
-        job.serverRevision = null;
+        job.ackedRevision = null;
         scheduleRetry(job, sentEpoch);
         return;
       }
@@ -766,7 +1022,7 @@ export function createPostDraftSync ({
 
     if (kind === 'missing' && !creating) {
       job.serverDraftId = null;
-      job.serverRevision = null;
+      job.ackedRevision = null;
       markFailed(job, 'missing');
       await persist(job, { serverDraftId: null, serverRevision: null });
       return;
@@ -774,6 +1030,47 @@ export function createPostDraftSync ({
 
     markFailed(job, kind);
     await persist(job);
+    emit();
+  }
+
+  function noteDirty (input) {
+    if (!input || !bound || String(input.accountId) !== String(bound)) {
+      return false;
+    }
+
+    const job = ensureJob(input.clientUuid);
+
+    job.observed = true;
+
+    if (job.tombstone || job.hold) {
+      return false;
+    }
+
+    if (!acceptPageEdit(job, input)) {
+      return false;
+    }
+
+    job.pendingHash = input.contentHash || null;
+    job.pendingDirty = Boolean(job.pendingHash) && job.pendingHash !== job.contentHash;
+
+    if (job.conflict) {
+      job.status = 'conflict';
+      job.reason = 'conflict';
+      emit();
+      return true;
+    }
+
+    if (job.pendingDirty && job.status === 'synced') {
+      job.status = 'local';
+      job.reason = 'dirty';
+      emit();
+    } else if (job.pendingDirty && job.sendingHash && job.sendingHash !== job.pendingHash) {
+      job.status = 'local';
+      job.reason = 'dirty';
+      emit();
+    }
+
+    return true;
   }
 
   function observeLocal (input, options = {}) {
@@ -787,39 +1084,118 @@ export function createPostDraftSync ({
 
     const job = ensureJob(input.clientUuid);
 
+    job.observed = true;
+
     if (job.tombstone || job.hold) {
       return Promise.resolve(false);
     }
 
-    const generation = Number(input.editGeneration) || 0;
-
-    if (generation < job.editGeneration) {
+    if (!acceptPageEdit(job, input)) {
       return Promise.resolve(false);
     }
 
+    const previousHash = job.contentHash;
+
     job.accountId = bound;
-    job.editGeneration = generation;
     job.localRevision = Number(input.localRevision) || 0;
+    bumpSyncGeneration(job, input.contentHash || null);
     job.contentHash = input.contentHash || null;
     job.payload = input.payload;
 
-    if (job.ackedHash && job.ackedHash === job.contentHash && job.serverDraftId && job.ackedGeneration === generation) {
+    if (job.pendingHash === job.contentHash) {
+      job.pendingDirty = false;
+      job.pendingHash = null;
+    }
+
+    if (job.conflict) {
+      job.status = 'conflict';
+      job.reason = 'conflict';
+      emit();
+      return Promise.resolve(true);
+    }
+
+    if (job.ackedHash && job.ackedHash === job.contentHash && job.serverDraftId && job.ackedRevision && !job.pendingDirty) {
       job.status = 'synced';
       job.reason = null;
+      job.ackedGeneration = job.syncGeneration;
+      emit();
       return Promise.resolve(true);
     }
 
     if (job.running) {
-      job.status = job.contentHash === input.contentHash ? 'syncing' : 'local';
+      job.status = job.sendingHash === job.contentHash && !job.pendingDirty ? 'syncing' : 'local';
       job.reason = job.status === 'local' ? 'coalesced' : null;
+      emit();
       return Promise.resolve(true);
     }
 
     job.status = 'local';
     job.reason = null;
-    scheduleJob(job, options.immediate ? 0 : serverDebounceMs);
 
+    if (previousHash !== job.contentHash || !job.ackedRevision) {
+      scheduleJob(job, options.immediate ? 0 : serverDebounceMs);
+    }
+
+    emit();
     return Promise.resolve(true);
+  }
+
+  function tombstoneRow (accountId, clientUuid) {
+    const job = jobs.get(String(clientUuid));
+    const conflict = Boolean(job && job.conflict);
+    let deleteState = 'unknown';
+
+    if (conflict) {
+      deleteState = 'blocked';
+    } else if (job && job.ackedRevision) {
+      deleteState = 'pending';
+    }
+
+    return {
+      account_id: String(accountId),
+      client_uuid: String(clientUuid),
+      server_draft_id: job ? job.serverDraftId : null,
+      server_revision: job && !conflict ? job.ackedRevision : null,
+      conflict,
+      conflict_revision: job ? job.conflictRevision : null,
+      acked_hash: job ? job.ackedHash : null,
+      sync_generation: job ? job.syncGeneration : null,
+      tombstone: true,
+      delete_state: deleteState,
+      probe_hash: job && (job.sendingHash || job.probeHash || job.contentHash) || null,
+    };
+  }
+
+  function rememberTombstone (row) {
+    if (!row) {
+      return Promise.resolve(false);
+    }
+
+    const previous = bound;
+
+    if (!bound) {
+      bound = String(row.account_id);
+    }
+
+    const job = ensureJob(row.client_uuid);
+
+    job.accountId = String(row.account_id);
+    applyCursor(job, row);
+    job.tombstone = true;
+    job.conflict = row.conflict === true;
+    job.deleteState = row.delete_state || (job.conflict ? 'blocked' : 'unknown');
+    job.probeHash = row.probe_hash || job.probeHash;
+
+    if (!previous) {
+      bound = previous;
+    }
+
+    return ledger.write({
+      ...row,
+      account_id: String(row.account_id),
+      client_uuid: String(row.client_uuid),
+      tombstone: true,
+    }).then(() => true, () => false);
   }
 
   function noteDiscard (input) {
@@ -839,21 +1215,47 @@ export function createPostDraftSync ({
     job.tombstone = true;
     job.hold = false;
     clearTimer(job);
-    job.status = 'local';
-    job.reason = 'discard';
+
+    if (!job.probeHash) {
+      job.probeHash = job.sendingHash || null;
+    }
+
+    if (job.conflict) {
+      job.deleteState = 'blocked';
+      job.status = 'conflict';
+      job.reason = 'discard_blocked';
+    } else if (job.ackedRevision) {
+      job.deleteState = 'pending';
+      job.status = 'local';
+      job.reason = 'discard';
+    } else if (job.probeHash) {
+      job.deleteState = 'unknown';
+      job.status = 'local';
+      job.reason = 'discard';
+    } else {
+      job.deleteState = 'pending';
+      job.status = 'local';
+      job.reason = 'discard';
+    }
+
+    emit();
 
     return serial(job.clientUuid, async () => {
-      await persist(job, { tombstone: true });
-
-      if (!current(job, epoch)) {
+      if (job.deleteState === 'deleted' || job.deleteState === 'blocked' || job.conflict) {
+        job.deleteState = job.conflict ? 'blocked' : job.deleteState;
+        await persist(job, { tombstone: true, deleteState: job.deleteState });
+        emit();
         return;
       }
 
-      if (job.running) {
+      await persist(job, { tombstone: true, deleteState: job.deleteState, probeHash: job.probeHash });
+
+      if (!current(job, epoch) || job.running) {
         return;
       }
 
-      await removeServer(job, epoch);
+      await continueDiscard(job, epoch);
+      emit();
     });
   }
 
@@ -919,12 +1321,26 @@ export function createPostDraftSync ({
 
       byUuid.set(String(cursor.client_uuid), cursor);
 
-      if (cursor.tombstone && cursor.server_draft_id) {
+      if (cursor.tombstone) {
         const job = ensureJob(cursor.client_uuid);
 
-        applyCursor(job, cursor);
-        job.tombstone = true;
-        serial(job.clientUuid, () => removeServer(job, epoch));
+        if (!job.observed) {
+          applyCursor(job, cursor);
+          job.tombstone = true;
+          job.accountId = accountId;
+
+          if (cursor.conflict || cursor.delete_state === 'blocked') {
+            job.conflict = true;
+            job.deleteState = 'blocked';
+            job.status = 'conflict';
+            job.reason = 'discard_blocked';
+          } else if (cursor.delete_state === 'deleted') {
+            job.deleteState = 'deleted';
+            job.status = 'deleted';
+          } else {
+            serial(job.clientUuid, () => continueDiscard(job, epoch));
+          }
+        }
       }
     });
 
@@ -947,8 +1363,20 @@ export function createPostDraftSync ({
       }
 
       const cursor = byUuid.get(String(record.client_draft_uuid));
+      const existing = jobs.get(String(record.client_draft_uuid));
 
-      if (cursor && cursor.tombstone) {
+      if (existing && existing.observed) {
+        return;
+      }
+
+      if (cursor && (cursor.tombstone || cursor.conflict)) {
+        const job = ensureJob(record.client_draft_uuid);
+
+        applyCursor(job, cursor);
+        job.contentHash = record.content_hash;
+        job.payload = record;
+        job.localRevision = Number(record.revision) || 0;
+        job.status = cursor.conflict || cursor.delete_state === 'blocked' ? 'conflict' : job.status;
         return;
       }
 
@@ -958,11 +1386,14 @@ export function createPostDraftSync ({
         applyCursor(job, cursor);
       }
 
-      if (cursor && cursor.acked_hash && cursor.acked_hash === record.content_hash && cursor.server_draft_id) {
+      if (cursor && cursor.acked_hash && cursor.acked_hash === record.content_hash && cursor.server_draft_id && !cursor.conflict) {
         job.contentHash = record.content_hash;
         job.payload = record;
         job.localRevision = Number(record.revision) || 0;
-        job.editGeneration = Number(cursor.acked_generation) || Number(record.revision) || 0;
+        job.syncGeneration = Number(cursor.sync_generation) || Number(cursor.acked_generation) || 0;
+        job.editGeneration = job.syncGeneration;
+        job.pageSession = null;
+        job.pageEpoch = 0;
         job.status = 'synced';
         job.reason = null;
         return;
@@ -974,7 +1405,8 @@ export function createPostDraftSync ({
         localRevision: Number(record.revision) || 0,
         contentHash: record.content_hash,
         payload: record,
-        editGeneration: Number(record.revision) || 1,
+        editGeneration: 0,
+        sessionId: 'resume',
       }, { immediate: true });
     });
   }
@@ -990,7 +1422,11 @@ export function createPostDraftSync ({
         editGeneration: job.editGeneration,
         localRevision: job.localRevision,
         serverDraftId: job.serverDraftId,
-        serverRevision: job.serverRevision,
+        serverRevision: job.ackedRevision,
+        conflictRevision: job.conflictRevision,
+        conflict: job.conflict === true,
+        deleteState: job.deleteState,
+        syncGeneration: job.syncGeneration,
         ackedGeneration: job.ackedGeneration,
         contentHash: job.contentHash,
         ackedHash: job.ackedHash,
@@ -1017,11 +1453,19 @@ export function createPostDraftSync ({
   return {
     bindAccount,
     observeLocal,
+    noteDirty,
     noteDiscard,
     notePublish,
+    tombstoneRow,
+    rememberTombstone,
     resume,
     snapshot,
     settle,
+    subscribe (listener) {
+      listeners.add(listener);
+
+      return () => listeners.delete(listener);
+    },
     dispose () {
       unsubscribeOnline();
       jobs.forEach((job) => clearTimer(job));

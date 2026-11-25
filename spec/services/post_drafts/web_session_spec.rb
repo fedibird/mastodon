@@ -96,6 +96,53 @@ RSpec.describe PostDrafts::WebSession do # rubocop:disable Metrics/BlockLength
     expect(activation.access_token.scopes.to_s).to eq 'read write follow'
   end
 
+  it 'keeps draft scopes on a web token after the user is no longer admitted' do
+    user = Fabricate(:user)
+    admit!(user)
+    activation = session_for(user)
+    token = activation.access_token
+    external = Fabricate(:accessible_access_token, resource_owner_id: user.id, scopes: 'read:post_drafts write:post_drafts')
+    Setting.post_draft_sync = false
+
+    result = described_class.prepare(activation)
+
+    expect(result.enabled).to be false
+    expect(result.reason).to eq 'disabled'
+    expect(token.reload.scopes.to_s).to include('read:post_drafts')
+    expect(token.revoked_at).to be_nil
+    expect(external.reload.revoked_at).to be_nil
+    expect(external.scopes.to_s).to eq 'read:post_drafts write:post_drafts'
+  end
+
+  it 'leaves the previous web token in place when rotation fails' do
+    user = Fabricate(:user)
+    activation = session_for(user)
+    previous = activation.access_token
+    admit!(user)
+    allow(Doorkeeper::AccessToken).to receive(:create!).and_raise(ActiveRecord::ActiveRecordError)
+
+    result = described_class.prepare(activation)
+
+    expect(result.enabled).to be false
+    expect(result.reason).to eq 'missing_scope'
+    expect(activation.reload.access_token.id).to eq previous.id
+    expect(previous.reload.revoked_at).to be_nil
+    expect(previous.scopes.to_s).to eq 'read write follow'
+  end
+
+  it 'does not replace an expired web token' do
+    user = Fabricate(:user)
+    admit!(user)
+    activation = session_for(user)
+    activation.access_token.update!(expires_in: 60, created_at: 2.hours.ago)
+
+    result = described_class.prepare(activation)
+
+    expect(result.enabled).to be false
+    expect(result.reason).to eq 'missing_scope'
+    expect(activation.reload.access_token.revoked_at).to be_nil
+  end
+
   it 'does not mint a replacement for a revoked web token' do
     user = Fabricate(:user)
     admit!(user)

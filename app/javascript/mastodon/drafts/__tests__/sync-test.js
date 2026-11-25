@@ -308,7 +308,9 @@ describe('post draft server sync', () => {
       reason: 'conflict',
       contentHash: 'hash-local',
       serverDraftId: '15',
-      serverRevision: 4,
+      serverRevision: null,
+      conflictRevision: 4,
+      conflict: true,
     });
     expect(SERVER_DRAFT_CONFLICT_COPY.available).toBe(false);
   });
@@ -517,6 +519,275 @@ describe('post draft server sync', () => {
 
     expect(calls).toHaveLength(2);
     expect(calls[0].body.client_uuid).not.toBe(calls[1].body.client_uuid);
+  });
+
+  it('does not patch over another device after a conflict, including after reload', async () => {
+    const ledger = createMemorySyncLedger();
+    const { sync, calls, fire } = harness((spec) => {
+      if (spec.method === 'get') {
+        return Promise.resolve({
+          status: 200,
+          body: {
+            draft_id: '15',
+            revision: 6,
+            payload: snapshot('device-a'),
+          },
+        });
+      }
+
+      return Promise.resolve({
+        status: 409,
+        body: { draft_id: '15', revision: 6, updated_at: '2026-11-26T01:00:00Z' },
+      });
+    }, { ledger });
+
+    sync.bindAccount('42');
+    await edit(sync, 'mine', 1);
+    await fire(2000);
+    await edit(sync, 'mine-more', 2);
+    await fire(2000);
+    await fire(60000);
+
+    expect(calls.map(call => call.method)).toEqual(['post', 'get']);
+    expect(sync.snapshot().drafts[UUID].status).toBe('conflict');
+    expect(sync.snapshot().drafts[UUID].serverRevision).toBeNull();
+
+    const reloaded = createPostDraftSync({
+      ledger,
+      request: () => Promise.resolve({ status: 500, body: {} }),
+      schedule: (fn) => fn(),
+      cancel: () => undefined,
+      online: () => true,
+      subscribeOnline: () => () => undefined,
+      serverDebounceMs: 0,
+    });
+
+    reloaded.bindAccount('42');
+    await reloaded.resume(() => Promise.resolve([snapshot('mine-more')]));
+    await reloaded.observeLocal({
+      accountId: '42',
+      clientUuid: UUID,
+      localRevision: 3,
+      contentHash: 'hash-again',
+      payload: snapshot('again'),
+      editGeneration: 1,
+      sessionId: 'reloaded-page',
+    });
+    await reloaded.settle();
+
+    expect(reloaded.snapshot().drafts[UUID].status).toBe('conflict');
+    expect(reloaded.snapshot().drafts[UUID].conflictRevision).toBe(6);
+  });
+
+  it('does not treat the same text at a new revision as this client acknowledgement', async () => {
+    let phase = 'create';
+    const { sync, calls, fire } = harness((spec) => {
+      if (phase === 'create') {
+        phase = 'patch';
+        return Promise.resolve(created(spec, 5));
+      }
+
+      if (spec.method === 'patch') {
+        return Promise.resolve({
+          status: 409,
+          body: { draft_id: '15', revision: 6 },
+        });
+      }
+
+      return Promise.resolve({
+        status: 200,
+        body: {
+          draft_id: '15',
+          revision: 6,
+          payload: snapshot('hello'),
+        },
+      });
+    });
+
+    sync.bindAccount('42');
+    await edit(sync, 'hello', 1);
+    await fire(2000);
+    await edit(sync, 'edited', 2);
+    await fire(2000);
+    await fire(60000);
+
+    expect(calls.filter(call => call.method === 'patch')).toHaveLength(1);
+    expect(sync.snapshot().drafts[UUID]).toMatchObject({
+      status: 'conflict',
+      serverRevision: 5,
+      conflictRevision: 6,
+    });
+  });
+
+  it('does not delete another device revision when discard meets a 409', async () => {
+    let release;
+
+    const { sync, calls, fire } = harness((spec) => {
+      if (spec.method === 'post') {
+        return Promise.resolve(created(spec, 5));
+      }
+
+      if (spec.method === 'patch') {
+        return new Promise((resolve) => {
+          release = () => resolve({
+            status: 409,
+            body: { draft_id: '15', revision: 6 },
+          });
+        });
+      }
+
+      return Promise.resolve({ status: 200, body: {} });
+    });
+
+    sync.bindAccount('42');
+    await edit(sync, 'hello', 1);
+    await fire(2000);
+    await edit(sync, 'edited', 2);
+    const pending = fire(2000);
+
+    await waitFor(() => calls.some(call => call.method === 'patch'));
+    const discarded = sync.noteDiscard({ accountId: '42', clientUuid: UUID });
+
+    release();
+    await pending;
+    await discarded;
+    await sync.settle();
+    await fire(60000);
+
+    expect(calls.map(call => call.method)).toEqual(['post', 'patch']);
+    expect(sync.snapshot().drafts[UUID]).toMatchObject({
+      status: 'conflict',
+      reason: 'discard_blocked',
+      conflictRevision: 6,
+    });
+  });
+
+  it('looks up a create whose response was lost and deletes only the matching body', async () => {
+    let release;
+
+    const { sync, calls, fire } = harness((spec) => {
+      if (spec.method === 'post') {
+        return new Promise((resolve) => {
+          release = () => resolve({ status: 0, timedOut: true, body: null });
+        });
+      }
+
+      if (spec.method === 'get' && spec.path.indexOf('?') !== -1) {
+        return Promise.resolve({
+          status: 200,
+          body: [{ draft_id: '15', client_uuid: UUID, revision: 1 }],
+        });
+      }
+
+      if (spec.method === 'get') {
+        return Promise.resolve({
+          status: 200,
+          body: {
+            draft_id: '15',
+            revision: 1,
+            payload: snapshot('hello'),
+          },
+        });
+      }
+
+      return Promise.resolve({ status: 200, body: {} });
+    });
+
+    sync.bindAccount('42');
+    await edit(sync, 'hello', 1);
+    const pending = fire(2000);
+
+    await waitFor(() => calls.length === 1);
+    const discarded = sync.noteDiscard({ accountId: '42', clientUuid: UUID });
+
+    release();
+    await pending;
+    await discarded;
+    await sync.settle();
+
+    expect(calls.map(call => call.method)).toEqual(['post', 'get', 'get', 'delete']);
+    expect(calls[3].body).toEqual({ expected_revision: 1 });
+    expect(sync.snapshot().drafts[UUID].status).toBe('deleted');
+  });
+
+  it('keeps an unknown delete unknown when the ledger write fails', async () => {
+    const ledger = {
+      read: () => Promise.resolve(null),
+      list: () => Promise.resolve([]),
+      write: () => Promise.reject(new Error('full')),
+    };
+    const { sync, calls, fire } = harness(spec => Promise.resolve(created(spec, 1)), { ledger });
+
+    sync.bindAccount('42');
+    await edit(sync, 'hello', 1);
+    await fire(2000);
+    await sync.noteDiscard({ accountId: '42', clientUuid: UUID });
+    await sync.settle();
+
+    expect(calls.some(call => call.method === 'delete')).toBe(true);
+    expect(sync.snapshot().drafts[UUID].status).not.toBe('deleted');
+    expect(sync.snapshot().drafts[UUID].reason).toBe('ledger');
+  });
+
+  it('accepts a page epoch of 1 after a resumed generation', async () => {
+    const ledger = createMemorySyncLedger();
+
+    await ledger.write({
+      account_id: '42',
+      client_uuid: UUID,
+      server_draft_id: '15',
+      server_revision: 5,
+      acked_hash: 'hash-hello',
+      acked_generation: 8,
+      sync_generation: 8,
+      conflict: false,
+      tombstone: false,
+    });
+    const { sync, calls, fire } = harness(spec => Promise.resolve({
+      status: 200,
+      body: {
+        draft_id: '15',
+        revision: 6,
+        payload: spec.body.payload,
+      },
+    }), { ledger, serverDebounceMs: 0 });
+
+    sync.bindAccount('42');
+    await sync.resume(() => Promise.resolve([snapshot('hello')]));
+    await sync.observeLocal({
+      accountId: '42',
+      clientUuid: UUID,
+      localRevision: 9,
+      contentHash: 'hash-next',
+      payload: snapshot('next'),
+      editGeneration: 1,
+      sessionId: 'reloaded-page',
+    });
+    await fire(0);
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0].method).toBe('patch');
+    expect(calls[0].body.expected_revision).toBe(5);
+    expect(calls[0].body.payload.content_hash).toBe('hash-next');
+    expect(sync.snapshot().drafts[UUID].status).toBe('synced');
+  });
+
+  it('keeps an edit that arrives while resume is still listing', async () => {
+    let release;
+    const { sync, calls, fire } = harness(spec => Promise.resolve(created(spec, 1)), { serverDebounceMs: 0 });
+
+    sync.bindAccount('42');
+    const pending = sync.resume(() => new Promise((resolve) => {
+      release = () => resolve([snapshot('old')]);
+    }));
+
+    await edit(sync, 'new', 1);
+    release();
+    await pending;
+    await fire(0);
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0].body.payload.input.text).toBe('new');
   });
 });
 

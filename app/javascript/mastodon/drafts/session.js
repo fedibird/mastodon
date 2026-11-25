@@ -79,6 +79,7 @@ export function createComposerDraftSession ({
   schedule = (fn, ms) => setTimeout(fn, ms),
   cancel = (id) => clearTimeout(id),
   serverSync = null,
+  syncSessionId = null,
 } = {}) {
   const surfaces = new Map();
   const claimed = new Map();
@@ -98,6 +99,11 @@ export function createComposerDraftSession ({
   const notify = () => {
     listeners.forEach((listener) => listener());
   };
+  const pageSessionId = syncSessionId || 'draft-sync';
+
+  if (serverSync && typeof serverSync.subscribe === 'function') {
+    serverSync.subscribe(() => notify());
+  }
 
   const setPersistence = (composerId, status, reason, mediaIncomplete) => {
     const previous = persistence.get(composerId);
@@ -268,10 +274,20 @@ export function createComposerDraftSession ({
       }
     }
 
+    const discardExtras = () => {
+      if (reason !== 'discard' || !serverSync || typeof serverSync.tombstoneRow !== 'function') {
+        return undefined;
+      }
+
+      return {
+        tombstone: serverSync.tombstoneRow(accountId, clientDraftUuid),
+        writeTombstone: (row) => serverSync.rememberTombstone(row),
+      };
+    };
     const previous = writeChains.get(composerId) || Promise.resolve();
     const run = previous.then(
-      () => backend.deleteDraft(accountId, clientDraftUuid, expected),
-      () => backend.deleteDraft(accountId, clientDraftUuid, expected),
+      () => backend.deleteDraft(accountId, clientDraftUuid, expected, discardExtras()),
+      () => backend.deleteDraft(accountId, clientDraftUuid, expected, discardExtras()),
     ).then((decision) => {
       if (serverSync && decision && decision.status === 'deleted') {
         const notice = {
@@ -396,6 +412,7 @@ export function createComposerDraftSession ({
           contentHash: snapshot.content_hash,
           payload: snapshot,
           editGeneration: epoch,
+          sessionId: pageSessionId,
         });
       }
     }
@@ -440,6 +457,16 @@ export function createComposerDraftSession ({
     epochs.set(composerId, epoch);
     pending.set(composerId, { accountId, snapshot, epoch });
     setPersistence(composerId, 'saving', null, snapshot.media_incomplete);
+
+    if (serverSync && typeof serverSync.noteDirty === 'function') {
+      serverSync.noteDirty({
+        accountId: String(accountId),
+        clientUuid: snapshot.client_draft_uuid,
+        contentHash: snapshot.content_hash,
+        editGeneration: epoch,
+        sessionId: pageSessionId,
+      });
+    }
 
     const existing = timers.get(composerId);
 

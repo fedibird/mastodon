@@ -8,9 +8,14 @@ export const POST_DRAFTS_PATH = '/api/v1/fedibird/post_drafts';
 export async function browserPostDraftRequest (getState, spec) {
   const state = typeof getState === 'function' ? getState() : null;
   const token = state && typeof state.getIn === 'function' ? state.getIn(['meta', 'access_token'], '') : '';
+  const meId = state && typeof state.getIn === 'function' ? state.getIn(['meta', 'me'], '') : '';
 
   if (!token) {
     return { status: 401, body: null };
+  }
+
+  if (spec.accountId && meId && String(spec.accountId) !== String(meId)) {
+    return { status: 0, ignored: true, body: null };
   }
 
   const client = api(() => state);

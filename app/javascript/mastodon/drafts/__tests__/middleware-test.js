@@ -8,6 +8,7 @@ import composerDraftRecovery from '../../reducers/composer_draft_recovery';
 import composers from '../../reducers/composers';
 import { composerDraftMiddleware } from '../middleware';
 import { createComposerDraftSession } from '../session';
+import { createPostDraftSync } from '../sync';
 import { composerDraftContentHash, snapshotComposerDraft } from '../snapshot';
 import { createMemoryDraftBackend } from '../storage';
 
@@ -249,5 +250,79 @@ describe('composer draft middleware', () => {
     expect(await backend.readDraft('42', portable.client_draft_uuid)).toBeNull();
     expect((await backend.listDrafts('42')).map(item => item.input.text)).toEqual(['keep primary']);
     expect(store.getState().getIn(['composers', 'byId', 'portable-a', 'text'])).toBe('');
+  });
+
+  it('publishes server sync into Redux and does not treat an older acknowledgement as current', async () => {
+    const calls = [];
+    const waiting = [];
+    const serverSync = createPostDraftSync({
+      serverDebounceMs: 0,
+      schedule: (fn) => {
+        fn();
+        return 1;
+      },
+      cancel: () => undefined,
+      online: () => true,
+      subscribeOnline: () => () => undefined,
+      request: (spec) => new Promise((resolve) => {
+        calls.push(spec.body && spec.body.payload && spec.body.payload.content_hash);
+        waiting.push(() => resolve({
+          status: calls.length === 1 ? 201 : 200,
+          body: {
+            draft_id: '15',
+            revision: calls.length,
+            payload: spec.body.payload,
+          },
+        }));
+      }),
+    });
+    const backend = createMemoryDraftBackend();
+    const session = createComposerDraftSession({
+      backend,
+      serverSync,
+      now: () => '2026-11-26T00:00:00.000Z',
+      createId: () => 'draft-1',
+      schedule: (fn) => fn,
+      cancel: () => undefined,
+    });
+    const store = createStore(
+      combineReducers({
+        compose,
+        composers,
+        composerDraftRecovery,
+      }),
+      applyMiddleware(thunk, composerDraftMiddleware({
+        session,
+        backend,
+        accountId: '42',
+        target: null,
+      })),
+    );
+
+    const syncStatus = () => store.getState().getIn(['composerDraftRecovery', 'sync', 'drafts', 'draft-1', 'status']);
+
+    store.dispatch(changeCompose('one'));
+    await session.flush();
+    await new Promise((resolve) => {
+      setTimeout(resolve, 0);
+    });
+    expect(calls).toHaveLength(1);
+    store.dispatch(changeCompose('two'));
+    waiting[0]();
+    await new Promise((resolve) => {
+      setTimeout(resolve, 0);
+    });
+
+    expect(syncStatus()).not.toBe('synced');
+    await session.flush();
+    await new Promise((resolve) => {
+      setTimeout(resolve, 0);
+    });
+    expect(calls.length).toBeGreaterThan(1);
+    waiting[1]();
+    await serverSync.settle();
+
+    expect(syncStatus()).toBe('synced');
+    expect(store.getState().getIn(['composerDraftRecovery', 'sync', 'drafts', 'draft-1', 'contentHash'])).not.toBe(calls[0]);
   });
 });
