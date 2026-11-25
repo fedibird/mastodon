@@ -467,6 +467,18 @@ RSpec.describe ReblogService do
       expect(recover_created_wrapper!(:publish_created!, 'publish-key').state).to eq 'federating'
     end
 
+    it 'does not deliver a wrapper that stops before its mentions are saved' do
+      expect(recover_limited_audience!(:after_status_record!).pluck(:account_id)).to contain_exactly(*@limited_member_ids)
+    end
+
+    it 'does not deliver a wrapper that stops between mentions' do
+      expect(recover_limited_audience!(:save_decided_mention!, raise_on: 2).pluck(:account_id)).to contain_exactly(*@limited_member_ids)
+    end
+
+    it 'does not deliver a wrapper that stops before the operation link' do
+      expect(recover_limited_audience!(:before_operation_link!).pluck(:account_id)).to contain_exactly(*@limited_member_ids)
+    end
+
     it 'keeps one federating reboost when resume runs again without an idempotency key' do
       expect(second_resume_keeps_the_federating_boost(nil).state).to eq 'federating'
     end
@@ -692,10 +704,10 @@ RSpec.describe ReblogService do
 
     it 'removes an unannounced replacement when mention processing fails' do
       allow(Reboost::FederationWorker).to receive(:perform_async)
-      allow_any_instance_of(ProcessMentionsService).to receive(:call).and_wrap_original do |method, status, *args|
-        raise Mastodon::ValidationError, 'mentions failed' if status.reblog_of_id == original.id && status.id != first.id
+      allow_any_instance_of(Reboost::Placement).to receive(:before_operation_link!).and_wrap_original do |method, created|
+        raise Mastodon::ValidationError, 'mentions failed' if created.reblog_of_id == original.id && created.id != first.id
 
-        method.call(status, *args)
+        method.call(created)
       end
 
       travel 301.seconds do
@@ -751,6 +763,47 @@ RSpec.describe ReblogService do
       expect(operation.new_status_id).to be_nil
       expect(Reboost::FederationWorker).to have_received(:perform_async).with(operation.id)
       expect(Status.find_by(id: first.id)).to be_nil
+    end
+
+    def recover_limited_audience!(step, raise_on: 1)
+      member_a = Fabricate(:account)
+      member_b = Fabricate(:account)
+      member_a.follow!(account)
+      member_b.follow!(account)
+      circle = Fabricate(:circle, account: account, title: 'Both')
+      circle.accounts << member_a
+      circle.accounts << member_b
+      target = Fabricate(:status, account: account, visibility: 'public')
+      described_class.new.call(account, target)
+      stopped = true
+      seen = 0
+      allow_any_instance_of(Reboost::Placement).to receive(step).and_wrap_original do |method, *args, **kwargs|
+        seen += 1
+        raise 'stopped while saving' if stopped && seen == raise_on
+
+        method.call(*args, **kwargs)
+      end
+
+      travel 301.seconds do
+        expect do
+          described_class.new.call(account, target, reboost: true, visibility: 'limited', circle: circle, visibility_explicit: true, circle_explicit: true)
+        end.to raise_error(RuntimeError, 'stopped while saving')
+        stopped = false
+        operation = ReboostOperation.where(account: account, reblog_of: target).order(:id).last
+        expect(operation.options['audience']).to include([member_a.id, true], [member_b.id, true])
+        operation.update_column(:updated_at, 31.seconds.ago) if operation.state == 'pending'
+
+        Scheduler::ReboostDeliveryScheduler.new.perform
+
+        created = account.statuses.find_by!(reblog_of_id: target.id)
+        expect(account.statuses.where(reblog_of_id: target.id).count).to eq 1
+        expect(operation.reload).to have_attributes(state: 'federating', new_status_id: created.id)
+        expect(DistributionWorker).to have_received(:perform_async).with(created.id)
+        expect(LocalNotificationWorker).to have_received(:perform_async).with(account.id, created.id, 'Status', 'reblog')
+        expect(Reboost::FederationWorker).to have_received(:perform_in).with(Reboost::FEDERATION_GAP, operation.id).once
+        @limited_member_ids = [member_a.id, member_b.id]
+        created.mentions
+      end
     end
 
     def recover_created_wrapper!(step, idempotency)

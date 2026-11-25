@@ -155,11 +155,9 @@ class Reboost::Placement
     # original this request is still holding so the new boost increments the
     # row the removal just wrote.
     original.association(:status_stat).reset
-    created = create_reblog!(visibility, audience)
-    # Cooldown and the operation link commit before Redis or a queue write.
-    # A crash after the wrapper exists resumes that same row.
-    stamp_cooldown_once!
-    attach_created!(created, existing)
+    # Status, audience, cooldown, and the operation link commit together.
+    # Redis and queues run only after that commit.
+    created = create_reblog!(visibility, audience, existing)
     remember_idempotency!(created)
     publish_created!(created, existing)
     Reboost::Log.emit('replaced', account_id: account.id, status_id: original.id, old_status_id: existing&.id, new_status_id: created.id) if existing
@@ -291,29 +289,8 @@ class Reboost::Placement
     existing.mentions.pluck(:account_id, :silent)
   end
 
-  def create_reblog!(visibility, audience)
-    reblog = nil
-    circle = resumed_operation && saved_audience.is_a?(Array) ? nil : @resolved_circle
-    ApplicationRecord.transaction do
-      reblog = account.statuses.create!(reblog: original, text: '', visibility: visibility, rate_limit: options[:with_rate_limit])
-      reblog.capability_tokens.create! if reblog.limited_visibility?
-    end
-    begin
-      ProcessMentionsService.new.call(reblog, circle)
-      Array(audience).each do |account_id, silent|
-        reblog.mentions.find_or_create_by!(account_id: account_id) { |copy| copy.silent = silent }
-      end
-    rescue ActiveRecord::RecordInvalid, Mastodon::ValidationError
-      remove_unpublished!(reblog)
-      raise
-    end
-    reblog
-  end
-
-  def remove_unpublished!(reblog)
-    RemoveStatusService.new.call(reblog, skip_remote: true, immediate: true)
-  rescue StandardError
-    nil
+  def create_reblog!(visibility, audience, existing = nil)
+    commit_created_boost!(visibility, audience, existing)
   end
 
   def distribute_locally!(reblog, federate:, operation: nil)

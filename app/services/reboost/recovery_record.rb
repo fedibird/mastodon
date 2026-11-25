@@ -58,6 +58,8 @@ class Reboost::RecoveryRecord
   end
 
   def self.mention_pairs(existing)
+    return [] if existing.nil?
+
     existing.mentions.pluck(:account_id, :silent)
   end
 
