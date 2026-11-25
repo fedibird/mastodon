@@ -393,6 +393,80 @@ RSpec.describe ReblogService do
       end
     end
 
+    it 'keeps an explicit empty audience when recovery runs after someone joins the circle' do
+      user.settings['default_privacy'] = 'public'
+      user.save!
+      circle = Fabricate(:circle, account: account, title: 'Empty')
+      empty_original = Fabricate(:status, account: account, visibility: 'public')
+      described_class.new.call(account, empty_original)
+      stop_after_removing!(account.statuses.find_by!(reblog_of_id: empty_original.id))
+
+      travel 301.seconds do
+        expect do
+          described_class.new.call(
+            account,
+            empty_original,
+            reboost: true,
+            visibility: 'limited',
+            circle: circle,
+            visibility_explicit: true,
+            circle_explicit: true
+          )
+        end.to raise_error(RuntimeError, 'stopped after removal')
+        operation = ReboostOperation.find_by!(account: account, reblog_of: empty_original)
+        expect(operation.options['audience']).to eq []
+
+        extra = Fabricate(:account)
+        extra.follow!(account)
+        circle.accounts << extra
+        operation.update_column(:updated_at, 31.seconds.ago)
+        Scheduler::ReboostDeliveryScheduler.new.perform
+
+        replacement = account.statuses.find_by!(reblog_of_id: empty_original.id)
+        expect(replacement.visibility).to eq 'limited'
+        expect(replacement.mentions).to be_empty
+      end
+    end
+
+    it 'does not keep the previous mentions when an explicit visibility has no audience' do
+      user.settings['default_privacy'] = 'public'
+      user.save!
+      member = Fabricate(:account)
+      member.follow!(account)
+      circle = Fabricate(:circle, account: account, title: 'Previous')
+      circle.accounts << member
+      private_original = Fabricate(:status, account: account, visibility: 'public')
+      limited = described_class.new.call(account, private_original, visibility: 'limited', circle: circle)
+      expect(limited.mentions.where(account: member)).to exist
+      stop_after_removing!(limited)
+
+      travel 301.seconds do
+        expect do
+          described_class.new.call(account, private_original, reboost: true, visibility: 'public', visibility_explicit: true)
+        end.to raise_error(RuntimeError, 'stopped after removal')
+        operation = ReboostOperation.find_by!(account: account, reblog_of: private_original)
+        expect(operation.options['audience']).to eq []
+        operation.update_column(:updated_at, 31.seconds.ago)
+        Scheduler::ReboostDeliveryScheduler.new.perform
+
+        replacement = account.statuses.find_by!(reblog_of_id: private_original.id)
+        expect(replacement.visibility).to eq 'public'
+        expect(replacement.mentions).to be_empty
+      end
+    end
+
+    it 'finishes the created wrapper when the cooldown stamp stops' do
+      expect(recover_created_wrapper!(:stamp_cooldown_once!, nil).state).to eq 'federating'
+    end
+
+    it 'finishes the created wrapper when linking it stops' do
+      expect(recover_created_wrapper!(:attach_created!, 'stamp-key').state).to eq 'federating'
+    end
+
+    it 'finishes the created wrapper when publishing it stops' do
+      expect(recover_created_wrapper!(:publish_created!, 'publish-key').state).to eq 'federating'
+    end
+
     it 'keeps one federating reboost when resume runs again without an idempotency key' do
       expect(second_resume_keeps_the_federating_boost(nil).state).to eq 'federating'
     end
@@ -677,6 +751,36 @@ RSpec.describe ReblogService do
       expect(operation.new_status_id).to be_nil
       expect(Reboost::FederationWorker).to have_received(:perform_async).with(operation.id)
       expect(Status.find_by(id: first.id)).to be_nil
+    end
+
+    def recover_created_wrapper!(step, idempotency)
+      boost = described_class.new.call(account, target = Fabricate(:status, account: account))
+      stopped = true
+      allow_any_instance_of(Reboost::Placement).to receive(step).and_wrap_original do |method, *args, **kwargs|
+        raise 'stopped after create' if stopped
+
+        method.call(*args, **kwargs)
+      end
+
+      travel 301.seconds do
+        expect do
+          described_class.new.call(account, target, { reboost: true, idempotency: idempotency }.compact)
+        end.to raise_error(RuntimeError, 'stopped after create')
+        stopped = false
+        operation = ReboostOperation.where(account: account, reblog_of: target).order(:id).last
+        operation.update_column(:updated_at, 31.seconds.ago) if operation.state == 'pending'
+
+        Scheduler::ReboostDeliveryScheduler.new.perform
+
+        created = account.statuses.find_by!(reblog_of_id: target.id)
+        expect(account.statuses.where(reblog_of_id: target.id).count).to eq 1
+        expect(created.id).not_to eq boost.id
+        expect(operation.reload).to have_attributes(state: 'federating', new_status_id: created.id)
+        expect(DistributionWorker).to have_received(:perform_async).with(created.id)
+        expect(LocalNotificationWorker).to have_received(:perform_async).with(account.id, created.id, 'Status', 'reblog')
+        expect(Reboost::FederationWorker).to have_received(:perform_in).with(Reboost::FEDERATION_GAP, operation.id).once
+        operation
+      end
     end
 
     def second_resume_keeps_the_federating_boost(idempotency)

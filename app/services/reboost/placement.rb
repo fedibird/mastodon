@@ -10,6 +10,7 @@ class Reboost::Placement
   include Redisable
   include Lockable
   include Reboost::FederationSchedule
+  include Reboost::CreatedBoost
 
   IDEMPOTENCY_TTL = 3600
 
@@ -116,6 +117,9 @@ class Reboost::Placement
     return if gate != :continue
     return if resumed_cancelled?
 
+    linked = resume_unlinked_wrapper!
+    return linked if linked
+
     joined = Reboost::OpenOperation.join!(account: account, original_id: original.id, resumed_operation_id: options[:resumed_operation_id])
     return ensure_joined!(joined) if joined
 
@@ -135,7 +139,8 @@ class Reboost::Placement
     end
     ensure_visibility!(visibility)
     audience = inherited_audience(existing)
-    audience = saved_audience if audience.blank? && saved_audience.present?
+    # [] is a decided empty audience. nil means this pass has no snapshot.
+    audience = saved_audience if saved_audience.is_a?(Array) && audience.blank?
 
     creating_new = existing.nil? || options[:reboost]
     if creating_new && cooling_down?
@@ -151,9 +156,12 @@ class Reboost::Placement
     # row the removal just wrote.
     original.association(:status_stat).reset
     created = create_reblog!(visibility, audience)
-    ReboostCooldown.stamp!(account.id, original.id)
+    # Cooldown and the operation link commit before Redis or a queue write.
+    # A crash after the wrapper exists resumes that same row.
+    stamp_cooldown_once!
+    attach_created!(created, existing)
     remember_idempotency!(created)
-    publish_replacement!(existing, created)
+    publish_created!(created, existing)
     Reboost::Log.emit('replaced', account_id: account.id, status_id: original.id, old_status_id: existing&.id, new_status_id: created.id) if existing
     created
   rescue Mastodon::ReboostPendingError
@@ -244,7 +252,7 @@ class Reboost::Placement
       options: {
         'visibility_explicit' => options[:visibility_explicit] == true,
         'circle_explicit' => options[:circle_explicit] == true,
-        'audience' => Reboost::RecoveryRecord.audience_for(audience, operation.options, @resolved_circle, discarded),
+        'audience' => Reboost::RecoveryRecord.audience_for(audience, operation.options, @resolved_circle, discarded, options),
       }
     )
     Reboost::OpenOperation.save!(operation)
@@ -285,7 +293,7 @@ class Reboost::Placement
 
   def create_reblog!(visibility, audience)
     reblog = nil
-    circle = options[:resumed_operation_id].present? && saved_audience.present? ? nil : @resolved_circle
+    circle = resumed_operation && saved_audience.is_a?(Array) ? nil : @resolved_circle
     ApplicationRecord.transaction do
       reblog = account.statuses.create!(reblog: original, text: '', visibility: visibility, rate_limit: options[:with_rate_limit])
       reblog.capability_tokens.create! if reblog.limited_visibility?
@@ -329,23 +337,6 @@ class Reboost::Placement
     return unless reblog.public_visibility?
 
     original.tags.each { |tag| tag.use!(account) }
-  end
-
-  def publish_replacement!(existing, created)
-    # The replacement id is stored before any queue call. A later enqueue
-    # failure can still find this operation from the cached wrapper.
-    # A saved Undo must travel with the new Announce. The ordinary distribution
-    # worker does not know about that Undo, so it stays off in that case.
-    operation = if existing&.local?
-                  federation_operation(created, existing)
-                elsif ordered_undo?
-                  federation_operation(created, nil)
-                end
-    distribute_locally!(created, federate: existing.nil? && !ordered_undo?, operation: operation)
-    return if operation.nil?
-
-    enqueue_federation!(operation)
-    Reboost::Log.emit('federation_scheduled', operation_id: operation.id, gap_seconds: Reboost::FEDERATION_GAP.to_i)
   end
 
   def federation_operation(created, previous)
@@ -404,8 +395,8 @@ class Reboost::Placement
   end
 
   def saved_audience
-    pairs = resumed_operation&.options&.fetch('audience', nil)
-    return if pairs.blank?
+    pairs = resumed_operation&.options&.[]('audience')
+    return unless pairs.is_a?(Array)
 
     pairs.map { |account_id, silent| [account_id.to_i, silent == true] }
   end
