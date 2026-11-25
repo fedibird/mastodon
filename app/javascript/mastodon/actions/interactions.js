@@ -95,13 +95,20 @@ export const EMOJI_REACTION_UPDATE = 'EMOJI_REACTION_UPDATE';
 
 export function reblog(status, visibility) {
   return function (dispatch, getState) {
-    if (reboostUnreblogInFlight(status.get('id'))) {
+    const statusId = status.get('id');
+    if (reboostUnreblogInFlight(statusId)) {
       return Promise.resolve();
     }
 
+    const token = watchReboost(statusId, null);
     dispatch(reblogRequest(status));
 
-    return api(getState).post(`/api/v1/statuses/${status.get('id')}/reblog`, { visibility }).then(function (response) {
+    return api(getState).post(`/api/v1/statuses/${statusId}/reblog`, { visibility }).then(function (response) {
+      if (!reboostWatchOwned(statusId, token)) {
+        rememberSuspendedResult(statusId, token, { kind: 'post', response });
+        return null;
+      }
+
       if (response.status === 202) {
         return acceptReboostResponse(dispatch, getState, status, response);
       }
@@ -110,9 +117,17 @@ export function reblog(status, visibility) {
       // interested in how the original is modified, hence passing it skipping the wrapper
       dispatch(importFetchedStatus(response.data.reblog));
       dispatch(reblogSuccess(status));
+      commitReboostWatch(statusId, token);
       return null;
     }).catch(function (error) {
+      if (!reboostWatchOwned(statusId, token)) {
+        rememberSuspendedResult(statusId, token, { kind: 'error', error });
+        return null;
+      }
+
       dispatch(reblogFail(status, error));
+      commitReboostWatch(statusId, token);
+      return null;
     });
   };
 };
