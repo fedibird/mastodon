@@ -1,5 +1,5 @@
 import { storedReactionHidden } from './emoji_mute_projection';
-import { emojiMuteAttributeDisplayHtml, emojiMuteAttributeEmptyFallback, emojiMuteAttributeSourceKind, logicalEmojiMuteAttribute, logicalEmojiMuteText, rememberEmojiMuteTextSource } from './emoji_mute_sources';
+import { emojiMuteAttributeDisplayHtml, emojiMuteAttributeEmptyFallback, emojiMuteAttributeFallbackWhenBlank, emojiMuteAttributeSourceKind, logicalEmojiMuteAttribute, logicalEmojiMuteText, rememberEmojiMuteTextSource } from './emoji_mute_sources';
 import { bindHashtagMenuName, concealOpenHashtagDialogs, concealOpenHashtagMenus, hashtagMenuLabelIdentity, hashtagMenuStoredIdentity, projectConcealedHashtagText, projectHashtagLabel, replaceHashtagSlot } from './hashtag_menu_names';
 import { attributeNamesIdentity, displayTextForEmojiMuteHtml, emojiMutedPlainText, emojiMuteTextIndexFromState, isUserEmojiImage, presentEmojiMutePlain, projectedEmojiImage, SUPPRESS_UNVERIFIED_INDEX, suppressUnicodeEmoji, UNVERIFIED_EMOJI_PLACEHOLDER } from './emoji_mute_text';
 
@@ -35,7 +35,9 @@ export function resetEmojiMuteLiveDomProbe() {
 }
 
 const projectedAttribute = (element, name, next) => {
-  if (next !== '') {
+  const blank = next === '' || (emojiMuteAttributeFallbackWhenBlank(element, name) && typeof next === 'string' && next.trim() === '');
+
+  if (!blank) {
     return next;
   }
 

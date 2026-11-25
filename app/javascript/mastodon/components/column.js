@@ -68,14 +68,16 @@ export default class Column extends React.PureComponent {
     }
 
     const source = this.landmarkSource;
+    const emptyFallback = source && typeof source.emptyLabel === 'string' && source.emptyLabel !== '' ? source.emptyLabel : undefined;
+    const fallbackWhenBlank = !!(emptyFallback && source.fallbackWhenBlank);
 
     if (source && typeof source.html === 'string' && source.html !== '') {
-      rememberEmojiMuteDisplayAttribute(this.node, 'aria-label', source.plain || '', source.html);
+      rememberEmojiMuteDisplayAttribute(this.node, 'aria-label', source.plain || '', source.html, emptyFallback, fallbackWhenBlank);
       return;
     }
 
     if (source) {
-      rememberEmojiMuteAttributeSource(this.node, 'aria-label', source.plain);
+      rememberEmojiMuteAttributeSource(this.node, 'aria-label', source.plain, 'plain', emptyFallback, fallbackWhenBlank);
       return;
     }
 

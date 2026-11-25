@@ -60,7 +60,7 @@ export function rememberEmojiMuteDisplayName(node, plain, html) {
   textSources.set(node, { displayName: { plain, html } });
 }
 
-export function rememberEmojiMuteAttributeSource(element, name, source, kind = 'plain', emptyFallback) {
+export function rememberEmojiMuteAttributeSource(element, name, source, kind = 'plain', emptyFallback, fallbackWhenBlank = false) {
   if (!element || typeof source !== 'string') {
     return;
   }
@@ -76,12 +76,16 @@ export function rememberEmojiMuteAttributeSource(element, name, source, kind = '
 
   if (typeof emptyFallback === 'string') {
     record.emptyFallback = emptyFallback;
+
+    if (fallbackWhenBlank) {
+      record.fallbackWhenBlank = true;
+    }
   }
 
   sources.set(name, record);
 }
 
-export function rememberEmojiMuteDisplayAttribute(element, name, plain, html, emptyFallback) {
+export function rememberEmojiMuteDisplayAttribute(element, name, plain, html, emptyFallback, fallbackWhenBlank = false) {
   if (!element || typeof plain !== 'string' || typeof html !== 'string' || html === '') {
     return;
   }
@@ -97,6 +101,10 @@ export function rememberEmojiMuteDisplayAttribute(element, name, plain, html, em
 
   if (typeof emptyFallback === 'string') {
     record.emptyFallback = emptyFallback;
+
+    if (fallbackWhenBlank) {
+      record.fallbackWhenBlank = true;
+    }
   }
 
   sources.set(name, record);
@@ -158,6 +166,12 @@ export function emojiMuteAttributeEmptyFallback(element, name) {
   const stored = storedAttribute(element, name);
 
   return stored && typeof stored.emptyFallback === 'string' ? stored.emptyFallback : null;
+}
+
+export function emojiMuteAttributeFallbackWhenBlank(element, name) {
+  const stored = storedAttribute(element, name);
+
+  return !!(stored && stored.fallbackWhenBlank);
 }
 
 export function hasEmojiMuteAttributeSource(element, name) {

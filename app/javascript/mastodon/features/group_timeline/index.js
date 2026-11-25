@@ -64,8 +64,19 @@ class GroupColumnLandmark extends React.Component {
     plain: PropTypes.string.isRequired,
     html: PropTypes.string,
     project: PropTypes.bool,
+    emptyLabel: PropTypes.string,
     emojiMuteTextIndex: PropTypes.object,
   };
+
+  regionLabel(projected) {
+    if (!this.props.project || typeof projected !== 'string' || projected.trim() !== '') {
+      return projected;
+    }
+
+    const fallback = this.props.emptyLabel;
+
+    return typeof fallback === 'string' && fallback.trim() !== '' ? fallback : projected;
+  }
 
   componentDidMount() {
     this.apply();
@@ -85,10 +96,18 @@ class GroupColumnLandmark extends React.Component {
       return null;
     }
 
-    return {
+    const source = {
       plain: this.props.plain,
       html: typeof this.props.html === 'string' ? this.props.html : '',
     };
+    const fallback = this.props.emptyLabel;
+
+    if (typeof fallback === 'string' && fallback.trim() !== '') {
+      source.emptyLabel = fallback;
+      source.fallbackWhenBlank = true;
+    }
+
+    return source;
   }
 
   write(label) {
@@ -103,7 +122,8 @@ class GroupColumnLandmark extends React.Component {
     const { plain, html, project, emojiMuteTextIndex } = this.props;
     // The visible heading already has this string. The column instance ref is
     // attached after this child's mount, so keep the label until bindColumn.
-    const label = project ? emojiMutedPlainText(plain, html || '', emojiMuteTextIndex) : plain;
+    const projected = project ? emojiMutedPlainText(plain, html || '', emojiMuteTextIndex) : plain;
+    const label = this.regionLabel(projected);
 
     this.props.holdLabel(label, this.source());
     this.write(label);
@@ -573,7 +593,7 @@ class GroupTimeline extends React.PureComponent {
 
     return (
       <Column bindToDocument={!multiColumn} ref={this.bindColumn} label={plainTitle} columnWidth={columnWidth} dropComposerId={portableComposer ? composerId : null}>
-        <SubscribedGroupColumnLandmark column={this.groupColumn} holdLabel={this.holdLandmark} plain={plainTitle} html={displayNameHtml} project={named} />
+        <SubscribedGroupColumnLandmark column={this.groupColumn} holdLabel={this.holdLandmark} plain={plainTitle} html={displayNameHtml} project={named} emptyLabel={intl.formatMessage(messages.title)} />
         <ColumnHeader
           columnId={columnId}
           layoutScope='group'

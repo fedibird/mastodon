@@ -462,4 +462,169 @@ describe('group column emoji mute landmark', () => {
     expect(region(container).getAttribute('aria-label')).toBe('Name 😺');
     expect(headingText()).toBe('Name 😺');
   });
+
+  const mountGuardedGroup = (store) => {
+    const guard = createUnverifiedEmojiGuard();
+    const during = { region: '', heading: '' };
+
+    store.subscribe(() => guard(store.getState()));
+    store.subscribe(() => {
+      during.region = document.querySelector('.emoji-mutes-privacy-portal [role="region"]')?.getAttribute('aria-label') || '';
+      during.heading = document.querySelector('#tabs-bar__portal h1 button')?.textContent || '';
+    });
+
+    const privacy = document.createElement('div');
+    const mount = document.createElement('div');
+
+    privacy.className = 'emoji-mutes-privacy-portal';
+    privacy.appendChild(mount);
+    privacy.appendChild(document.getElementById('tabs-bar__portal'));
+    document.body.appendChild(privacy);
+
+    const view = render(
+      <Provider store={store}>
+        <GroupTimeline params={{ id: '7' }} multiColumn={false} location={{ key: 'loc-blank', pathname: '/timelines/groups/7' }} />
+      </Provider>,
+      { container: mount },
+    );
+
+    return { during, container: view.container };
+  };
+
+  const COLUMN_TITLE = 'Group timeline';
+
+  it('uses the column title when a unicode name projects to nothing', () => {
+    const plain = THUMB;
+    const html = unicodeImg(THUMB);
+    const store = buildStore(account('7', { display_name: plain, display_name_html: html }));
+    const blank = [rule({ kind: 'unicode', native: THUMB }, '')];
+
+    apply(store, blank, '2');
+
+    const { during, container } = mountGuardedGroup(store);
+
+    expect(region(container).getAttribute('aria-label')).toBe(COLUMN_TITLE);
+    expect(headingText()).toBe('');
+    expect(region(container).getAttribute('aria-label')).not.toContain(THUMB);
+
+    act(() => {
+      store.dispatch({ type: EMOJI_MUTES_REVISION, revision: '3' });
+      expect(during.region).not.toContain(THUMB);
+      expect(during.heading).not.toContain(THUMB);
+      store.dispatch({ type: EMOJI_MUTES_APPLY, revision: '3', mutes: blank, availability: 'enabled' });
+      expect(during.region).toBe(COLUMN_TITLE);
+      expect(during.heading).toBe('');
+    });
+
+    expect(region(container).getAttribute('aria-label')).toBe(COLUMN_TITLE);
+    expect(headingText()).toBe('');
+    expect(store.getState().getIn(['accounts', '7', 'display_name'])).toBe(plain);
+
+    act(() => {
+      store.dispatch({ type: EMOJI_MUTES_IGNORE });
+    });
+
+    expect(region(container).getAttribute('aria-label')).toBe(plain);
+    expect(headingText()).toBe(plain);
+
+    apply(store, [rule({ kind: 'unicode', native: THUMB }, '[named]')], '4');
+
+    expect(region(container).getAttribute('aria-label')).toBe('[named]');
+    expect(headingText()).toBe('[named]');
+
+    apply(store, blank, '5');
+
+    act(() => {
+      store.dispatch({ type: EMOJI_MUTES_DISABLE });
+    });
+
+    expect(region(container).getAttribute('aria-label')).toBe(plain);
+    expect(headingText()).toBe(plain);
+  });
+
+  it('uses the column title when a custom name projects to nothing', () => {
+    const plain = ':blob:';
+    const html = localImg('10');
+    const store = buildStore(account('7', { display_name: plain, display_name_html: html }));
+    const blank = [rule({ kind: 'custom', scope: 'local', custom_emoji_id: '10', shortcode: 'blob' }, '')];
+
+    apply(store, blank, '2');
+
+    const { during, container } = mountGuardedGroup(store);
+
+    expect(region(container).getAttribute('aria-label')).toBe(COLUMN_TITLE);
+    expect(headingText()).toBe('');
+    expect(region(container).getAttribute('aria-label')).not.toContain(':blob:');
+
+    act(() => {
+      store.dispatch({ type: EMOJI_MUTES_REVISION, revision: '3' });
+      expect(during.region).not.toContain(':blob:');
+      expect(during.heading).not.toContain(':blob:');
+      store.dispatch({ type: EMOJI_MUTES_APPLY, revision: '3', mutes: blank, availability: 'enabled' });
+      expect(during.region).toBe(COLUMN_TITLE);
+      expect(during.heading).toBe('');
+    });
+
+    expect(region(container).getAttribute('aria-label')).toBe(COLUMN_TITLE);
+    expect(headingText()).toBe('');
+
+    act(() => {
+      store.dispatch({ type: EMOJI_MUTES_DISABLE });
+    });
+
+    expect(region(container).getAttribute('aria-label')).toBe(plain);
+    expect(headingText()).toBe(plain);
+
+    apply(store, [rule({ kind: 'custom', scope: 'local', custom_emoji_id: '10', shortcode: 'blob' }, '[local]')], '4');
+
+    expect(region(container).getAttribute('aria-label')).toBe('[local]');
+    expect(headingText()).toBe('[local]');
+  });
+
+  it('uses the column title for an HTML-less name and for a whitespace replacement', () => {
+    const plain = THUMB;
+    const store = buildStore(account('7', { display_name: plain, display_name_html: '' }));
+    const blank = [rule({ kind: 'unicode', native: THUMB }, '')];
+    const spaces = [rule({ kind: 'unicode', native: THUMB }, '   ')];
+
+    apply(store, blank, '2');
+
+    const { during, container } = mountGuardedGroup(store);
+
+    expect(region(container).getAttribute('aria-label')).toBe(COLUMN_TITLE);
+    expect(headingText()).toBe('');
+
+    act(() => {
+      store.dispatch({ type: EMOJI_MUTES_REVISION, revision: '3' });
+      expect(during.region).not.toContain(THUMB);
+      expect(during.heading).not.toContain(THUMB);
+      store.dispatch({ type: EMOJI_MUTES_APPLY, revision: '3', mutes: blank, availability: 'enabled' });
+      expect(during.region).toBe(COLUMN_TITLE);
+      expect(during.heading).toBe('');
+    });
+
+    apply(store, spaces, '4');
+
+    expect(region(container).getAttribute('aria-label')).toBe(COLUMN_TITLE);
+    expect(headingText()).toBe('   ');
+
+    act(() => {
+      store.dispatch({ type: EMOJI_MUTES_REVISION, revision: '5' });
+      expect(during.region).not.toContain(THUMB);
+      expect(during.heading).not.toContain(THUMB);
+      store.dispatch({ type: EMOJI_MUTES_APPLY, revision: '5', mutes: spaces, availability: 'enabled' });
+      expect(during.region).toBe(COLUMN_TITLE);
+      expect(during.heading).toBe('   ');
+    });
+
+    expect(region(container).getAttribute('aria-label')).toBe(COLUMN_TITLE);
+    expect(headingText()).toBe('   ');
+
+    act(() => {
+      store.dispatch({ type: EMOJI_MUTES_IGNORE });
+    });
+
+    expect(region(container).getAttribute('aria-label')).toBe(plain);
+    expect(headingText()).toBe(plain);
+  });
 });
