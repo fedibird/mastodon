@@ -46,6 +46,8 @@ class ActivityPub::Activity::Announce < ActivityPub::Activity
       return
     end
 
+    return if defer_to_open_hold?(parsed_published)
+
     accept_new_announce!
   end
 
@@ -70,6 +72,8 @@ class ActivityPub::Activity::Announce < ActivityPub::Activity
       hold_newer_announce!(incoming)
       return
     end
+
+    return if defer_to_open_hold?(incoming)
 
     replace_announce!
   rescue Mastodon::RaceConditionError
@@ -108,6 +112,24 @@ class ActivityPub::Activity::Announce < ActivityPub::Activity
     else
       RemoveStatusService.new.call(discarded, skip_remote: true, immediate: true)
     end
+  end
+
+  # The cooldown can be over while the newest Announce is still waiting.
+  # An older id must not take its place, and a newer id ends that hold.
+  def defer_to_open_hold?(incoming)
+    return false if @options[:applying_hold]
+
+    hold = RemoteReboostHold.find_by(account_id: @account.id, reblog_of_id: @original_status.id)
+    return false if hold.nil? || hold.activity_uri == @json['id']
+
+    if incoming && (hold.published_at.nil? || incoming > hold.published_at)
+      ReboostAnnounceState.supersede!(@account.id, hold.activity_uri, reblog_of_id: @original_status.id)
+      hold.destroy!
+      return false
+    end
+
+    ReboostAnnounceState.supersede!(@account.id, @json['id'], reblog_of_id: @original_status.id)
+    true
   end
 
   def hold_newer_announce!(published)

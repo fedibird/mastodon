@@ -206,6 +206,45 @@ RSpec.describe ActivityPub::Activity::Announce do
     end
   end
 
+  it 'keeps the held Announce when an older unseen id arrives after the cooldown' do
+    announce('https://example.com/announce/a', 10.minutes.ago.iso8601)
+
+    hold = nil
+    travel 60.seconds do
+      announce('https://example.com/announce/c', Time.current.iso8601)
+      hold = RemoteReboostHold.find_by!(account: sender, reblog_of: status)
+      expect(hold.activity_uri).to eq 'https://example.com/announce/c'
+    end
+
+    travel 301.seconds do
+      announce('https://example.com/announce/d', 271.seconds.ago.iso8601)
+      expect(sender.statuses.where(reblog_of_id: status.id).pick(:uri)).to eq 'https://example.com/announce/a'
+      expect(hold.reload.activity_uri).to eq 'https://example.com/announce/c'
+      expect(ReboostAnnounceState.superseded?(sender.id, 'https://example.com/announce/d')).to be true
+
+      Reboost::RemoteApplyWorker.new.perform(hold.id)
+      expect(sender.statuses.where(reblog_of_id: status.id).pick(:uri)).to eq 'https://example.com/announce/c'
+      expect(sender.statuses.where(reblog_of_id: status.id).count).to eq 1
+    end
+  end
+
+  it 'ends the held Announce when a newer id arrives after the cooldown' do
+    announce('https://example.com/announce/a', 10.minutes.ago.iso8601)
+
+    travel 60.seconds do
+      announce('https://example.com/announce/c', Time.current.iso8601)
+      expect(RemoteReboostHold.find_by!(account: sender, reblog_of: status).activity_uri).to eq 'https://example.com/announce/c'
+    end
+
+    travel 301.seconds do
+      replacement = announce('https://example.com/announce/e', Time.current.iso8601)
+      expect(replacement.uri).to eq 'https://example.com/announce/e'
+      expect(sender.statuses.where(reblog_of_id: status.id).count).to eq 1
+      expect(RemoteReboostHold.find_by(account: sender, reblog_of: status)).to be_nil
+      expect(ReboostAnnounceState.superseded?(sender.id, 'https://example.com/announce/c')).to be true
+    end
+  end
+
   it 'does not revive an Announce that a newer hold already replaced' do
     announce('https://example.com/announce/a', 10.minutes.ago.iso8601)
 
