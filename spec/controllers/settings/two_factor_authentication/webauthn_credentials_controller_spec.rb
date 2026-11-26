@@ -143,6 +143,16 @@ describe Settings::TwoFactorAuthentication::WebauthnCredentialsController do
             excluded_credentials_ids = JSON.parse(response.body)['excludeCredentials'].map { |credential| credential['id'] }
             expect(excluded_credentials_ids).to match_array(user.webauthn_credentials.pluck(:external_id))
           end
+
+          it 'keeps the existing timeout, RP name, and user id' do
+            get :options
+
+            body = JSON.parse(response.body)
+            expect(body['timeout']).to eq(120_000)
+            expect(body['rp']).to eq('name' => 'Mastodon')
+            expect(body.dig('user', 'id')).to eq(user.webauthn_id)
+            expect(body['pubKeyCredParams'].map { |param| param['alg'] }).to include(-7)
+          end
         end
 
         context 'when user does not have webauthn enabled' do
@@ -266,11 +276,62 @@ describe Settings::TwoFactorAuthentication::WebauthnCredentialsController do
             it 'fails' do
               @controller.session[:webauthn_challenge] = challenge
 
-              post :create, params: { credential: new_webauthn_credential, nickname: nickname }
+              expect do
+                post :create, params: { credential: new_webauthn_credential, nickname: nickname }
+              end.to_not change { user.webauthn_credentials.count }
 
               expect(response).to have_http_status(422)
               expect(flash[:error]).to be_present
+
+              existing = WebauthnCredential.find_by!(external_id: WebAuthn::Credential.from_create(new_webauthn_credential).id)
+              expect(existing.user_id).to_not eq(user.id)
+              expect(existing.reload.sign_count).to eq(0)
             end
+          end
+        end
+
+        context 'when verification fails' do
+          it 'does not store a credential when the challenge does not match' do
+            @controller.session[:webauthn_challenge] = WebAuthn::Credential.options_for_get.challenge
+
+            expect do
+              post :create, params: { credential: new_webauthn_credential, nickname: nickname }
+            end.to raise_error(WebAuthn::ChallengeVerificationError)
+
+            expect(user.webauthn_credentials).to be_empty
+            expect(user.reload.webauthn_id).to be_nil
+          end
+
+          it 'does not store a credential from a different origin' do
+            @controller.session[:webauthn_challenge] = challenge
+            other_credential = WebAuthn::FakeClient.new('https://evil.example').create(challenge: challenge)
+
+            expect do
+              post :create, params: { credential: other_credential, nickname: nickname }
+            end.to raise_error(WebAuthn::OriginVerificationError)
+
+            expect(user.webauthn_credentials).to be_empty
+          end
+
+          it 'does not store a credential for a different RP ID' do
+            @controller.session[:webauthn_challenge] = challenge
+            other_credential = fake_client.create(challenge: challenge, rp_id: 'evil.example')
+
+            expect do
+              post :create, params: { credential: other_credential, nickname: nickname }
+            end.to raise_error(WebAuthn::RpIdVerificationError)
+
+            expect(user.webauthn_credentials).to be_empty
+          end
+
+          it 'does not store a credential when the challenge is missing' do
+            @controller.session[:webauthn_challenge] = nil
+
+            expect do
+              post :create, params: { credential: new_webauthn_credential, nickname: nickname }
+            end.to raise_error(WebAuthn::PublicKeyCredential::InvalidChallengeError)
+
+            expect(user.webauthn_credentials).to be_empty
           end
         end
 
@@ -282,6 +343,30 @@ describe Settings::TwoFactorAuthentication::WebauthnCredentialsController do
               expect do
                 post :create, params: { credential: new_webauthn_credential, nickname: nickname }
               end.to change { user.webauthn_credentials.count }.by(1)
+            end
+          end
+        end
+
+        context 'with a registration produced by webauthn 2.5.2' do
+          include WebauthnLegacyFixture
+
+          it 'stores the same credential id, public key, and sign count' do
+            with_legacy_webauthn_origin do |fixture|
+              stored = fixture.fetch('stored_credential')
+              registration = fixture.fetch('registration')
+              user.update!(webauthn_id: fixture.fetch('user_handle'))
+              @controller.session[:webauthn_challenge] = registration.fetch('challenge')
+
+              expect do
+                post :create, params: { credential: registration.fetch('credential'), nickname: nickname }
+              end.to change { user.webauthn_credentials.count }.by(1)
+
+              expect(response).to have_http_status(200)
+              created = user.webauthn_credentials.order(:id).last
+              expect(created.external_id).to eq(stored.fetch('external_id'))
+              expect(created.public_key).to eq(stored.fetch('public_key'))
+              expect(created.sign_count).to eq(stored.fetch('sign_count'))
+              expect(user.reload.webauthn_id).to eq(fixture.fetch('user_handle'))
             end
           end
         end

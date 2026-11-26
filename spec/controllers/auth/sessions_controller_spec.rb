@@ -320,7 +320,8 @@ RSpec.describe Auth::SessionsController, type: :controller do
 
         let(:domain) { "#{Rails.configuration.x.use_https ? 'https' : 'http' }://#{Rails.configuration.x.web_domain}" }
 
-        let(:fake_client) { WebAuthn::FakeClient.new(domain) }
+        let(:authenticator) { WebAuthn::FakeAuthenticator.new }
+        let(:fake_client) { WebAuthn::FakeClient.new(domain, authenticator: authenticator) }
 
         let(:challenge) { WebAuthn::Credential.options_for_get.challenge }
 
@@ -367,6 +368,172 @@ RSpec.describe Auth::SessionsController, type: :controller do
 
           it 'updates the sign count' do
             expect(webauthn_credential.reload.sign_count).to eq(sign_count)
+          end
+        end
+
+        context 'when the webauthn ceremony does not verify' do
+          def post_webauthn(credential, challenge_value = challenge)
+            @controller.session[:webauthn_challenge] = challenge_value
+
+            post :create, params: { user: { credential: credential } }, session: { attempt_user_id: user.id, attempt_user_updated_at: user.updated_at.to_s }
+          end
+
+          it 'rejects a mismatched challenge without signing in or changing the credential' do
+            other_challenge = WebAuthn::Credential.options_for_get.challenge
+            bad_credential = fake_client.get(challenge: other_challenge, sign_count: sign_count)
+
+            post_webauthn(bad_credential)
+
+            expect(response).to have_http_status(422)
+            expect(controller.current_user).to be_nil
+            expect(webauthn_credential.reload.sign_count).to eq(1000)
+          end
+
+          it 'rejects a different origin' do
+            webauthn_credential
+            other_client = WebAuthn::FakeClient.new('https://evil.example', authenticator: authenticator)
+            bad_credential = other_client.get(challenge: challenge, rp_id: URI.parse(domain).host, sign_count: sign_count)
+
+            post_webauthn(bad_credential)
+
+            expect(response).to have_http_status(422)
+            expect(controller.current_user).to be_nil
+            expect(webauthn_credential.reload.sign_count).to eq(1000)
+          end
+
+          it 'rejects a different RP ID' do
+            webauthn_credential
+            credentials = authenticator.instance_variable_get(:@credentials)
+            credentials['evil.example'] = credentials.fetch(URI.parse(domain).host)
+            bad_credential = fake_client.get(challenge: challenge, rp_id: 'evil.example', sign_count: sign_count)
+
+            post_webauthn(bad_credential)
+
+            expect(response).to have_http_status(422)
+            expect(controller.current_user).to be_nil
+            expect(webauthn_credential.reload.sign_count).to eq(1000)
+          end
+
+          it 'rejects a signature from a different key' do
+            other_client = WebAuthn::FakeClient.new(domain)
+            WebAuthn::Credential.from_create(other_client.create)
+            forged = other_client.get(challenge: challenge, sign_count: sign_count)
+            forged['id'] = webauthn_credential.external_id
+            forged['rawId'] = webauthn_credential.external_id
+
+            post_webauthn(forged)
+
+            expect(response).to have_http_status(422)
+            expect(controller.current_user).to be_nil
+            expect(webauthn_credential.reload.sign_count).to eq(1000)
+          end
+
+          it 'rejects a sign count that does not increase' do
+            stale = fake_client.get(challenge: challenge, sign_count: 1000)
+
+            post_webauthn(stale)
+
+            expect(response).to have_http_status(422)
+            expect(controller.current_user).to be_nil
+            expect(webauthn_credential.reload.sign_count).to eq(1000)
+          end
+
+          it 'rejects inconsistent backup flags' do
+            bad_credential = fake_client.get(
+              challenge: challenge,
+              sign_count: sign_count,
+              backup_eligibility: false,
+              backup_state: true
+            )
+
+            post_webauthn(bad_credential)
+
+            expect(response).to have_http_status(422)
+            expect(controller.current_user).to be_nil
+            expect(webauthn_credential.reload.sign_count).to eq(1000)
+          end
+
+          it 'rejects a missing challenge' do
+            post_webauthn(fake_credential, nil)
+
+            expect(response).to have_http_status(422)
+            expect(controller.current_user).to be_nil
+            expect(webauthn_credential.reload.sign_count).to eq(1000)
+          end
+
+          # find_by! is outside the WebAuthn rescue. ApplicationController turns
+          # the missing credential into the existing 404, without signing in or
+          # updating either sign count.
+          it 'does not accept another user credential' do
+            other_user = Fabricate(:user, otp_required_for_login: true, otp_secret: User.generate_otp_secret(32))
+            other_user.update!(webauthn_id: WebAuthn.generate_user_id)
+            other_client = WebAuthn::FakeClient.new(domain)
+            other_public = WebAuthn::Credential.from_create(other_client.create)
+            other_user.webauthn_credentials.create!(
+              nickname: 'Other Key',
+              external_id: other_public.id,
+              public_key: other_public.public_key,
+              sign_count: 0
+            )
+            other_assertion = other_client.get(challenge: challenge, sign_count: 1)
+
+            post_webauthn(other_assertion)
+
+            expect(response).to have_http_status(404)
+            expect(controller.current_user).to be_nil
+            expect(webauthn_credential.reload.sign_count).to eq(1000)
+            expect(other_user.webauthn_credentials.take.reload.sign_count).to eq(0)
+          end
+        end
+      end
+
+      context 'with a credential registered by webauthn 2.5.2' do
+        include WebauthnLegacyFixture
+
+        let!(:user) do
+          Fabricate(:user, email: 'legacy-webauthn@example.com', password: 'abcdefgh', otp_required_for_login: true, otp_secret: User.generate_otp_secret(32))
+        end
+
+        def store_legacy_credential!(fixture)
+          stored = fixture.fetch('stored_credential')
+          user.update!(webauthn_id: fixture.fetch('user_handle'))
+          user.webauthn_credentials.create!(
+            nickname: 'Legacy Key',
+            external_id: stored.fetch('external_id'),
+            public_key: stored.fetch('public_key'),
+            sign_count: stored.fetch('sign_count')
+          )
+        end
+
+        def post_legacy_assertion!(fixture, assertion)
+          record = store_legacy_credential!(fixture)
+          @controller.session[:webauthn_challenge] = assertion.fetch('challenge')
+
+          post :create, params: { user: { credential: assertion.fetch('credential') } }, session: { attempt_user_id: user.id, attempt_user_updated_at: user.updated_at.to_s }
+
+          record
+        end
+
+        it 'signs in and updates the sign count' do
+          with_legacy_webauthn_origin do |fixture|
+            assertion = fixture.fetch('assertion')
+            record = post_legacy_assertion!(fixture, assertion)
+
+            expect(response).to have_http_status(200)
+            expect(body_as_json[:redirect_path]).to eq(root_path)
+            expect(controller.current_user).to eq(user)
+            expect(record.reload.sign_count).to eq(assertion.fetch('sign_count'))
+          end
+        end
+
+        it 'signs in when clientData still contains tokenBinding' do
+          with_legacy_webauthn_origin do |fixture|
+            assertion = fixture.fetch('token_binding_assertion')
+            record = post_legacy_assertion!(fixture, assertion)
+
+            expect(response).to have_http_status(200)
+            expect(controller.current_user).to eq(user)
+            expect(record.reload.sign_count).to eq(assertion.fetch('sign_count'))
           end
         end
       end
@@ -428,6 +595,46 @@ RSpec.describe Auth::SessionsController, type: :controller do
           expect(controller.current_user).to be_nil
         end
       end
+    end
+  end
+
+  describe 'GET #webauthn_options' do
+    let(:user) { Fabricate(:user, email: 'x@y.com', password: 'abcdefgh') }
+    let(:domain) { "#{Rails.configuration.x.use_https ? 'https' : 'http' }://#{Rails.configuration.x.web_domain}" }
+
+    it 'returns 401 when the attempt user has no security key' do
+      get :webauthn_options, session: { attempt_user_id: user.id }
+
+      expect(response).to have_http_status(401)
+      expect(body_as_json[:error]).to eq(I18n.t('webauthn_credentials.not_enabled'))
+    end
+
+    it 'returns 401 when the attempt user does not exist' do
+      get :webauthn_options, session: { attempt_user_id: 0 }
+
+      expect(response).to have_http_status(401)
+    end
+
+    it 'returns a challenge for a registered security key without changing it' do
+      fake_client = WebAuthn::FakeClient.new(domain)
+      user.update!(otp_required_for_login: true, webauthn_id: WebAuthn.generate_user_id)
+      public_key_credential = WebAuthn::Credential.from_create(fake_client.create)
+      credential = user.webauthn_credentials.create!(
+        nickname: 'SecurityKeyNickname',
+        external_id: public_key_credential.id,
+        public_key: public_key_credential.public_key,
+        sign_count: 4
+      )
+
+      get :webauthn_options, session: { attempt_user_id: user.id }
+
+      body = JSON.parse(response.body)
+      expect(response).to have_http_status(200)
+      expect(body['timeout']).to eq(120_000)
+      expect(body['challenge']).to eq(@controller.session[:webauthn_challenge])
+      expect(body['allowCredentials'].map { |item| item['id'] }).to eq([credential.external_id])
+      expect(credential.reload.sign_count).to eq(4)
+      expect(user.reload.webauthn_id).to be_present
     end
   end
 end
