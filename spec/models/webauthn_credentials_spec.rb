@@ -76,5 +76,12 @@ RSpec.describe WebauthnCredential, type: :model do
 
       expect(webauthn_credential).to model_have_error_on_field(:sign_count)
     end
+
+    it 'fabricates a COSE public key webauthn can deserialize' do
+      webauthn_credential = Fabricate.build(:webauthn_credential)
+      raw_public_key = WebAuthn.configuration.encoder.decode(webauthn_credential.public_key)
+
+      expect(WebAuthn::PublicKey.deserialize(raw_public_key).alg).to eq(-7)
+    end
   end
 end
