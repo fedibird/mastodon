@@ -54,11 +54,12 @@ module Settings
             status = :unprocessable_entity
           end
         else
-          flash[:error] = t('webauthn_credentials.create.error')
-          status = :unauthorized
+          return render_webauthn_creation_error
         end
 
         render json: { redirect_path: settings_two_factor_authentication_methods_path }, status: status
+      rescue WebAuthn::Error
+        render_webauthn_creation_error
       end
 
       def destroy
@@ -83,6 +84,11 @@ module Settings
       end
 
       private
+
+      def render_webauthn_creation_error
+        flash[:error] = t('webauthn_credentials.create.error')
+        render json: { error: t('webauthn_credentials.create.error') }, status: :unprocessable_entity
+      end
 
       def require_otp_enabled
         unless current_user.otp_enabled?

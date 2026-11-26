@@ -291,47 +291,60 @@ describe Settings::TwoFactorAuthentication::WebauthnCredentialsController do
         end
 
         context 'when verification fails' do
+          def post_rejected_registration(credential, challenge_value = challenge)
+            @controller.session[:webauthn_challenge] = challenge_value
+            webauthn_id = user.reload.webauthn_id
+            credential_ids = user.webauthn_credentials.pluck(:id, :sign_count)
+
+            post :create, params: { credential: credential, nickname: nickname }
+
+            expect(response).to have_http_status(422)
+            expect(body_as_json[:error]).to eq(I18n.t('webauthn_credentials.create.error'))
+            expect(user.reload.webauthn_id).to eq(webauthn_id)
+            expect(user.webauthn_credentials.pluck(:id, :sign_count)).to eq(credential_ids)
+          end
+
           it 'does not store a credential when the challenge does not match' do
-            @controller.session[:webauthn_challenge] = WebAuthn::Credential.options_for_get.challenge
-
-            expect do
-              post :create, params: { credential: new_webauthn_credential, nickname: nickname }
-            end.to raise_error(WebAuthn::ChallengeVerificationError)
-
-            expect(user.webauthn_credentials).to be_empty
-            expect(user.reload.webauthn_id).to be_nil
+            post_rejected_registration(new_webauthn_credential, WebAuthn::Credential.options_for_get.challenge)
           end
 
           it 'does not store a credential from a different origin' do
-            @controller.session[:webauthn_challenge] = challenge
             other_credential = WebAuthn::FakeClient.new('https://evil.example').create(challenge: challenge)
 
-            expect do
-              post :create, params: { credential: other_credential, nickname: nickname }
-            end.to raise_error(WebAuthn::OriginVerificationError)
-
-            expect(user.webauthn_credentials).to be_empty
+            post_rejected_registration(other_credential)
           end
 
           it 'does not store a credential for a different RP ID' do
-            @controller.session[:webauthn_challenge] = challenge
             other_credential = fake_client.create(challenge: challenge, rp_id: 'evil.example')
 
-            expect do
-              post :create, params: { credential: other_credential, nickname: nickname }
-            end.to raise_error(WebAuthn::RpIdVerificationError)
-
-            expect(user.webauthn_credentials).to be_empty
+            post_rejected_registration(other_credential)
           end
 
           it 'does not store a credential when the challenge is missing' do
-            @controller.session[:webauthn_challenge] = nil
+            post_rejected_registration(new_webauthn_credential, nil)
+          end
 
-            expect do
-              post :create, params: { credential: new_webauthn_credential, nickname: nickname }
-            end.to raise_error(WebAuthn::PublicKeyCredential::InvalidChallengeError)
+          it 'does not store a credential with inconsistent backup flags' do
+            other_credential = fake_client.create(challenge: challenge, backup_eligibility: false, backup_state: true)
 
-            expect(user.webauthn_credentials).to be_empty
+            post_rejected_registration(other_credential)
+          end
+
+          it 'does not store a credential whose id is longer than 1023 bytes' do
+            authenticator = WebAuthn::FakeAuthenticator.new
+            authenticator.define_singleton_method(:new_credential) do |_algorithm|
+              [SecureRandom.random_bytes(1024), OpenSSL::PKey::EC.generate('prime256v1'), 0]
+            end
+            long_id_client = WebAuthn::FakeClient.new(domain, authenticator: authenticator)
+
+            post_rejected_registration(long_id_client.create(challenge: challenge))
+          end
+
+          it 'keeps the webauthn id assigned by options when create fails' do
+            get :options
+
+            expect(user.reload.webauthn_id).to be_present
+            post_rejected_registration(new_webauthn_credential, WebAuthn::Credential.options_for_get.challenge)
           end
         end
 
