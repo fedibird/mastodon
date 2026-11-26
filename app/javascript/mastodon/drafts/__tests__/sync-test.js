@@ -935,8 +935,13 @@ describe('post draft server sync', () => {
 
     syncA.bindAccount('42');
     syncB.bindAccount('42');
-    await syncA.resume(() => Promise.resolve([snapshot('from-a')]));
-    await syncB.resume(() => Promise.resolve([snapshot('from-b')]));
+    const based = (text) => ({
+      ...snapshot(text),
+      sync_base: { recorded: true, revision: 5, draft_id: '15', hash: 'hash-base' },
+    });
+
+    await syncA.resume(() => Promise.resolve([based('from-a')]));
+    await syncB.resume(() => Promise.resolve([based('from-b')]));
     await syncB.settle();
     queued.splice(0).forEach(fn => fn());
     await syncA.settle();
@@ -1138,6 +1143,149 @@ describe('post draft server sync', () => {
     expect(calls.some(call => call.method === 'delete')).toBe(false);
     expect(sync.snapshot().drafts[UUID].deleteState).toBe('unknown');
     expect(sync.snapshot().drafts[UUID].status).not.toBe('deleted');
+  });
+
+  it('does not adopt an acknowledgement when the ledger rejects finish', async () => {
+    const inner = createMemorySyncLedger();
+    const ledger = {
+      read: (...args) => inner.read(...args),
+      list: (...args) => inner.list(...args),
+      commit: (accountId, clientUuid, proposed) => {
+        if (proposed.transition === 'finish' || proposed.transition === 'deleted') {
+          return Promise.resolve({
+            accepted: false,
+            rejected: true,
+            reason: 'stale_cursor',
+            record: { tombstone: proposed.transition === 'deleted' },
+          });
+        }
+
+        return inner.commit(accountId, clientUuid, proposed);
+      },
+    };
+    const { sync, calls, fire } = harness(spec => Promise.resolve(created(spec, 1)), { ledger });
+
+    sync.bindAccount('42');
+    await edit(sync, 'hello', 1);
+    await fire(2000);
+
+    expect(calls.map(call => call.method)).toEqual(['post']);
+    expect(sync.snapshot().drafts[UUID].status).not.toBe('synced');
+    expect(sync.snapshot().drafts[UUID].serverRevision).toBeNull();
+    expect((await inner.read('42', UUID)).intent_kind).toBe('create');
+    expect((await inner.read('42', UUID)).server_revision).toBeNull();
+  });
+
+  it('keeps a held draft when the in-flight save succeeds and does not delete it', async () => {
+    let release;
+    const { sync, calls, fire } = harness(spec => new Promise((resolve) => {
+      release = () => resolve(created(spec, 1));
+    }), { serverDebounceMs: 0 });
+
+    sync.bindAccount('42');
+    await edit(sync, 'hello', 1);
+    const pending = fire(0);
+
+    await waitFor(() => calls.some(call => call.method === 'post'));
+    sync.notePublish({ accountId: '42', clientUuid: UUID });
+    release();
+    await pending;
+    await sync.settle();
+
+    expect(calls.map(call => call.method)).toEqual(['post']);
+    expect(sync.snapshot().drafts[UUID].status).toBe('held');
+    expect(sync.snapshot().drafts[UUID].serverRevision).toBe(1);
+  });
+
+  it('rejects a claim that is held before it is sent', async () => {
+    const inner = createMemorySyncLedger();
+    let sync;
+    const calls = [];
+    const ledger = {
+      read: (...args) => inner.read(...args),
+      list: (...args) => inner.list(...args),
+      commit: async (accountId, clientUuid, proposed) => {
+        const result = await inner.commit(accountId, clientUuid, proposed);
+
+        if (proposed.transition === 'claim') {
+          sync.notePublish({ accountId: '42', clientUuid: UUID });
+        }
+
+        return result;
+      },
+    };
+
+    sync = createPostDraftSync({
+      ledger,
+      ownerId: 'tab-a',
+      serverDebounceMs: 0,
+      schedule: (fn) => {
+        fn();
+        return 1;
+      },
+      cancel: () => undefined,
+      online: () => true,
+      subscribeOnline: () => () => undefined,
+      request: (spec) => {
+        calls.push(spec.method);
+        return Promise.resolve(created(spec, 1));
+      },
+    });
+
+    sync.bindAccount('42');
+    await sync.resume(() => Promise.resolve([snapshot('hello')]));
+    await sync.settle();
+
+    expect(calls).toEqual([]);
+    expect(sync.snapshot().drafts[UUID].status).toBe('held');
+    expect((await inner.read('42', UUID)).intent_kind).toBeNull();
+  });
+
+  it('does not patch reloaded text at another tab acknowledgement', async () => {
+    const ledger = createMemorySyncLedger();
+
+    await ledger.write({
+      account_id: '42',
+      client_uuid: UUID,
+      server_draft_id: '15',
+      server_revision: 6,
+      acked_hash: 'hash-server',
+      cursor_version: 1,
+    });
+
+    const { sync, calls, fire } = harness(() => Promise.resolve(created({ body: { payload: snapshot('x') } }, 1)), { ledger, deferResume: true, serverDebounceMs: 0 });
+
+    sync.bindAccount('42');
+    await sync.resume(() => Promise.resolve([{
+      ...snapshot('mine'),
+      sync_base: { recorded: true, revision: 5, draft_id: '15', hash: 'hash-base' },
+    }]));
+    await fire(0);
+
+    expect(calls).toEqual([]);
+    expect(sync.snapshot().drafts[UUID].reason).toBe('unbased');
+    expect(sync.snapshot().drafts[UUID].serverRevision).toBeNull();
+  });
+
+  it('continues a reloaded draft whose text already matches the acknowledgement', async () => {
+    const ledger = createMemorySyncLedger();
+
+    await ledger.write({
+      account_id: '42',
+      client_uuid: UUID,
+      server_draft_id: '15',
+      server_revision: 2,
+      acked_hash: 'hash-hello',
+      cursor_version: 1,
+    });
+
+    const { sync, calls } = harness(() => Promise.resolve({ status: 500, body: {} }), { ledger, deferResume: true });
+
+    sync.bindAccount('42');
+    await sync.resume(() => Promise.resolve([snapshot('hello')]));
+
+    expect(calls).toEqual([]);
+    expect(sync.snapshot().drafts[UUID].status).toBe('synced');
   });
 });
 

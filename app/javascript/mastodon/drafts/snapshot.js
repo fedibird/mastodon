@@ -450,7 +450,7 @@ export function snapshotComposerDraft (composer, meta = {}) {
   const mediaIncomplete = composerDraftMediaIncomplete(composer);
   const input = composerDraftInput(composer);
 
-  return {
+  const snapshot = {
     schema_version: COMPOSER_DRAFT_SCHEMA_VERSION,
     account_id: String(meta.accountId),
     client_draft_uuid: String(meta.clientDraftUuid),
@@ -460,6 +460,17 @@ export function snapshotComposerDraft (composer, meta = {}) {
     content_hash: composerDraftContentHash(input, mediaIncomplete),
     input,
   };
+
+  if (meta.syncBase && meta.syncBase.recorded === true) {
+    snapshot.sync_base = {
+      recorded: true,
+      revision: meta.syncBase.revision || null,
+      draft_id: meta.syncBase.draft_id || null,
+      hash: meta.syncBase.hash || null,
+    };
+  }
+
+  return snapshot;
 }
 
 function isPlainObject (value) {
@@ -617,6 +628,15 @@ function normalizeSnapshot (snapshot) {
   };
 
   normalized.content_hash = composerDraftContentHash(normalized.input, normalized.media_incomplete);
+
+  if (snapshot.sync_base && snapshot.sync_base.recorded === true) {
+    normalized.sync_base = {
+      recorded: true,
+      revision: snapshot.sync_base.revision || null,
+      draft_id: snapshot.sync_base.draft_id || null,
+      hash: snapshot.sync_base.hash || null,
+    };
+  }
 
   return normalized;
 }

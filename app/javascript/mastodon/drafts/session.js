@@ -1090,9 +1090,13 @@ export function createComposerDraftSession ({
             claimed.set(surface.clientDraftUuid, composerId);
           }
 
+          const syncBase = serverSync && typeof serverSync.localBase === 'function'
+            ? serverSync.localBase(surface.clientDraftUuid)
+            : null;
           const storedSnapshot = {
             ...snapshot,
             client_draft_uuid: surface.clientDraftUuid,
+            sync_base: syncBase || snapshot.sync_base || null,
           };
 
           if (storedSnapshot.content_hash === surface.lastHash) {

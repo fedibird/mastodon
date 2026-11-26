@@ -1,4 +1,4 @@
-import { compareAndDelete, compareAndPut, createIndexedDbDraftBackend, createIndexedDbSyncLedger, createMemoryDraftBackend, ensureComposerDraftStores, openComposerDraftDatabase, syncCursorRecord } from '../storage';
+import { compareAndDelete, compareAndPut, createIndexedDbDraftBackend, createIndexedDbSyncLedger, createMemoryDraftBackend, ensureComposerDraftStores, openComposerDraftDatabase, syncCursorRecord, transitionSyncCursor } from '../storage';
 
 function fakeDatabase () {
   const rows = new Map();
@@ -366,5 +366,44 @@ describe('composer draft storage', () => {
         throw new Error('private mode');
       },
     })).rejects.toThrow('private mode');
+  });
+
+  it('keeps a discard on the revision it names and refuses a finish with no operation', () => {
+    const current = syncCursorRecord({
+      account_id: '42',
+      client_uuid: 'draft-1',
+      server_draft_id: '15',
+      server_revision: 4,
+      acked_hash: 'hash-a',
+      cursor_version: 2,
+    });
+    const stale = transitionSyncCursor(current, {
+      transition: 'discard',
+      cursor_version: 1,
+      delete_revision: 4,
+      delete_draft_id: '15',
+      tombstone: true,
+    });
+    const pinned = transitionSyncCursor(current, {
+      transition: 'discard',
+      cursor_version: 2,
+      delete_revision: 4,
+      delete_draft_id: '15',
+      tombstone: true,
+    });
+    const missing = transitionSyncCursor(null, {
+      transition: 'finish',
+      operation_id: 'op',
+      operation_owner: 'page',
+      server_revision: 1,
+    });
+
+    expect(stale.record.delete_state).not.toBe('pending');
+    expect(stale.record.server_revision).toBe(4);
+    expect(pinned.accepted).toBe(true);
+    expect(pinned.record.delete_state).toBe('pending');
+    expect(pinned.record.delete_revision).toBe(4);
+    expect(missing.accepted).toBe(false);
+    expect(missing.reason).toBe('missing_operation');
   });
 });

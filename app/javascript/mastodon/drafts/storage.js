@@ -180,10 +180,13 @@ export function createIndexedDbDraftBackend ({ openDatabase = openComposerDraftD
               client_uuid: String(clientDraftUuid),
               tombstone: true,
               transition: 'discard',
-              cursor_version: current.result ? current.result.cursor_version : 0,
             });
 
-            syncStore.put(merged.record);
+            decision.sync = merged;
+
+            if (merged.accepted !== false) {
+              syncStore.put(merged.record);
+            }
           };
           current.onerror = () => reject(current.error || new Error('indexedDB sync get failed'));
         };
@@ -391,11 +394,17 @@ export function transitionSyncCursor (existing, command) {
   const action = command && command.transition;
 
   if (!existing) {
+    if (action === 'finish' || action === 'reject' || action === 'deleted' || action === 'unknown' || action === 'conflict') {
+      return {
+        record: null, accepted: false, rejected: true, reason: 'missing_operation',
+      };
+    }
+
     return {
       record: { ...proposed, cursor_version: proposed.cursor_version || 1 },
       accepted: true,
       rejected: false,
-      reason: 'created',
+      reason: action === 'claim' || action === 'discard' ? action : 'created',
     };
   }
 
@@ -532,6 +541,12 @@ export function transitionSyncCursor (existing, command) {
 
   if (action === 'discard') {
     if (staleCursor) {
+      if (current.delete_state === 'pending' || current.delete_state === 'deleted') {
+        return {
+          record: current, accepted: true, rejected: false, reason: 'discarded',
+        };
+      }
+
       return {
         record: {
           ...current,

@@ -443,6 +443,11 @@ describe('composer draft middleware', () => {
     store.dispatch(changeCompose('one'));
     await session.flush();
     await serverSync.settle();
+    await new Promise((resolve) => {
+      setTimeout(resolve, 0);
+    });
+    await serverSync.settle();
+    expect(syncStatus()).toBe('synced');
     await serverSync.noteDiscard({ accountId: '42', clientUuid: 'draft-1' });
     await serverSync.settle();
 
