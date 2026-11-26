@@ -108,8 +108,9 @@ const userFacingNoticeName = (item) => {
   return label;
 };
 
-// The translated sentence stays one text node. The WeakMap records that
-// sentence with the raw name, so a replacement is not scanned again.
+// Current notice templates contain no emoji, so projecting the finished
+// sentence changes only the interpolated name. The WeakMap keeps that whole
+// sentence, including the fixed words, so release restores both.
 class MixUserNoticeInner extends React.PureComponent {
 
   static propTypes = {

@@ -322,4 +322,131 @@ describe('mix column emoji mute', () => {
     expect(headingText(container)).not.toContain(THUMB);
     expect(region(container).getAttribute('aria-label')).not.toContain('[old]');
   });
+
+  it('projects an account display name from its own HTML and leaves saved titles literal', () => {
+    const localImg = (id) => (
+      `<img draggable="false" class="emojione custom-emoji" alt=":blob:" title="blob" src="https://cdn.example/${id}.svg" data-shortcode="blob" data-domain="" data-emoji-id="${id}">`
+    );
+    const remoteImg = (domain) => (
+      `<img draggable="false" class="emojione custom-emoji" alt=":blob:" title="blob" src="https://cdn.example/${domain}/blob.svg" data-shortcode="blob" data-domain="${domain}">`
+    );
+    const unicodeImg = (native) => (
+      `<img draggable="false" class="emojione" alt="${native}" title="${native}" src="/emoji/${encodeURIComponent(native)}.svg">`
+    );
+    const account = (id, fields) => fromJS({
+      id,
+      acct: `${id}@example.com`,
+      username: id,
+      ...fields,
+    });
+    const sources = [
+      { type: 'account', id: '9', params: {} },
+      { type: 'account', id: '8', params: {} },
+      { type: 'account', id: '5', params: {} },
+      { type: 'account', id: '7', title: ':blob:', params: {} },
+      { type: 'account', id: '6', params: {} },
+    ];
+    const accountsFor = (ninth) => fromJS({
+      9: account('9', ninth),
+      8: account('8', { display_name: ':blob:', display_name_html: remoteImg('a.test') }),
+      5: account('5', { display_name: ':blob:', display_name_html: localImg('12') }),
+      7: account('7', { display_name: ':blob:', display_name_html: localImg('11') }),
+      6: account('6', { display_name: '', display_name_html: localImg('10'), acct: 'plain-user', username: 'plain-user' }),
+    });
+    const mixWithAccounts = fromJS({
+      id: 'mix-1',
+      title: 'Desk',
+      version: 1,
+      sources,
+    });
+    const store = buildStore();
+    const guard = createUnverifiedEmojiGuard();
+    const during = { labels: '' };
+
+    store.subscribe(() => guard(store.getState()));
+    store.subscribe(() => {
+      during.labels = Array.from(document.querySelectorAll('.mix-info__label')).map(node => node.textContent).join('|');
+    });
+
+    const rendered = renderMix(store, 'Desk', {
+      mix: mixWithAccounts,
+      accounts: accountsFor({ display_name: ':blob:', display_name_html: localImg('10') }),
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Mix information' }));
+
+    const labels = () => Array.from(document.querySelectorAll('.mix-info__label')).map(node => node.textContent);
+
+    expect(labels()).toEqual([':blob:', ':blob:', ':blob:', ':blob:', 'plain-user']);
+
+    apply(store, [
+      rule({ kind: 'custom', scope: 'local', custom_emoji_id: '10', shortcode: 'blob' }, '😺'),
+      rule({ kind: 'custom', scope: 'local', custom_emoji_id: '11', shortcode: 'blob' }, '[saved-html]'),
+      rule({ kind: 'custom', scope: 'local', custom_emoji_id: '12', shortcode: 'blob' }, '[other]'),
+      rule({ kind: 'custom', scope: 'remote', domain: 'a.test', shortcode: 'blob' }, '[remote]'),
+      rule({ kind: 'custom', scope: 'remote', domain: 'b.test', shortcode: 'blob' }, '[elsewhere]'),
+      rule({ kind: 'unicode', native: '😺' }, '[cat]'),
+      rule({ kind: 'unicode', native: '✨' }, '[star]'),
+    ]);
+
+    expect(labels()).toEqual(['😺', '[remote]', '[other]', ':blob:', 'plain-user']);
+    expect(document.querySelector('.mix-info__label img')).toBeNull();
+    expect(rendered.container.innerHTML).not.toContain('data-emoji-mute');
+
+    act(() => {
+      store.dispatch({ type: EMOJI_MUTES_REVISION, revision: '3' });
+      expect(during.labels.split('|')[0]).not.toContain(':blob:');
+      expect(during.labels).not.toContain('👍');
+      store.dispatch({
+        type: EMOJI_MUTES_APPLY,
+        revision: '3',
+        availability: 'enabled',
+        mutes: [
+          rule({ kind: 'custom', scope: 'local', custom_emoji_id: '10', shortcode: 'blob' }, '😺'),
+          rule({ kind: 'custom', scope: 'local', custom_emoji_id: '12', shortcode: 'blob' }, '[other]'),
+          rule({ kind: 'custom', scope: 'remote', domain: 'a.test', shortcode: 'blob' }, '[remote]'),
+          rule({ kind: 'unicode', native: '😺' }, '[cat]'),
+          rule({ kind: 'unicode', native: '✨' }, '[star]'),
+        ],
+      });
+      expect(during.labels.split('|')[0]).toBe('😺');
+      expect(during.labels).not.toContain('[cat]');
+      expect(during.labels).toContain(':blob:');
+      expect(during.labels).toContain('plain-user');
+    });
+
+    expect(labels()[0]).toBe('😺');
+
+    rendered.rerender(
+      <MemoryRouter>
+        <Provider store={store}>
+          <MixTimelinePage
+            dispatch={store.dispatch}
+            intl={intl}
+            mixId='mix-1'
+            mix={mixWithAccounts}
+            accounts={accountsFor({ display_name: '✨', display_name_html: unicodeImg('✨') })}
+            columnKey='column:mix'
+            multiColumn
+            columnId='col-mix'
+            location={{ key: 'mix-loc', pathname: '/timelines/mixes/mix-1' }}
+            view={view}
+          />
+        </Provider>
+      </MemoryRouter>,
+    );
+
+    expect(labels()[0]).toBe('[star]');
+    expect(labels().join('|')).not.toContain('😺');
+    expect(labels()[3]).toBe(':blob:');
+
+    act(() => {
+      store.dispatch({ type: EMOJI_MUTES_IGNORE });
+    });
+
+    expect(labels()[0]).toBe('✨');
+    expect(labels()[1]).toBe(':blob:');
+    expect(labels()[3]).toBe(':blob:');
+    expect(labels()[4]).toBe('plain-user');
+  });
 });

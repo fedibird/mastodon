@@ -3,7 +3,7 @@ jest.mock('react-intl', () => ({
 }));
 
 import { fromJS } from 'immutable';
-import { badgeRevisionToken, mixBadgeIdentity, paneBadgeToken, sourceBadges, sourceTimelinePath, storeBadge } from '../source_badges';
+import { badgeRevisionToken, describeMixSource, mixBadgeIdentity, paneBadgeToken, sourceBadges, sourceTimelinePath, storeBadge } from '../source_badges';
 import { sourceKey } from '../source';
 
 const formatMessage = (message, values) => {
@@ -64,6 +64,42 @@ describe('mix source badges', () => {
     expect(sourceTimelinePath({ type: 'home', params: {} })).toBeNull();
     expect(sourceTimelinePath({ type: 'limited', params: {} })).toBeNull();
     expect(sourceTimelinePath({ type: 'personal', params: {} })).toBeNull();
+  });
+
+  it('keeps badge labels as plain text and attaches HTML only to a chosen account display name', () => {
+    const account = { type: 'account', id: '9', params: {} };
+    const accounts = fromJS({
+      9: {
+        display_name: ':blob:',
+        display_name_html: '<img data-emoji-id="10" data-domain="" alt=":blob:">',
+        acct: 'ada@example.com',
+        username: 'ada',
+      },
+      6: {
+        display_name: '',
+        display_name_html: '<img data-emoji-id="10" data-domain="" alt=":blob:">',
+        acct: 'plain-user',
+        username: 'plain-user',
+      },
+    });
+    const badges = sourceBadges([account], [sourceKey(account)], { formatMessage, accounts });
+    const named = describeMixSource(account, { formatMessage, accounts });
+    const titled = describeMixSource({ ...account, title: ':blob:' }, { formatMessage, accounts });
+    const acct = describeMixSource({ type: 'account', id: '6', params: {} }, { formatMessage, accounts });
+
+    expect(badges[0].label).toBe(':blob:');
+    expect(badges[0].fullLabel).toBe(':blob:');
+    expect(badges[0].labelHtml).toBeUndefined();
+    expect(badges[0].labelOrigin).toBeUndefined();
+    expect(named.label).toBe(':blob:');
+    expect(named.labelOrigin).toBe('account-display-name');
+    expect(named.labelHtml).toContain('data-emoji-id="10"');
+    expect(titled.label).toBe(':blob:');
+    expect(titled.labelOrigin).toBe('source-title');
+    expect(titled.labelHtml).toBe('');
+    expect(acct.label).toBe('plain-user');
+    expect(acct.labelOrigin).toBe('account-plain');
+    expect(acct.labelHtml).toBe('');
   });
 
   it('changes the cache identity when labels, order, names, warnings, or locale change', () => {

@@ -35,7 +35,9 @@ export default class MixInfoPanel extends React.PureComponent {
       <li key={row.key || index} className='mix-info__source'>
         <Icon id={row.icon} className='mix-info__icon' fixedWidth aria-hidden='true' />
         <span className='mix-info__label'>
-          {row.showChip ? <EmojiMutedPlain tag='span' plain={row.label || ''} html='' /> : row.label}
+          {(row.labelOrigin === 'account-display-name' || row.showChip) ? (
+            <EmojiMutedPlain tag='span' plain={row.label || ''} html={row.labelOrigin === 'account-display-name' ? (row.labelHtml || '') : ''} />
+          ) : row.label}
         </span>
         {row.showChip && <span className='mix-info__chip'>{row.typeLabel}</span>}
       </li>
