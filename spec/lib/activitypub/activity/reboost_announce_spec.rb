@@ -344,6 +344,45 @@ RSpec.describe ActivityPub::Activity::Announce do
     end
   end
 
+  it 'resumes follower delivery when it fails after the held status is saved' do
+    Fabricate(:user, account: status.account)
+    allow(DistributionWorker).to receive(:perform_async)
+    announce('https://example.com/announce/a', 10.minutes.ago.iso8601)
+
+    hold = nil
+    travel 60.seconds do
+      described_class.new(announce_json('https://example.com/announce/c', Time.current.iso8601), sender, delivery: true, override_timestamps: true).perform
+      hold = RemoteReboostHold.find_by!(account: sender, reblog_of: status)
+      expect(sender.statuses.where(reblog_of_id: status.id).pick(:uri)).to eq 'https://example.com/announce/a'
+    end
+
+    calls = 0
+    allow(DistributionWorker).to receive(:perform_async) do |status_id|
+      calls += 1
+      raise Redis::BaseConnectionError if calls == 1
+
+      status_id
+    end
+
+    travel 301.seconds do
+      expect { Reboost::RemoteApplyWorker.new.perform(hold.id) }.to raise_error(Redis::BaseConnectionError)
+      boost = sender.statuses.find_by!(reblog_of_id: status.id)
+      expect(boost.uri).to eq 'https://example.com/announce/c'
+      expect(sender.statuses.where(reblog_of_id: status.id).count).to eq 1
+      expect(RemoteReboostHold.find_by(id: hold.id)).to be_present
+      expect(Notification.where(account: status.account, from_account: sender, activity: boost, type: :reblog).count).to eq 1
+
+      Reboost::RemoteApplyWorker.new.perform(hold.id)
+
+      expect(sender.statuses.where(reblog_of_id: status.id).pluck(:id)).to eq [boost.id]
+      expect(Notification.where(account: status.account, from_account: sender, activity: boost, type: :reblog).count).to eq 1
+      expect(calls).to eq 2
+      expect(RemoteReboostHold.find_by(id: hold.id)).to be_nil
+      expect(ReboostAnnounceState.current_for(sender.id, status.id)&.uri).to eq 'https://example.com/announce/c'
+      expect(ReboostCooldown.remaining_seconds(sender.id, status.id)).to be_positive
+    end
+  end
+
   it 'ends the held Announce when a newer id arrives after the cooldown' do
     announce('https://example.com/announce/a', 10.minutes.ago.iso8601)
 

@@ -53,13 +53,76 @@ class ActivityPub::Activity::Announce < ActivityPub::Activity
   end
 
   def accept_new_announce!
-    process_status
+    process_status unless @status&.uri == @json['id']
+    finish_accepted_announce!
+  end
+
+  # Status existing is not the same as acceptance finishing. Follower delivery,
+  # the current Announce, and the cooldown can be resumed from the hold.
+  def finish_accepted_announce!
+    hold = current_hold
+    @consumed_hold ||= hold if hold&.activity_uri == @json['id']
+    if hold
+      deliver_held_announce!(hold)
+    else
+      distribute(@status)
+    end
+    expire_queue_action
     remember_current_announce!
-    ReboostCooldown.stamp!(@account.id, @original_status.id)
+    stamp_remote_cooldown_once!
     consume_open_hold!
   end
 
+  def deliver_held_announce!(hold)
+    options = hold.delivery_options || {}
+    if options['prepared_at'].blank?
+      prepare_held_delivery!(@status)
+      remember_hold_mark!(hold, 'prepared_at')
+    end
+    hold.reload
+    return if hold.delivery_options['distribution_enqueued_at'].present?
+
+    distribute_to_followers(@status) if deliver_followers?(@status)
+    remember_hold_mark!(hold, 'distribution_enqueued_at')
+  end
+
+  def prepare_held_delivery!(status)
+    crawl_links(status)
+    return unless @options[:delivery]
+
+    notify_about_reblog(status) if reblog_of_local_account?(status) && !reblog_by_following_group_account?(status)
+    notify_about_mentions(status)
+  end
+
+  def deliver_followers?(status)
+    @options[:delivery] && (@options[:override_timestamps] || status.within_realtime_window?)
+  end
+
+  def remember_hold_mark!(hold, key)
+    hold.with_lock do
+      hold.update!(delivery_options: (hold.delivery_options || {}).merge(key => Time.current.iso8601))
+    end
+  end
+
+  def current_hold
+    return @consumed_hold if @consumed_hold&.activity_uri == @json['id']
+    return unless @options[:applying_hold]
+
+    RemoteReboostHold.find_by(account_id: @account.id, reblog_of_id: @original_status.id, activity_uri: @json['id'])
+  end
+
+  def stamp_remote_cooldown_once!
+    return if ReboostCooldown.remaining_seconds(@account.id, @original_status.id).positive?
+
+    ReboostCooldown.stamp!(@account.id, @original_status.id)
+  end
+
   def receive_another_announce!
+    if @options[:applying_hold] && @status&.uri == @json['id']
+      finish_accepted_announce!
+      return
+    end
+
     return postprocess_audience_and_deliver if @status.uri == @json['id'] && @options[:delivered_to_account_id].present?
     return if @status.uri == @json['id']
     return if deliver_known_hold!
@@ -247,8 +310,6 @@ class ActivityPub::Activity::Announce < ActivityPub::Activity
     end
 
     Trends.register!(@status)
-    distribute(@status)
-    expire_queue_action
   end
 
   def process_status_params
