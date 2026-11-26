@@ -219,7 +219,8 @@ describe('explore story emoji mute', () => {
           thumbnailDescription: 'Frame ✨',
           publisher: 'Paper',
           author: 'Ada',
-        })} />
+        })}
+        />
       </Provider>,
     );
 

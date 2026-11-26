@@ -8,7 +8,7 @@ import { applyMiddleware, createStore } from 'redux';
 import { combineReducers } from 'redux-immutable';
 import thunk from 'redux-thunk';
 
-import { EMOJI_MUTES_APPLY, EMOJI_MUTES_DISABLE, EMOJI_MUTES_IGNORE, EMOJI_MUTES_RESET, EMOJI_MUTES_REVISION } from 'mastodon/actions/emoji_mutes';
+import { EMOJI_MUTES_APPLY, EMOJI_MUTES_DISABLE, EMOJI_MUTES_ENABLE, EMOJI_MUTES_IGNORE, EMOJI_MUTES_RESET, EMOJI_MUTES_REVISION } from 'mastodon/actions/emoji_mutes';
 import { createUnverifiedEmojiGuard } from 'mastodon/features/emoji/emoji_mute_live_dom';
 import { resetEmojiMuteTextForTests } from 'mastodon/features/emoji/emoji_mute_text';
 import emojiMutes from 'mastodon/reducers/emoji_mutes';
@@ -333,16 +333,21 @@ describe('list column emoji mute', () => {
   it('suppresses the portaled single-column heading before React commits', () => {
     const store = buildStore(`Friends ${THUMB}`);
     const portal = document.createElement('div');
-    portal.id = 'tabs-bar__portal';
     const privacy = document.createElement('div');
     const mount = document.createElement('div');
     const guard = createUnverifiedEmojiGuard();
+    const during = { heading: '', region: '' };
 
+    portal.id = 'tabs-bar__portal';
     privacy.className = 'emoji-mutes-privacy-portal';
     privacy.appendChild(mount);
     privacy.appendChild(portal);
     document.body.appendChild(privacy);
     store.subscribe(() => guard(store.getState()));
+    store.subscribe(() => {
+      during.heading = document.querySelector('#tabs-bar__portal h1 button')?.textContent || '';
+      during.region = document.querySelector('.emoji-mutes-privacy-portal [role="region"]')?.getAttribute('aria-label') || '';
+    });
 
     render(
       <Provider store={store}>
@@ -351,10 +356,14 @@ describe('list column emoji mute', () => {
       { container: mount },
     );
 
-    apply(store, [rule({ kind: 'unicode', native: THUMB }, '[ok]')]);
-
+    // A newer revision after an applied projection leaves that projection
+    // until React commits. Suppress while the raw title is still visible.
     act(() => {
-      store.dispatch({ type: EMOJI_MUTES_REVISION, revision: '9' });
+      store.dispatch({ type: EMOJI_MUTES_ENABLE });
+      expect(during.heading).toContain(PLACEHOLDER);
+      expect(during.region).toContain(PLACEHOLDER);
+      expect(during.heading).not.toContain(THUMB);
+      expect(during.region).not.toContain(THUMB);
     });
 
     const heading = document.querySelector('#tabs-bar__portal h1 button').textContent;
