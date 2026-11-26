@@ -1287,6 +1287,81 @@ describe('post draft server sync', () => {
     expect(calls).toEqual([]);
     expect(sync.snapshot().drafts[UUID].status).toBe('synced');
   });
+
+  it('patches a boot edit from its own base instead of an older saved body', async () => {
+    const ledger = createMemorySyncLedger();
+
+    await ledger.write({
+      account_id: '42',
+      client_uuid: UUID,
+      server_draft_id: '15',
+      server_revision: 5,
+      acked_hash: 'hash-old',
+      cursor_version: 1,
+    });
+
+    let release;
+    const { sync, calls, fire } = harness(spec => Promise.resolve({
+      status: 200,
+      body: { draft_id: '15', revision: 6, payload: spec.body.payload },
+    }), { ledger, deferResume: true, serverDebounceMs: 0 });
+
+    sync.bindAccount('42');
+    const pending = sync.resume(() => new Promise((resolve) => {
+      release = () => resolve([{
+        ...snapshot('old'),
+        content_hash: 'hash-old',
+        sync_base: { recorded: true, revision: 5, draft_id: '15', hash: 'hash-old' },
+      }]);
+    }));
+
+    await sync.observeLocal({
+      accountId: '42',
+      clientUuid: UUID,
+      localRevision: 2,
+      contentHash: 'hash-new',
+      payload: {
+        ...snapshot('new'),
+        content_hash: 'hash-new',
+        sync_base: { recorded: true, revision: 5, draft_id: '15', hash: 'hash-old' },
+      },
+      editGeneration: 1,
+      sessionId: 'boot',
+    });
+    await waitFor(() => typeof release === 'function');
+    release();
+    await pending;
+    await fire(0);
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0].method).toBe('patch');
+    expect(calls[0].body.expected_revision).toBe(5);
+    expect(calls[0].body.payload.content_hash).toBe('hash-new');
+  });
+
+  it('does not apply a resume that is still reading after the account changes', async () => {
+    const inner = createMemorySyncLedger();
+    let release;
+    const ledger = {
+      list: (...args) => inner.list(...args),
+      commit: (...args) => inner.commit(...args),
+      read: (accountId, clientUuid) => new Promise((resolve) => {
+        release = () => inner.read(accountId, clientUuid).then(resolve);
+      }),
+    };
+    const { sync, calls } = harness(() => Promise.resolve(created({ body: { payload: snapshot('x') } }, 1)), { ledger, deferResume: true, serverDebounceMs: 0 });
+
+    sync.bindAccount('42');
+    const pending = sync.resume(() => Promise.resolve([snapshot('hello')]));
+
+    await waitFor(() => typeof release === 'function');
+    sync.bindAccount('7');
+    release();
+    await pending;
+
+    expect(calls).toEqual([]);
+    expect(sync.snapshot().accountId).toBe('7');
+  });
 });
 
 function waitFor (predicate) {

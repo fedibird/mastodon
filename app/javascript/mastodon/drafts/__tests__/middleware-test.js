@@ -684,4 +684,85 @@ describe('composer draft middleware', () => {
     expect(row.intent_kind).toBe('create');
     expect(store.getState().getIn(['composerDraftRecovery', 'sync', 'drafts', 'draft-1', 'status'])).not.toBe('deleted');
   });
+
+  it('posts one new draft after delayed startup without another edit', async () => {
+    let releaseList;
+    const inner = createMemoryDraftBackend();
+    const backend = {
+      readDraft: (...args) => inner.readDraft(...args),
+      writeDraft: (...args) => inner.writeDraft(...args),
+      deleteDraft: (...args) => inner.deleteDraft(...args),
+      noteSyncBase: (...args) => inner.noteSyncBase(...args),
+      listDrafts: (accountId) => {
+        if (!blocked) {
+          return inner.listDrafts(accountId);
+        }
+
+        return new Promise((resolve) => {
+          waiters.push(() => inner.listDrafts(accountId).then(resolve));
+          releaseList = () => {
+            blocked = false;
+            waiters.splice(0).forEach(release => release());
+          };
+        });
+      },
+    };
+    const calls = [];
+    let session;
+    let blocked = true;
+    const waiters = [];
+    const serverSync = createPostDraftSync({
+      serverDebounceMs: 0,
+      schedule: (fn) => {
+        fn();
+        return 1;
+      },
+      cancel: () => undefined,
+      online: () => true,
+      subscribeOnline: () => () => undefined,
+      request: (spec) => {
+        calls.push(spec.method);
+        return Promise.resolve({
+          status: 201,
+          body: { draft_id: '15', revision: 1, payload: spec.body.payload },
+        });
+      },
+      onAcknowledged: (detail) => session.noteAcknowledged(detail),
+    });
+
+    session = createComposerDraftSession({
+      backend,
+      serverSync,
+      now: () => '2026-11-26T00:00:00.000Z',
+      createId: () => 'draft-1',
+      schedule: (fn) => fn(),
+      cancel: () => undefined,
+    });
+
+    const store = createStore(
+      combineReducers({
+        compose,
+        composers,
+        composerDraftRecovery,
+      }),
+      applyMiddleware(thunk, composerDraftMiddleware({
+        session,
+        backend,
+        accountId: '42',
+        target: null,
+      })),
+    );
+
+    store.dispatch(changeCompose('once'));
+    await session.flush();
+    expect(calls).toEqual([]);
+    expect(typeof releaseList).toBe('function');
+    releaseList();
+    await new Promise((resolve) => {
+      setTimeout(resolve, 0);
+    });
+    await serverSync.settle();
+
+    expect(calls).toEqual(['post']);
+  });
 });

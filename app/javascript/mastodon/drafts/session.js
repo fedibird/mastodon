@@ -551,6 +551,7 @@ export function createComposerDraftSession ({
     surface.latched = null;
     surface.clientDraftUuid = clientDraftUuid;
     surface.baseRevision = baseRevision;
+    surface.restoredBase = snapshot.sync_base && snapshot.sync_base.recorded === true ? snapshot.sync_base : { recorded: false };
     surface.persistedHash = reserved ? null : (snapshot.content_hash || null);
     surface.lastHash = surface.persistedHash;
     surface.scheduledHash = null;
@@ -645,6 +646,26 @@ export function createComposerDraftSession ({
     },
 
     refreshOffers,
+
+    noteAcknowledged ({ accountId, clientUuid, previous, next }) {
+      if (!backend || typeof backend.noteSyncBase !== 'function' || !previous || !next) {
+        return Promise.resolve({ status: 'kept' });
+      }
+
+      surfaces.forEach((surface) => {
+        if (surface.clientDraftUuid === clientUuid && surface.restoredBase && surface.restoredBase.recorded === true) {
+          const same = Number(surface.restoredBase.revision || 0) === Number(previous.revision || 0)
+            && String(surface.restoredBase.draft_id || '') === String(previous.draft_id || '')
+            && (surface.restoredBase.hash || null) === (previous.hash || null);
+
+          if (same) {
+            surface.restoredBase = next;
+          }
+        }
+      });
+
+      return backend.noteSyncBase(accountId, clientUuid, previous, next);
+    },
 
     flush () {
       const composerIds = [];
@@ -1090,9 +1111,13 @@ export function createComposerDraftSession ({
             claimed.set(surface.clientDraftUuid, composerId);
           }
 
-          const syncBase = serverSync && typeof serverSync.localBase === 'function'
-            ? serverSync.localBase(surface.clientDraftUuid)
-            : null;
+          let syncBase = null;
+
+          if (surface.restoredBase) {
+            syncBase = surface.restoredBase.recorded === true ? surface.restoredBase : null;
+          } else if (serverSync && typeof serverSync.localBase === 'function') {
+            syncBase = serverSync.localBase(surface.clientDraftUuid);
+          }
           const storedSnapshot = {
             ...snapshot,
             client_draft_uuid: surface.clientDraftUuid,

@@ -7,7 +7,7 @@
 // revision this page acknowledged from a direct success response. A lost
 // response stays unknown and is not deleted from a later lookup.
 //
-import { transitionSyncCursor } from './storage';
+import { sameSyncBase, transitionSyncCursor } from './storage';
 
 // A 409 does not copy the draft. #811 allows one media id on one server
 // draft, so a second server draft cannot reuse those ids. The local text,
@@ -264,6 +264,7 @@ export function createPostDraftSync ({
     return () => window.removeEventListener('online', listener);
   },
   ownerId = `page-${Math.random().toString(16).slice(2)}`,
+  onAcknowledged,
 } = {}) {
   let operationSeq = 0;
   const jobs = new Map();
@@ -630,17 +631,36 @@ export function createPostDraftSync ({
         return 'rejected';
       }
 
+      const previousBase = {
+        recorded: true,
+        revision: job.intent ? job.intent.baseRevision : null,
+        draft_id: job.intent ? job.intent.draftId : null,
+        hash: job.ackedHash || null,
+      };
+
       adoptCommit(job, merged);
 
       if (merged.reason === 'finished') {
         job.baseVerified = true;
         job.unbased = false;
+        job.verifiedHash = job.contentHash;
+        job.previousBase = previousBase;
         job.syncBase = {
           recorded: true,
           revision: job.ackedRevision,
           draft_id: job.serverDraftId,
           hash: job.ackedHash,
         };
+
+        if (typeof onAcknowledged === 'function') {
+          Promise.resolve(onAcknowledged({
+            accountId: job.accountId,
+            clientUuid: job.clientUuid,
+            previous: previousBase,
+            next: job.syncBase,
+            contentHash: job.contentHash,
+          })).catch(() => undefined);
+        }
       }
 
       return 'accepted';
@@ -1550,6 +1570,19 @@ export function createPostDraftSync ({
       job.pendingHash = null;
     }
 
+    const incomingBase = input.payload && input.payload.sync_base;
+
+    if (incomingBase && incomingBase.recorded === true && job.syncBase && job.syncBase.recorded === true && job.baseVerified && !sameSyncBase(incomingBase, job.syncBase) && !sameSyncBase(incomingBase, job.previousBase)) {
+      job.baseVerified = false;
+      job.unbased = true;
+      job.pendingSend = false;
+      job.verifiedHash = null;
+      job.status = 'local';
+      job.reason = 'unbased';
+      emit();
+      return Promise.resolve(true);
+    }
+
     if (job.unbased) {
       job.status = 'local';
       job.reason = 'unbased';
@@ -1891,18 +1924,34 @@ export function createPostDraftSync ({
       return;
     }
 
-    protection = 'ready';
+    const listed = new Map();
 
-    for (const record of records || []) {
-      if (!record || String(record.account_id) !== accountId) {
-        continue;
+    (records || []).forEach((record) => {
+      if (record && String(record.account_id) === accountId) {
+        listed.set(String(record.client_draft_uuid), record);
+      }
+    });
+
+    const ids = new Set(listed.keys());
+
+    jobs.forEach((job, id) => {
+      if (job.editedDuringBoot) {
+        ids.add(id);
+      }
+    });
+
+    const stillHere = () => sentEpoch === epoch && bound === accountId && ticket === protectionTicket;
+
+    for (const id of ids) {
+      if (!stillHere()) {
+        return;
       }
 
-      let cursor = byUuid.get(String(record.client_draft_uuid)) || null;
+      let cursor = byUuid.get(id) || null;
 
       if (typeof ledger.read === 'function') {
         try {
-          cursor = await ledger.read(accountId, record.client_draft_uuid);
+          cursor = await ledger.read(accountId, id);
         } catch (_error) {
           if (ticket === protectionTicket) {
             finishProtection('unavailable');
@@ -1912,42 +1961,57 @@ export function createPostDraftSync ({
         }
       }
 
-      const job = ensureJob(record.client_draft_uuid);
-      const keepContent = job.editedDuringBoot === true;
-
-      if (!keepContent) {
-        job.contentHash = record.content_hash;
-        job.payload = record;
-        job.localRevision = Number(record.revision) || 0;
+      if (!stillHere()) {
+        return;
       }
 
-      job.syncBase = record.sync_base && record.sync_base.recorded === true ? record.sync_base : null;
-      const mode = resumeMode(record, cursor);
+      const job = ensureJob(id);
+      const listedRecord = listed.get(id) || null;
+      const source = job.editedDuringBoot && job.payload ? job.payload : listedRecord;
+
+      if (!source) {
+        job.pendingSend = false;
+        continue;
+      }
+
+      if (!job.editedDuringBoot) {
+        job.contentHash = source.content_hash;
+        job.payload = source;
+        job.localRevision = Number(source.revision) || 0;
+      }
+
+      const mode = resumeMode(source, cursor);
+
+      job.verifiedHash = source.content_hash || null;
+      job.syncBase = source.sync_base && source.sync_base.recorded === true ? source.sync_base : null;
 
       if (mode === 'protected') {
         if (cursor) {
           applyCursor(job, cursor);
         }
 
+        job.baseVerified = false;
+        job.pendingSend = false;
+
         if (cursor && cursor.intent_kind && !cursor.tombstone && !cursor.conflict) {
           job.status = 'local';
           job.reason = 'intent_held';
-          job.pendingSend = false;
         }
 
         continue;
       }
 
-      if (mode === 'synced') {
+      if (mode === 'synced' && job.contentHash === source.content_hash) {
         applyCursor(job, cursor);
         job.baseVerified = true;
         job.unbased = false;
+        job.pendingSend = false;
         job.status = 'synced';
         job.reason = null;
         continue;
       }
 
-      if (mode === 'create') {
+      if (mode === 'create' && !cursor) {
         job.baseVerified = true;
         job.unbased = false;
         job.ackedRevision = null;
@@ -1958,11 +2022,15 @@ export function createPostDraftSync ({
         continue;
       }
 
-      if (mode === 'patch') {
+      if (mode === 'patch' && job.contentHash === source.content_hash) {
         applyCursor(job, cursor);
         job.baseVerified = true;
         job.unbased = false;
         job.pendingSend = job.contentHash !== job.ackedHash;
+        continue;
+      }
+
+      if ((job.intent && job.intent.unresolved) || job.baseVerified) {
         continue;
       }
 
@@ -1973,11 +2041,12 @@ export function createPostDraftSync ({
       job.ackedHash = null;
       job.ackDirect = false;
       job.pendingSend = false;
+      job.verifiedHash = null;
       job.status = 'local';
       job.reason = 'unbased';
     }
 
-    if (ticket !== protectionTicket) {
+    if (!stillHere()) {
       return;
     }
 
@@ -1998,7 +2067,7 @@ export function createPostDraftSync ({
         return;
       }
 
-      if (job.pendingSend && job.contentHash !== job.ackedHash) {
+      if (job.pendingSend && job.baseVerified && job.contentHash === job.verifiedHash && job.contentHash !== job.ackedHash) {
         scheduleJob(job, 0);
       }
     });

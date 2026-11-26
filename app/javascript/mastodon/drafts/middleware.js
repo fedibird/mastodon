@@ -39,6 +39,8 @@ function collectComposers (state) {
 
 export function composerDraftMiddleware (options = {}) {
   let storeRef = null;
+  let session = options.session || null;
+  const backend = options.backend || (session ? null : createIndexedDbDraftBackend());
   const serverSync = options.serverSync || (options.enableServerSync ? createPostDraftSync({
     ledger: options.ledger || createIndexedDbSyncLedger(),
     request: (spec) => browserPostDraftRequest(() => storeRef && storeRef.getState(), spec),
@@ -47,16 +49,20 @@ export function composerDraftMiddleware (options = {}) {
     online: options.online,
     subscribeOnline: options.subscribeOnline,
     serverDebounceMs: options.serverDebounceMs,
+    onAcknowledged: (detail) => (session && typeof session.noteAcknowledged === 'function' ? session.noteAcknowledged(detail) : undefined),
   }) : null);
-  const session = options.session || createComposerDraftSession({
-    backend: options.backend || createIndexedDbDraftBackend(),
-    debounceMs: options.debounceMs,
-    schedule: options.schedule,
-    cancel: options.cancel,
-    now: options.now,
-    createId: options.createId,
-    serverSync,
-  });
+
+  if (!session) {
+    session = createComposerDraftSession({
+      backend,
+      debounceMs: options.debounceMs,
+      schedule: options.schedule,
+      cancel: options.cancel,
+      now: options.now,
+      createId: options.createId,
+      serverSync,
+    });
+  }
 
   sharedSession = session;
   let lastPublished = '';

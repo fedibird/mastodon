@@ -406,4 +406,25 @@ describe('composer draft storage', () => {
     expect(missing.accepted).toBe(false);
     expect(missing.reason).toBe('missing_operation');
   });
+
+  it('updates a saved base only when it is still the base this page sent', async () => {
+    const backend = createMemoryDraftBackend();
+    const previous = { recorded: true, revision: 5, draft_id: '15', hash: 'hash-old' };
+    const next = { recorded: true, revision: 6, draft_id: '15', hash: 'hash-new' };
+
+    await backend.writeDraft({
+      schema_version: 1,
+      account_id: '42',
+      client_draft_uuid: 'draft-1',
+      content_hash: 'hash-edited',
+      sync_base: previous,
+      input: { text: 'edited' },
+    }, { baseRevision: 0, stillCurrent: () => true, isDiscarded: () => false });
+
+    expect((await backend.noteSyncBase('42', 'draft-1', { recorded: true, revision: 9, draft_id: '15', hash: 'other' }, next)).status).toBe('kept');
+    expect((await backend.readDraft('42', 'draft-1')).sync_base.revision).toBe(5);
+    expect((await backend.noteSyncBase('42', 'draft-1', previous, next)).status).toBe('saved');
+    expect((await backend.readDraft('42', 'draft-1')).sync_base).toEqual(next);
+    expect((await backend.readDraft('42', 'draft-1')).input.text).toBe('edited');
+  });
 });

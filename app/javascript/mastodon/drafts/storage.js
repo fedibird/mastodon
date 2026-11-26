@@ -37,6 +37,18 @@ export function compareAndDelete (current, expected) {
   return { status: 'kept', record: current };
 }
 
+export function sameSyncBase (left, right) {
+  const recorded = value => Boolean(value && value.recorded === true);
+
+  if (!recorded(left) || !recorded(right)) {
+    return false;
+  }
+
+  return Number(left.revision || 0) === Number(right.revision || 0)
+    && String(left.draft_id || '') === String(right.draft_id || '')
+    && (left.hash || null) === (right.hash || null);
+}
+
 export function compareAndPut (current, incoming, { baseRevision = 0 } = {}) {
   if (current && String(current.account_id) !== String(incoming.account_id)) {
     return { status: 'rejected', reason: 'account_mismatch', record: current };
@@ -153,6 +165,33 @@ export function createIndexedDbDraftBackend ({ openDatabase = openComposerDraftD
 
     readDraft (accountId, clientDraftUuid) {
       return database().then(db => requestToPromise(db.transaction(COMPOSER_DRAFT_STORE, 'readonly').objectStore(COMPOSER_DRAFT_STORE).get([String(accountId), String(clientDraftUuid)])));
+    },
+
+    noteSyncBase (accountId, clientDraftUuid, previous, next) {
+      return database().then(db => new Promise((resolve, reject) => {
+        const tx = db.transaction(COMPOSER_DRAFT_STORE, 'readwrite');
+        const store = tx.objectStore(COMPOSER_DRAFT_STORE);
+        const key = [String(accountId), String(clientDraftUuid)];
+        let decision = { status: 'kept', record: null };
+        const current = store.get(key);
+
+        current.onsuccess = () => {
+          const row = current.result || null;
+
+          decision = { status: 'kept', record: row };
+
+          if (row && sameSyncBase(row.sync_base, previous)) {
+            const record = { ...row, sync_base: next };
+
+            decision = { status: 'saved', record };
+            store.put(record);
+          }
+        };
+        current.onerror = () => reject(current.error || new Error('indexedDB get failed'));
+        tx.oncomplete = () => resolve(decision);
+        tx.onerror = () => reject(tx.error || new Error('indexedDB sync base failed'));
+        tx.onabort = () => reject(tx.error || new Error('indexedDB sync base aborted'));
+      }));
     },
 
     deleteDraft (accountId, clientDraftUuid, expected, extras) {
@@ -709,6 +748,23 @@ export function createMemoryDraftBackend () {
 
     readDraft (accountId, clientDraftUuid) {
       return exclusive(async () => records.get(`${accountId}\u0000${clientDraftUuid}`) || null);
+    },
+
+    noteSyncBase (accountId, clientDraftUuid, previous, next) {
+      return exclusive(async () => {
+        const key = `${accountId}\u0000${clientDraftUuid}`;
+        const current = records.get(key);
+
+        if (!current || !sameSyncBase(current.sync_base, previous)) {
+          return { status: 'kept', record: current || null };
+        }
+
+        const record = { ...current, sync_base: next };
+
+        records.set(key, record);
+
+        return { status: 'saved', record };
+      });
     },
 
     deleteDraft (accountId, clientDraftUuid, expected, extras) {
