@@ -117,12 +117,26 @@ function harness (handler, options = {}) {
   };
 }
 
-async function edit (sync, text, generation, uuid = UUID, accountId = '42') {
+async function edit (sync, text, generation, uuid = UUID, accountId = '42', syncBase) {
   if (sync.boot) {
     await sync.boot;
   }
 
   const body = snapshot(text, uuid, accountId);
+  const current = sync.snapshot().drafts[uuid];
+
+  if (syncBase !== null) {
+    const base = syncBase || (current && current.serverRevision ? {
+      recorded: true,
+      revision: current.serverRevision,
+      draft_id: current.serverDraftId,
+      hash: current.ackedHash,
+    } : null);
+
+    if (base) {
+      body.sync_base = base;
+    }
+  }
 
   return sync.observeLocal({
     accountId,
@@ -175,6 +189,10 @@ describe('post draft server sync', () => {
     expect(sync.snapshot().drafts[UUID].status).not.toBe('synced');
     expect(sync.snapshot().drafts[UUID].contentHash).toBe('hash-two');
     await fire(0);
+    expect(calls).toHaveLength(1);
+
+    await edit(sync, 'two', 3);
+    await fire(2000);
 
     expect(calls[calls.length - 1].method).toBe('patch');
     expect(calls[calls.length - 1].body.payload.content_hash).toBe('hash-two');
@@ -795,7 +813,10 @@ describe('post draft server sync', () => {
       clientUuid: UUID,
       localRevision: 9,
       contentHash: 'hash-next',
-      payload: snapshot('next'),
+      payload: {
+        ...snapshot('next'),
+        sync_base: { recorded: true, revision: 5, draft_id: '15', hash: 'hash-hello' },
+      },
       editGeneration: 1,
       sessionId: 'reloaded-page',
     });
@@ -1265,7 +1286,7 @@ describe('post draft server sync', () => {
 
     expect(calls).toEqual([]);
     expect(sync.snapshot().drafts[UUID].reason).toBe('unbased');
-    expect(sync.snapshot().drafts[UUID].serverRevision).toBeNull();
+    expect(sync.snapshot().drafts[UUID].serverRevision).toBe(6);
   });
 
   it('continues a reloaded draft whose text already matches the acknowledgement', async () => {
@@ -1448,9 +1469,142 @@ describe('post draft server sync', () => {
     });
     release();
     await pending;
+    await sync.settle();
     await fire(0);
 
     expect(calls.map(call => call.body.client_uuid).sort()).toEqual([UUID, other].sort());
+  });
+
+  it('does not send a saved draft whose base is missing or older than the acknowledgement', async () => {
+    const ledger = createMemorySyncLedger();
+
+    await ledger.write({
+      account_id: '42',
+      client_uuid: UUID,
+      server_draft_id: '15',
+      server_revision: 5,
+      acked_hash: 'hash-hello',
+      cursor_version: 1,
+    });
+
+    const { sync, calls, fire } = harness(() => Promise.resolve(created({ body: { payload: snapshot('x') } }, 6)), {
+      ledger,
+      deferResume: true,
+      serverDebounceMs: 0,
+    });
+
+    sync.bindAccount('42');
+    await sync.resume(() => Promise.resolve([snapshot('hello')]));
+    await sync.settle();
+    await edit(sync, 'missing', 2, UUID, '42', null);
+    await edit(sync, 'previous', 3, UUID, '42', {
+      recorded: true,
+      revision: 4,
+      draft_id: '15',
+      hash: 'hash-hello',
+    });
+    await fire(0);
+
+    expect(calls).toEqual([]);
+    expect(sync.snapshot().drafts[UUID].status).not.toBe('synced');
+    expect(sync.snapshot().drafts[UUID].serverRevision).toBe(5);
+  });
+
+  it('sends a third draft and a re-edit that arrive while an individual init read is held', async () => {
+    const late = '22222222-2222-4222-8222-222222222222';
+    const third = '33333333-3333-4333-8333-333333333333';
+    let releaseA;
+    let releaseLate;
+    let readsOfA = 0;
+    let readsOfLate = 0;
+    const inner = createMemorySyncLedger();
+
+    await inner.write({
+      account_id: '42',
+      client_uuid: UUID,
+      server_draft_id: '15',
+      server_revision: 5,
+      acked_hash: 'hash-hello',
+      cursor_version: 1,
+    });
+
+    const ledger = {
+      list: (...args) => inner.list(...args),
+      commit: (...args) => inner.commit(...args),
+      read: (accountId, clientUuid) => {
+        if (clientUuid === UUID && readsOfA === 0) {
+          readsOfA += 1;
+
+          return new Promise((resolve) => {
+            releaseA = () => resolve(inner.read(accountId, clientUuid));
+          });
+        }
+
+        if (clientUuid === late && readsOfLate === 0) {
+          readsOfLate += 1;
+
+          return new Promise((resolve) => {
+            releaseLate = () => resolve(inner.read(accountId, clientUuid));
+          });
+        }
+
+        return inner.read(accountId, clientUuid);
+      },
+    };
+    const { sync, calls, fire } = harness(spec => Promise.resolve(created(spec, spec.method === 'patch' ? 6 : 1)), {
+      ledger,
+      deferResume: true,
+      serverDebounceMs: 0,
+    });
+
+    sync.bindAccount('42');
+    const pending = sync.resume(() => Promise.resolve([{
+      ...snapshot('hello'),
+      sync_base: { recorded: true, revision: 5, draft_id: '15', hash: 'hash-hello' },
+    }]));
+
+    await waitFor(() => typeof releaseA === 'function');
+    await sync.observeLocal({
+      accountId: '42',
+      clientUuid: late,
+      localRevision: 1,
+      contentHash: 'hash-late',
+      payload: { ...snapshot('late', late), content_hash: 'hash-late' },
+      editGeneration: 1,
+      sessionId: 'boot',
+    });
+    releaseA();
+    await pending;
+    await waitFor(() => typeof releaseLate === 'function');
+    await sync.observeLocal({
+      accountId: '42',
+      clientUuid: third,
+      localRevision: 1,
+      contentHash: 'hash-third',
+      payload: { ...snapshot('third', third), content_hash: 'hash-third' },
+      editGeneration: 1,
+      sessionId: 'ready',
+    });
+    await sync.observeLocal({
+      accountId: '42',
+      clientUuid: UUID,
+      localRevision: 2,
+      contentHash: 'hash-next',
+      payload: {
+        ...snapshot('next'),
+        content_hash: 'hash-next',
+        sync_base: { recorded: true, revision: 5, draft_id: '15', hash: 'hash-hello' },
+      },
+      editGeneration: 2,
+      sessionId: 'ready',
+    });
+    releaseLate();
+    await sync.settle();
+    await fire(0);
+
+    expect(calls.filter(call => call.method === 'post').map(call => call.body.client_uuid).sort()).toEqual([late, third].sort());
+    expect(calls.find(call => call.method === 'patch').body.expected_revision).toBe(5);
+    expect(calls.find(call => call.method === 'patch').body.payload.content_hash).toBe('hash-next');
   });
 });
 

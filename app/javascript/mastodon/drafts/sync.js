@@ -271,6 +271,7 @@ export function createPostDraftSync ({
   const chains = new Map();
   const listeners = new Set();
   let bound = null;
+  let settleResumeImpl = () => undefined;
   let epoch = 0;
   let protection = 'pending';
   let protectionTicket = 0;
@@ -417,7 +418,39 @@ export function createPostDraftSync ({
   }
 
   function networkAllowed (job) {
-    return protection === 'ready' && !unavailable && job && !job.stopped && !job.durabilityStop && !job.conflict && !job.tombstone && !job.unbased;
+    if (!(protection === 'ready' && !unavailable && job && !job.stopped && !job.durabilityStop && !job.conflict && !job.tombstone && !job.unbased)) {
+      return false;
+    }
+
+    if (!job.ackedRevision && !job.serverDraftId) {
+      return true;
+    }
+
+    return job.baseVerified === true && job.contentHash === job.verifiedHash && payloadLineage(job);
+  }
+
+  function acknowledgementBase (job) {
+    if (!job || !job.ackedRevision || !job.serverDraftId) {
+      return null;
+    }
+
+    return {
+      recorded: true,
+      revision: job.ackedRevision,
+      draft_id: job.serverDraftId,
+      hash: job.ackedHash || null,
+    };
+  }
+
+  function payloadLineage (job) {
+    if (job.contentHash && job.contentHash === job.ackedHash) {
+      return true;
+    }
+
+    const base = job.payload && job.payload.sync_base;
+    const ack = acknowledgementBase(job);
+
+    return Boolean(base && ack && sameSyncBase(base, ack));
   }
 
   function deleteAllowed (job, sentEpoch) {
@@ -644,7 +677,7 @@ export function createPostDraftSync ({
       if (merged.reason === 'finished') {
         job.verifiedHash = sentHash;
         job.baseVerified = job.contentHash === sentHash && !job.pendingDirty;
-        job.unbased = false;
+        job.unbased = !job.baseVerified;
         job.previousBase = previousBase;
         job.syncBase = {
           recorded: true,
@@ -1177,7 +1210,15 @@ export function createPostDraftSync ({
   async function push (job) {
     const sentEpoch = epoch;
 
-    if (!current(job, sentEpoch) || protection !== 'ready' || job.stopped || job.durabilityStop || job.conflict) {
+    if (!current(job, sentEpoch) || protection !== 'ready' || job.stopped || job.durabilityStop || job.conflict || !networkAllowed(job)) {
+      if (job.ackedRevision && job.contentHash !== job.verifiedHash) {
+        job.unbased = true;
+        job.baseVerified = false;
+        job.status = 'local';
+        job.reason = 'unbased';
+        emit();
+      }
+
       return;
     }
 
@@ -1547,12 +1588,12 @@ export function createPostDraftSync ({
     }
 
     const incomingBase = input.payload && input.payload.sync_base;
-    const foreignBase = incomingBase && (
-      incomingBase.recorded === false
-      || (incomingBase.recorded === true && job.syncBase && job.syncBase.recorded === true && !sameSyncBase(incomingBase, job.syncBase) && !sameSyncBase(incomingBase, job.previousBase))
-    );
+    const hasServer = Boolean(job.ackedRevision || job.serverDraftId);
+    const exactAck = Boolean(input.contentHash && input.contentHash === job.ackedHash);
+    const ack = acknowledgementBase(job);
+    const lined = Boolean(incomingBase && ack && sameSyncBase(incomingBase, ack));
 
-    if (foreignBase && job.ackedRevision && input.contentHash !== job.ackedHash) {
+    if (hasServer && !exactAck && !lined) {
       job.contentHash = input.contentHash || job.contentHash;
       job.payload = input.payload;
       job.baseVerified = false;
@@ -1590,15 +1631,10 @@ export function createPostDraftSync ({
       job.pendingHash = null;
     }
 
-    if (incomingBase && incomingBase.recorded === true && job.syncBase && job.syncBase.recorded === true && job.baseVerified && !sameSyncBase(incomingBase, job.syncBase) && !sameSyncBase(incomingBase, job.previousBase)) {
-      job.baseVerified = false;
-      job.unbased = true;
-      job.pendingSend = false;
-      job.verifiedHash = null;
-      job.status = 'local';
-      job.reason = 'unbased';
-      emit();
-      return Promise.resolve(true);
+    if (lined || exactAck) {
+      job.unbased = false;
+      job.baseVerified = true;
+      job.verifiedHash = input.contentHash;
     }
 
     if (job.unbased) {
@@ -1635,7 +1671,9 @@ export function createPostDraftSync ({
     job.status = 'local';
     job.reason = null;
 
-    if (previousHash !== job.contentHash || !job.ackedRevision) {
+    const proven = job.baseVerified && job.contentHash === job.verifiedHash && job.contentHash !== job.ackedHash;
+
+    if (previousHash !== job.contentHash || !job.ackedRevision || proven) {
       scheduleJob(job, options.immediate ? 0 : serverDebounceMs);
     }
 
@@ -1961,6 +1999,7 @@ export function createPostDraftSync ({
     const stillHere = () => sentEpoch === epoch && bound === accountId && ticket === protectionTicket;
 
     const settleResume = (job, listedRecord, cursor) => {
+      settleResumeImpl = settleResume;
       const source = job.editedDuringBoot && job.payload ? job.payload : listedRecord;
 
       if (!source) {
@@ -2016,6 +2055,14 @@ export function createPostDraftSync ({
       }
 
       if (mode === 'create' && !cursor) {
+        if (newerDirty) {
+          job.baseVerified = false;
+          job.pendingSend = false;
+          job.status = 'local';
+          job.reason = 'dirty';
+          return;
+        }
+
         job.baseVerified = true;
         job.unbased = false;
         job.ackedRevision = null;
@@ -2040,14 +2087,17 @@ export function createPostDraftSync ({
 
       job.baseVerified = false;
       job.unbased = true;
-      job.ackedRevision = null;
-      job.serverDraftId = null;
-      job.ackedHash = null;
-      job.ackDirect = false;
       job.pendingSend = false;
       job.verifiedHash = null;
       job.status = 'local';
       job.reason = 'unbased';
+
+      if (cursor && cursor.server_draft_id && cursor.server_revision) {
+        job.serverDraftId = cursor.server_draft_id;
+        job.ackedRevision = Number(cursor.server_revision) || job.ackedRevision;
+        job.ackedHash = cursor.acked_hash || job.ackedHash;
+        job.cursorVersion = Number(cursor.cursor_version) || job.cursorVersion || 0;
+      }
     };
 
     for (const id of ids) {
@@ -2076,40 +2126,6 @@ export function createPostDraftSync ({
       settleResume(ensureJob(id), listed.get(id) || null, cursor);
     }
 
-    const late = [];
-
-    jobs.forEach((job, id) => {
-      if (job.editedDuringBoot && (!ids.has(id) || (job.verifiedHash && job.contentHash !== job.verifiedHash))) {
-        late.push(id);
-      }
-    });
-
-    for (const id of late) {
-      if (!stillHere()) {
-        return;
-      }
-
-      let cursor = null;
-
-      if (typeof ledger.read === 'function') {
-        try {
-          cursor = await ledger.read(accountId, id);
-        } catch (_error) {
-          if (ticket === protectionTicket) {
-            finishProtection('unavailable');
-          }
-
-          return;
-        }
-      }
-
-      if (!stillHere()) {
-        return;
-      }
-
-      settleResume(jobs.get(id), null, cursor);
-    }
-
     if (!stillHere()) {
       return;
     }
@@ -2127,15 +2143,99 @@ export function createPostDraftSync ({
         return;
       }
 
+      if (job.editedDuringBoot && (!job.baseVerified || job.contentHash !== job.verifiedHash)) {
+        enqueueInit(job.clientUuid);
+        return;
+      }
+
       if (job.conflict || job.tombstone || job.stopped || job.unbased || !job.baseVerified) {
         return;
       }
 
-      if (job.pendingSend && job.baseVerified && job.contentHash === job.verifiedHash && job.contentHash !== job.ackedHash) {
+      if (job.pendingSend && job.baseVerified && job.contentHash === job.verifiedHash && job.contentHash !== job.ackedHash && networkAllowed(job)) {
         scheduleJob(job, 0);
       }
     });
     emit();
+  }
+
+  const initQueue = [];
+  let drainingInit = false;
+
+  function enqueueInit (clientUuid) {
+    const job = jobs.get(String(clientUuid));
+
+    if (!job || job.initQueued || protection !== 'ready' || job.conflict || job.tombstone) {
+      return;
+    }
+
+    job.initQueued = true;
+    initQueue.push(String(clientUuid));
+    drainInit();
+  }
+
+  function drainInit () {
+    if (drainingInit) {
+      return;
+    }
+
+    drainingInit = true;
+    const step = () => {
+      const id = initQueue.shift();
+
+      if (!id || protection !== 'ready') {
+        drainingInit = false;
+
+        if (initQueue.length && protection === 'ready') {
+          drainInit();
+        }
+
+        return;
+      }
+
+      const job = jobs.get(id);
+
+      if (!job) {
+        step();
+        return;
+      }
+
+      job.initQueued = false;
+      const sentEpoch = epoch;
+      const accountId = bound;
+
+      serial(id, () => {
+        const read = typeof ledger.read === 'function' ? ledger.read(accountId, id) : Promise.resolve(null);
+
+        return Promise.resolve(read).then((cursor) => {
+          const currentJob = jobs.get(id);
+
+          if (!currentJob || currentJob !== job || sentEpoch !== epoch || bound !== accountId) {
+            return;
+          }
+
+          const classify = () => settleResumeImpl(currentJob, currentJob.payload, cursor || null);
+
+          classify();
+
+          if (currentJob.payload && currentJob.contentHash !== currentJob.verifiedHash) {
+            classify();
+          }
+
+          if (currentJob.pendingSend && currentJob.baseVerified && currentJob.contentHash === currentJob.verifiedHash && currentJob.contentHash !== currentJob.ackedHash && networkAllowed(currentJob)) {
+            scheduleJob(currentJob, 0);
+          }
+        }, () => {
+          job.unbased = true;
+          job.baseVerified = false;
+          job.status = 'local';
+          job.reason = 'unbased';
+          emit();
+        });
+      }).then(step, step).catch(() => undefined);
+    };
+
+    step();
   }
 
   function snapshot () {

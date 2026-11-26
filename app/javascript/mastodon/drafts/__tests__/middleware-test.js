@@ -314,16 +314,12 @@ describe('composer draft middleware', () => {
     });
 
     expect(syncStatus()).not.toBe('synced');
-    expect(store.getState().getIn(['composerDraftRecovery', 'sync', 'drafts', 'draft-1', 'reason'])).toBe('coalesced');
     await session.flush();
     await new Promise((resolve) => {
       setTimeout(resolve, 0);
     });
-    expect(calls.length).toBeGreaterThan(1);
-    waiting[1]();
-    await serverSync.settle();
-
-    expect(syncStatus()).toBe('synced');
+    expect(calls).toHaveLength(1);
+    expect(syncStatus()).not.toBe('synced');
     expect(store.getState().getIn(['composerDraftRecovery', 'sync', 'drafts', 'draft-1', 'contentHash'])).not.toBe(calls[0]);
   });
 
