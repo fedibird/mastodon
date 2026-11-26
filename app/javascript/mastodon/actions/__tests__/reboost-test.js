@@ -27,23 +27,23 @@ jest.mock('../importer', () => ({
 import api from '../../api';
 import { followReboostOperation } from '../../features/reboost/follow_operation';
 import { importFetchedStatus, STATUS_IMPORT } from '../importer';
-import { checkReboostOperation, reblog, reboost, unreblog, REBOOST_OPERATION, REBLOG_SUCCESS, UNREBLOG_FAIL, UNREBLOG_REQUEST } from '../interactions';
+import { checkReboostOperation, reblog, reboost, unreblog, REBOOST_OPERATION, REBLOG_FAIL, REBLOG_REQUEST, REBLOG_SUCCESS, UNREBLOG_FAIL, UNREBLOG_REQUEST } from '../interactions';
 import { reboostRemainingSeconds } from '../../features/reboost/menu';
 import statuses from '../../reducers/statuses';
 
 const status = ImmutableMap({ id: '1', reblogged: true });
 
-const setup = () => {
+const setup = ({ reblogged = true } = {}) => {
   const actions = [];
   let state = ImmutableMap({
-    statuses: statuses(undefined, { type: '@@INIT' }).set('1', ImmutableMap({ id: '1', reblogged: true })),
+    statuses: statuses(undefined, { type: '@@INIT' }).set('1', ImmutableMap({ id: '1', reblogged })),
   });
   const dispatch = (action) => {
     if (typeof action === 'function') {
       return action(dispatch, () => state);
     }
     actions.push(action);
-    if ([REBOOST_OPERATION, STATUS_IMPORT, REBLOG_SUCCESS, UNREBLOG_REQUEST, UNREBLOG_FAIL].includes(action.type)) {
+    if ([REBOOST_OPERATION, STATUS_IMPORT, REBLOG_REQUEST, REBLOG_SUCCESS, REBLOG_FAIL, UNREBLOG_REQUEST, UNREBLOG_FAIL].includes(action.type)) {
       state = state.set('statuses', statuses(state.get('statuses'), action));
     }
     return action;
@@ -637,6 +637,40 @@ describe('reboost', () => {
     expect(followReboostOperation).toHaveBeenCalled();
     expect(harness.getState().getIn(['statuses', '1', 'reboost_operation', 'id'])).toBe('9');
     expect(harness.getState().getIn(['statuses', '1', 'reboost_operation', 'state'])).toBe('pending');
+  });
+
+  it('rolls back a normal boost that failed while unreblog was failing', async () => {
+    let finishUnreblog;
+    let finishReblog;
+    const plain = ImmutableMap({ id: '1', reblogged: false });
+    api.post.mockImplementation((url) => {
+      if (String(url).endsWith('/unreblog')) {
+        return new Promise((resolve, reject) => {
+          finishUnreblog = { resolve, reject };
+        });
+      }
+      return new Promise((resolve, reject) => {
+        finishReblog = { resolve, reject };
+      });
+    });
+    const harness = setup({ reblogged: false });
+    const running = reblog(plain)(harness.dispatch, harness.getState);
+    await Promise.resolve();
+    expect(harness.getState().getIn(['statuses', '1', 'reblogged'])).toBe(true);
+
+    const removing = unreblog(plain)(harness.dispatch, harness.getState);
+    finishReblog.reject({ response: { status: 403, data: { error: 'forbidden' } } });
+    await Promise.resolve();
+    await Promise.resolve();
+    finishUnreblog.reject(new Error('unreblog failed'));
+    await removing;
+    await running;
+
+    expect(harness.getState().getIn(['statuses', '1', 'reblogged'])).toBe(false);
+    expect(harness.getState().getIn(['statuses', '1', 'reboost_operation'])).toBeUndefined();
+    expect(followReboostOperation).not.toHaveBeenCalled();
+    expect(harness.actions.some(action => action.type === REBLOG_FAIL)).toBe(true);
+    expect(harness.actions.some(action => action.type === REBLOG_SUCCESS)).toBe(false);
   });
 
   it('turns a cooldown into a deadline that expires', () => {

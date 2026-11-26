@@ -121,7 +121,7 @@ export function reblog(status, visibility) {
       return null;
     }).catch(function (error) {
       if (!reboostWatchOwned(statusId, token)) {
-        rememberSuspendedResult(statusId, token, { kind: 'error', error });
+        rememberSuspendedResult(statusId, token, { kind: 'error', error, source: 'reblog' });
         return null;
       }
 
@@ -543,6 +543,12 @@ function replayDiscardedReboost(dispatch, getState, status, discarded, token) {
   }
 
   if (discarded.kind === 'error') {
+    if (discarded.source === 'reblog') {
+      dispatch(reblogFail(status, discarded.error));
+      commitReboostWatch(status.get('id'), token);
+      return null;
+    }
+
     return failPostedReboost(dispatch, status, discarded.error);
   }
 
