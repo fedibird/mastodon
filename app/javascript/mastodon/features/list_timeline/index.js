@@ -326,7 +326,7 @@ class ListTimeline extends React.PureComponent {
     const title  = list ? list.get('title') : id;
     const projectTitle = !!(list && typeof title === 'string' && title !== '');
     const visibleTitle = projectTitle ? (
-      <EmojiMutedPlain tag='span' plain={title} html='' />
+      <EmojiMutedPlain tag='span' plain={title} html='' emptyLabel={intl.formatMessage(messages.columnTitle)} />
     ) : title;
     const replies_policy = list ? list.get('replies_policy') : undefined;
     const sourceTimelineId = `list:${id}`;

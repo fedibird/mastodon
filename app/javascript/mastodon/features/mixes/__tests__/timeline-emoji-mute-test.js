@@ -271,7 +271,8 @@ describe('mix column emoji mute', () => {
 
     expect(region(container).getAttribute('aria-label')).toBe(COLUMN_TITLE);
     expect(headingText(container)).toBe('   ');
-    expect(region(container).getAttribute('aria-label')).not.toContain(THUMB);
+    expect(container.querySelector('h1 > button').getAttribute('aria-label')).toBe(COLUMN_TITLE);
+    expect(container.querySelector('h1 > button').getAttribute('aria-label')).not.toContain(THUMB);
 
     act(() => {
       store.dispatch({ type: EMOJI_MUTES_IGNORE });

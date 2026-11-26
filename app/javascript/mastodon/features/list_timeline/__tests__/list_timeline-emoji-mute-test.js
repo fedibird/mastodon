@@ -148,7 +148,8 @@ const mountGuarded = (store, props) => {
   store.subscribe(() => guard(store.getState()));
   store.subscribe(() => {
     during.region = document.querySelector('.emoji-mutes-privacy-portal [role="region"]')?.getAttribute('aria-label') || '';
-    during.heading = document.querySelector('.emoji-mutes-privacy-portal h1 button')?.textContent || '';
+    during.heading = document.querySelector('.emoji-mutes-privacy-portal h1 > button')?.textContent || '';
+    during.button = document.querySelector('.emoji-mutes-privacy-portal h1 > button')?.getAttribute('aria-label') || '';
   });
 
   const privacy = document.createElement('div');
@@ -215,6 +216,7 @@ describe('list column emoji mute', () => {
     ]);
 
     expect(headingText(container)).toBe('Friends [ok] :blob:');
+    expect(container.querySelector('h1 > button').getAttribute('aria-label')).toBe('Friends [ok] :blob:');
     expect(region(container).getAttribute('aria-label')).toBe('Friends [ok] :blob:');
     expect(container.querySelector('[data-testid="status-list"]')).toBe(mountedList);
     expect(mountedList.getAttribute('data-mount')).toBe('1');
@@ -231,21 +233,25 @@ describe('list column emoji mute', () => {
 
     expect(region(container).getAttribute('aria-label')).toBe(COLUMN_TITLE);
     expect(headingText(container)).toBe('');
-    expect(region(container).getAttribute('aria-label')).not.toContain(THUMB);
+    expect(container.querySelector('h1 > button').getAttribute('aria-label')).toBe(COLUMN_TITLE);
+    expect(container.querySelector('h1 > button').getAttribute('aria-label')).not.toContain(THUMB);
 
     act(() => {
       store.dispatch({ type: EMOJI_MUTES_REVISION, revision: '3' });
       expect(during.region).not.toContain(THUMB);
       expect(during.heading).not.toContain(THUMB);
+      expect(during.button).not.toContain(THUMB);
       store.dispatch({ type: EMOJI_MUTES_APPLY, revision: '3', mutes: blank, availability: 'enabled' });
       expect(during.region).toBe(COLUMN_TITLE);
       expect(during.heading).toBe('');
+      expect(during.button).toBe(COLUMN_TITLE);
     });
 
     apply(store, spaces, '4');
 
     expect(region(container).getAttribute('aria-label')).toBe(COLUMN_TITLE);
     expect(headingText(container)).toBe('   ');
+    expect(container.querySelector('h1 > button').getAttribute('aria-label')).toBe(COLUMN_TITLE);
 
     act(() => {
       store.dispatch({ type: EMOJI_MUTES_IGNORE });
@@ -345,7 +351,8 @@ describe('list column emoji mute', () => {
     document.body.appendChild(privacy);
     store.subscribe(() => guard(store.getState()));
     store.subscribe(() => {
-      during.heading = document.querySelector('#tabs-bar__portal h1 button')?.textContent || '';
+      during.heading = document.querySelector('#tabs-bar__portal h1 > button')?.textContent || '';
+      during.button = document.querySelector('#tabs-bar__portal h1 > button')?.getAttribute('aria-label') || '';
       during.region = document.querySelector('.emoji-mutes-privacy-portal [role="region"]')?.getAttribute('aria-label') || '';
     });
 
@@ -361,15 +368,19 @@ describe('list column emoji mute', () => {
     act(() => {
       store.dispatch({ type: EMOJI_MUTES_ENABLE });
       expect(during.heading).toContain(PLACEHOLDER);
+      expect(during.button).toContain(PLACEHOLDER);
       expect(during.region).toContain(PLACEHOLDER);
       expect(during.heading).not.toContain(THUMB);
+      expect(during.button).not.toContain(THUMB);
       expect(during.region).not.toContain(THUMB);
     });
 
-    const heading = document.querySelector('#tabs-bar__portal h1 button').textContent;
+    const titleButton = document.querySelector('#tabs-bar__portal h1 > button');
+    const heading = titleButton.textContent;
     const label = mount.querySelector('[role="region"]').getAttribute('aria-label');
 
     expect(heading).toBe(`Friends ${PLACEHOLDER}`);
+    expect(titleButton.getAttribute('aria-label')).toBe(`Friends ${PLACEHOLDER}`);
     expect(label).toBe(`Friends ${PLACEHOLDER}`);
     expect(heading).not.toContain(THUMB);
   });

@@ -671,7 +671,7 @@ export class MixTimelinePage extends React.PureComponent {
     const title = plain ? plain.title : intl.formatMessage(messages.heading);
     const projectTitle = !!(plain && typeof plain.title === 'string' && plain.title !== '');
     const visibleTitle = projectTitle ? (
-      <EmojiMutedPlain tag='span' plain={plain.title} html='' />
+      <EmojiMutedPlain tag='span' plain={plain.title} html='' emptyLabel={intl.formatMessage(messages.heading)} />
     ) : title;
     const statusIds = view && view.statusIds ? view.statusIds : ImmutableList();
     const noticeNodes = this.renderNotices(view, 'single');
