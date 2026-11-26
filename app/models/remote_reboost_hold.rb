@@ -45,6 +45,13 @@ class RemoteReboostHold < ApplicationRecord
   # or the scheduler can enqueue it again. A job recorded before available_at
   # is enqueued once more after it is due, then the new timestamp stops the scan.
   def schedule_apply!
+    # perform_at is inline in tests. A hold that is already being applied must
+    # not start that run again; the worker queues its own later retry.
+    if Thread.current[:reboost_apply_running]
+      update!(apply_enqueued_at: Time.current) if apply_enqueued_at.nil?
+      return
+    end
+
     Reboost::RemoteApplyWorker.perform_at(available_at, id)
     update!(apply_enqueued_at: Time.current)
   end

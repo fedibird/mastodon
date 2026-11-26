@@ -23,6 +23,7 @@ class Reboost::RemoteApplyWorker
 
       uri = hold.activity_uri
       activity = ActivityPub::Activity::Announce.new(hold.payload, hold.account, **apply_options(hold))
+      Thread.current[:reboost_apply_running] = true
       activity.perform
       if activity.retry_hold
         defer_retry!(hold)
@@ -31,6 +32,8 @@ class Reboost::RemoteApplyWorker
 
       RemoteReboostHold.where(id: hold.id, activity_uri: uri).delete_all
     end
+  ensure
+    Thread.current[:reboost_apply_running] = false
   end
 
   private

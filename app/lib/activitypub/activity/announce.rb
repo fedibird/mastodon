@@ -59,10 +59,12 @@ class ActivityPub::Activity::Announce < ActivityPub::Activity
 
   # Status existing is not the same as acceptance finishing. Follower delivery,
   # the current Announce, and the cooldown can be resumed from the hold.
+  # A direct replacement writes that hold before the old boost is removed.
   def finish_accepted_announce!
     hold = current_hold
-    @consumed_hold ||= hold if hold&.activity_uri == @json['id']
-    if hold
+    adopt_open_hold!(hold) if hold && @consumed_hold.nil?
+    hold = @consumed_hold || hold
+    if hold&.activity_uri == @json['id']
       deliver_held_announce!(hold)
     else
       distribute(@status)
@@ -106,7 +108,6 @@ class ActivityPub::Activity::Announce < ActivityPub::Activity
 
   def current_hold
     return @consumed_hold if @consumed_hold&.activity_uri == @json['id']
-    return unless @options[:applying_hold]
 
     RemoteReboostHold.find_by(account_id: @account.id, reblog_of_id: @original_status.id, activity_uri: @json['id'])
   end
@@ -118,7 +119,7 @@ class ActivityPub::Activity::Announce < ActivityPub::Activity
   end
 
   def receive_another_announce!
-    if @options[:applying_hold] && @status&.uri == @json['id']
+    if @status&.uri == @json['id'] && (current_hold || @options[:applying_hold])
       finish_accepted_announce!
       return
     end
@@ -148,11 +149,54 @@ class ActivityPub::Activity::Announce < ActivityPub::Activity
 
   def replace_announce!
     previous = @status
-    ReboostAnnounceState.supersede!(@account.id, previous.uri, reblog_of_id: @original_status.id) if previous.uri.present?
-    finish_discarded!(previous)
-    @original_status.association(:status_stat).reset
-    @status = nil
-    accept_new_announce!
+    remember_direct_replacement!
+    begin
+      ReboostAnnounceState.supersede!(@account.id, previous.uri, reblog_of_id: @original_status.id) if previous.uri.present?
+      finish_discarded!(previous)
+      @original_status.association(:status_stat).reset
+      @status = nil
+      accept_new_announce!
+    rescue StandardError => e
+      # The apply worker retries a busy removal itself. Clearing the timestamp
+      # here would make that rescue enqueue another inline run.
+      mark_direct_replacement_retryable! unless e.is_a?(Mastodon::RaceConditionError) && @options[:applying_hold]
+      raise
+    end
+  end
+
+  # The incoming Announce is recoverable before the old boost is deleted.
+  # The inline attempt owns it until delivery finishes or the attempt raises.
+  def remember_direct_replacement!
+    return if @json['id'].blank?
+
+    existing = RemoteReboostHold.find_by(account_id: @account.id, reblog_of_id: @original_status.id)
+    if existing
+      return if existing.activity_uri == @json['id']
+
+      ReboostAnnounceState.supersede!(@account.id, existing.activity_uri, reblog_of_id: @original_status.id)
+      existing.destroy!
+    end
+
+    RemoteReboostHold.create!(
+      account: @account,
+      reblog_of: @original_status,
+      activity_uri: @json['id'],
+      published_at: parsed_published,
+      available_at: Time.current,
+      payload: @json.is_a?(Hash) ? @json.deep_stringify_keys : {},
+      apply_enqueued_at: Time.current,
+      delivery_options: RemoteReboostHold.normalize_delivery_options(
+        'delivery' => @options[:delivery] == true,
+        'override_timestamps' => @options[:override_timestamps] == true,
+        'delivered_to_account_id' => @options[:delivered_to_account_id],
+        'relayed_through_account_id' => @options[:relayed_through_account]&.id
+      )
+    )
+  end
+
+  def mark_direct_replacement_retryable!
+    hold = RemoteReboostHold.find_by(account_id: @account.id, reblog_of_id: @original_status.id, activity_uri: @json['id'])
+    hold&.update!(apply_enqueued_at: nil)
   end
 
   # A removal can discard the old wrapper and then lose the distribution lock.
