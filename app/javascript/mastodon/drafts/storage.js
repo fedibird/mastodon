@@ -37,6 +37,10 @@ export function compareAndDelete (current, expected) {
   return { status: 'kept', record: current };
 }
 
+export function unrecordedSyncBase (value) {
+  return !value || value.recorded !== true;
+}
+
 export function sameSyncBase (left, right) {
   const recorded = value => Boolean(value && value.recorded === true);
 
@@ -180,7 +184,7 @@ export function createIndexedDbDraftBackend ({ openDatabase = openComposerDraftD
 
           decision = { status: 'kept', record: row };
 
-          if (row && row.content_hash === contentHash && sameSyncBase(row.sync_base, previous)) {
+          if (row && row.content_hash === contentHash && (sameSyncBase(row.sync_base, previous) || unrecordedSyncBase(row.sync_base))) {
             const record = { ...row, sync_base: next };
 
             decision = { status: 'saved', record };
@@ -755,7 +759,7 @@ export function createMemoryDraftBackend () {
         const key = `${accountId}\u0000${clientDraftUuid}`;
         const current = records.get(key);
 
-        if (!current || current.content_hash !== contentHash || !sameSyncBase(current.sync_base, previous)) {
+        if (!current || current.content_hash !== contentHash || !(sameSyncBase(current.sync_base, previous) || unrecordedSyncBase(current.sync_base))) {
           return { status: 'kept', record: current || null };
         }
 

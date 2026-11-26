@@ -17,7 +17,7 @@ import { REDRAFT } from '../actions/statuses';
 import { composerDraftInProgress } from '../posting_context/surface';
 import { PRIMARY_COMPOSER_ID } from '../utils/composer';
 import uuid from '../uuid';
-import { isQuotaError } from './storage';
+import { isQuotaError, sameSyncBase, unrecordedSyncBase } from './storage';
 import {
   draftCaptureBlock,
   restoreComposerDraft,
@@ -534,6 +534,22 @@ export function createComposerDraftSession ({
     return offers;
   }
 
+  function recordedRestoredBase (snapshot) {
+    if (snapshot && snapshot.sync_base && snapshot.sync_base.recorded === true) {
+      return snapshot.sync_base;
+    }
+
+    if (serverSync && typeof serverSync.confirmedBase === 'function' && snapshot) {
+      const confirmed = serverSync.confirmedBase(snapshot.client_draft_uuid, snapshot.content_hash);
+
+      if (confirmed && confirmed.recorded === true && String(snapshot.account_id) === String(confirmed.account_id || snapshot.account_id)) {
+        return confirmed;
+      }
+    }
+
+    return { recorded: false };
+  }
+
   function adoptRestored (composerId, state, action) {
     const surface = surfaces.get(composerId);
 
@@ -554,7 +570,7 @@ export function createComposerDraftSession ({
     surface.latched = null;
     surface.clientDraftUuid = clientDraftUuid;
     surface.baseRevision = baseRevision;
-    surface.restoredBase = snapshot.sync_base && snapshot.sync_base.recorded === true ? snapshot.sync_base : { recorded: false };
+    surface.restoredBase = recordedRestoredBase(snapshot);
     surface.persistedHash = reserved ? null : (snapshot.content_hash || null);
     surface.lastHash = surface.persistedHash;
     surface.scheduledHash = null;
@@ -656,7 +672,11 @@ export function createComposerDraftSession ({
       }
 
       surfaces.forEach((surface) => {
-        if (surface.clientDraftUuid === clientUuid && surface.persistedHash === contentHash && surface.restoredBase && surface.restoredBase.recorded === true) {
+        if (surface.clientDraftUuid !== clientUuid || surface.persistedHash !== contentHash) {
+          return;
+        }
+
+        if (unrecordedSyncBase(surface.restoredBase) || sameSyncBase(surface.restoredBase, previous)) {
           surface.restoredBase = next;
         }
       });

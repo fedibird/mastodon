@@ -1703,12 +1703,14 @@ describe('composer draft session', () => {
         type: 'COMPOSER_DRAFT_RESTORE',
         snapshot: {
           ...stored,
+          content_hash: 'hash-not-the-ack',
           sync_base: { recorded: false },
+          input: { ...stored.input, text: 'unrelated' },
         },
         idempotencyKey: 'token-a',
         baseRevision: stored.revision,
       },
-      composers: [{ composerId: 'primary', state: composerWith(stored.input.text, { idempotencyKey: 'token-a' }) }],
+      composers: [{ composerId: 'primary', state: composerWith('unrelated', { idempotencyKey: 'token-a' }) }],
     });
     change('restored edit');
     await session.flush();

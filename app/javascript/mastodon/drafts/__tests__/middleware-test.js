@@ -761,4 +761,152 @@ describe('composer draft middleware', () => {
 
     expect(calls).toEqual(['post']);
   });
+
+  it('patches a restored P0 draft after its text is acknowledged and holds a different text', async () => {
+    const backend = createMemoryDraftBackend();
+    const ledger = createMemorySyncLedger();
+    const calls = [];
+    let revision = 1;
+    const request = (spec) => {
+      calls.push(spec);
+      const response = {
+        status: spec.method === 'post' ? 201 : 200,
+        body: {
+          draft_id: '15',
+          revision,
+          payload: spec.body.payload,
+        },
+      };
+
+      revision += 1;
+
+      return Promise.resolve(response);
+    };
+    const syncedSession = (createId) => {
+      let session;
+      const serverSync = createPostDraftSync({
+        ledger,
+        serverDebounceMs: 0,
+        schedule: (fn) => {
+          fn();
+          return 1;
+        },
+        cancel: () => undefined,
+        online: () => true,
+        subscribeOnline: () => () => undefined,
+        request,
+        onAcknowledged: (detail) => session.noteAcknowledged(detail),
+      });
+
+      session = createComposerDraftSession({
+        backend,
+        serverSync,
+        now: () => '2026-11-26T00:00:00.000Z',
+        createId,
+        schedule: (fn) => fn,
+        cancel: () => undefined,
+      });
+
+      const store = createStore(
+        combineReducers({
+          compose,
+          composers,
+          composerDraftRecovery,
+        }),
+        applyMiddleware(thunk, composerDraftMiddleware({
+          session,
+          backend,
+          accountId: '42',
+          target: null,
+        })),
+      );
+
+      return { session, serverSync, store };
+    };
+    const seeded = snapshotComposerDraft(compose(undefined, changeCompose('hello')), {
+      accountId: '42',
+      clientDraftUuid: 'draft-p0',
+      composerId: 'primary',
+      savedAt: '2026-11-26T00:00:00.000Z',
+    });
+
+    await backend.writeDraft(seeded, { baseRevision: 0, stillCurrent: () => true, isDiscarded: () => false });
+    const seededRecord = await backend.readDraft('42', 'draft-p0');
+
+    const first = syncedSession(() => 'draft-p0');
+    const restore = (store, snapshot) => {
+      store.dispatch({
+        type: 'COMPOSER_DRAFT_RESTORE',
+        snapshot,
+        idempotencyKey: store.getState().getIn(['compose', 'idempotencyKey']),
+        baseRevision: snapshot.revision || 0,
+      });
+    };
+
+    const ready = async (sync) => {
+      const started = Date.now();
+
+      while (sync.snapshot().protection !== 'ready') {
+        if (Date.now() - started > 1000) {
+          throw new Error('sync did not become ready');
+        }
+
+        await new Promise((resolve) => {
+          setTimeout(resolve, 5);
+        });
+      }
+
+      await sync.settle();
+    };
+
+    restore(first.store, seededRecord);
+    expect(first.store.getState().getIn(['compose', 'text'])).toBe('hello');
+    await ready(first.serverSync);
+    await backend.readDraft('42', 'draft-p0');
+
+    expect(calls.map(call => call.method)).toEqual(['post']);
+    expect((await backend.readDraft('42', 'draft-p0')).sync_base).toMatchObject({
+      recorded: true,
+      revision: 1,
+      draft_id: '15',
+    });
+
+    first.store.dispatch(changeCompose('hello!'));
+    await first.session.flush();
+    await first.serverSync.settle();
+
+    expect(calls.map(call => call.method)).toEqual(['post', 'patch']);
+    expect(calls[1].body.expected_revision).toBe(1);
+
+    const reloaded = syncedSession(() => 'draft-reloaded');
+    const stored = await backend.readDraft('42', 'draft-p0');
+
+    reloaded.serverSync.bindAccount('42');
+    await reloaded.serverSync.resume(() => backend.listDrafts('42'));
+    await reloaded.serverSync.settle();
+    restore(reloaded.store, { ...stored, sync_base: { recorded: false } });
+    reloaded.store.dispatch(changeCompose(`${stored.input.text}!`));
+    await reloaded.session.flush();
+    await reloaded.serverSync.settle();
+
+    expect(calls.map(call => call.method)).toEqual(['post', 'patch', 'patch']);
+    expect(calls[2].body.expected_revision).toBe(2);
+
+    const current = await backend.readDraft('42', 'draft-p0');
+
+    reloaded.store.dispatch(changeCompose(''));
+    await reloaded.session.flush();
+    restore(reloaded.store, {
+      ...current,
+      content_hash: 'hash-different',
+      sync_base: { recorded: false },
+      input: { ...current.input, text: 'other' },
+    });
+    reloaded.store.dispatch(changeCompose('other!'));
+    await reloaded.session.flush();
+    await reloaded.serverSync.settle();
+
+    expect(calls).toHaveLength(3);
+    expect(reloaded.serverSync.snapshot().drafts['draft-p0'].status).not.toBe('synced');
+  });
 });

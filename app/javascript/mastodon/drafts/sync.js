@@ -271,7 +271,7 @@ export function createPostDraftSync ({
   const chains = new Map();
   const listeners = new Set();
   let bound = null;
-  let settleResumeImpl = () => undefined;
+  let classifyResume = () => undefined;
   let epoch = 0;
   let protection = 'pending';
   let protectionTicket = 0;
@@ -419,6 +419,10 @@ export function createPostDraftSync ({
 
   function networkAllowed (job) {
     if (!(protection === 'ready' && !unavailable && job && !job.stopped && !job.durabilityStop && !job.conflict && !job.tombstone && !job.unbased)) {
+      return false;
+    }
+
+    if (job.cursorPending) {
       return false;
     }
 
@@ -686,7 +690,7 @@ export function createPostDraftSync ({
           hash: job.ackedHash,
         };
 
-        if (typeof onAcknowledged === 'function') {
+        if (typeof onAcknowledged === 'function' && !job.conflict && !job.tombstone && !(job.intent && job.intent.unresolved)) {
           Promise.resolve(onAcknowledged({
             accountId: job.accountId,
             clientUuid: job.clientUuid,
@@ -1880,6 +1884,7 @@ export function createPostDraftSync ({
     bound = next;
     jobs.forEach((job) => clearTimer(job));
     jobs.clear();
+    initQueue.length = 0;
     protection = next ? 'pending' : 'unavailable';
     readyPromise = new Promise((resolve) => {
       readyResolve = resolve;
@@ -1999,7 +2004,6 @@ export function createPostDraftSync ({
     const stillHere = () => sentEpoch === epoch && bound === accountId && ticket === protectionTicket;
 
     const settleResume = (job, listedRecord, cursor) => {
-      settleResumeImpl = settleResume;
       const source = job.editedDuringBoot && job.payload ? job.payload : listedRecord;
 
       if (!source) {
@@ -2100,6 +2104,8 @@ export function createPostDraftSync ({
       }
     };
 
+    classifyResume = settleResume;
+
     for (const id of ids) {
       if (!stillHere()) {
         return;
@@ -2165,12 +2171,12 @@ export function createPostDraftSync ({
   function enqueueInit (clientUuid) {
     const job = jobs.get(String(clientUuid));
 
-    if (!job || job.initQueued || protection !== 'ready' || job.conflict || job.tombstone) {
+    if (!job || job.cursorPending || protection !== 'ready' || job.conflict || job.tombstone) {
       return;
     }
 
-    job.initQueued = true;
-    initQueue.push(String(clientUuid));
+    job.cursorPending = true;
+    initQueue.push({ id: String(clientUuid), epoch, accountId: bound });
     drainInit();
   }
 
@@ -2181,9 +2187,9 @@ export function createPostDraftSync ({
 
     drainingInit = true;
     const step = () => {
-      const id = initQueue.shift();
+      const item = initQueue.shift();
 
-      if (!id || protection !== 'ready') {
+      if (!item || protection !== 'ready') {
         drainingInit = false;
 
         if (initQueue.length && protection === 'ready') {
@@ -2193,28 +2199,32 @@ export function createPostDraftSync ({
         return;
       }
 
-      const job = jobs.get(id);
+      if (item.epoch !== epoch || item.accountId !== bound) {
+        step();
+        return;
+      }
+
+      const job = jobs.get(item.id);
 
       if (!job) {
         step();
         return;
       }
 
-      job.initQueued = false;
-      const sentEpoch = epoch;
-      const accountId = bound;
+      const sentEpoch = item.epoch;
+      const accountId = item.accountId;
 
-      serial(id, () => {
-        const read = typeof ledger.read === 'function' ? ledger.read(accountId, id) : Promise.resolve(null);
+      serial(item.id, () => {
+        const read = typeof ledger.read === 'function' ? ledger.read(accountId, item.id) : Promise.resolve(null);
 
         return Promise.resolve(read).then((cursor) => {
-          const currentJob = jobs.get(id);
+          const currentJob = jobs.get(item.id);
 
           if (!currentJob || currentJob !== job || sentEpoch !== epoch || bound !== accountId) {
             return;
           }
 
-          const classify = () => settleResumeImpl(currentJob, currentJob.payload, cursor || null);
+          const classify = () => classifyResume(currentJob, currentJob.payload, cursor || null);
 
           classify();
 
@@ -2222,10 +2232,13 @@ export function createPostDraftSync ({
             classify();
           }
 
+          currentJob.cursorPending = false;
+
           if (currentJob.pendingSend && currentJob.baseVerified && currentJob.contentHash === currentJob.verifiedHash && currentJob.contentHash !== currentJob.ackedHash && networkAllowed(currentJob)) {
             scheduleJob(currentJob, 0);
           }
         }, () => {
+          job.cursorPending = false;
           job.unbased = true;
           job.baseVerified = false;
           job.status = 'local';
@@ -2288,6 +2301,25 @@ export function createPostDraftSync ({
     tombstoneRow,
     rememberTombstone,
     resume,
+    confirmedBase (clientUuid, contentHash) {
+      const job = clientUuid ? jobs.get(String(clientUuid)) : null;
+
+      if (!job || !bound || String(job.accountId) !== String(bound) || job.conflict || job.tombstone || (job.intent && job.intent.unresolved)) {
+        return null;
+      }
+
+      if (!job.ackDirect || !job.ackedRevision || !job.serverDraftId || !job.ackedHash || !contentHash || contentHash !== job.ackedHash) {
+        return null;
+      }
+
+      return {
+        recorded: true,
+        revision: job.ackedRevision,
+        draft_id: job.serverDraftId,
+        hash: job.ackedHash,
+        account_id: job.accountId,
+      };
+    },
     localBase (clientUuid) {
       const job = clientUuid ? jobs.get(String(clientUuid)) : null;
 

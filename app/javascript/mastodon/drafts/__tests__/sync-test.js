@@ -1606,6 +1606,91 @@ describe('post draft server sync', () => {
     expect(calls.find(call => call.method === 'patch').body.expected_revision).toBe(5);
     expect(calls.find(call => call.method === 'patch').body.payload.content_hash).toBe('hash-next');
   });
+
+  it('does not send a draft until its init read finishes and drops that queue for another account', async () => {
+    const late = '22222222-2222-4222-8222-222222222222';
+    let releaseAnchor;
+    let releaseLate;
+    let anchorReads = 0;
+    let lateReads = 0;
+    const ledger = {
+      list: () => Promise.resolve([]),
+      commit: (accountId, clientUuid, proposed) => Promise.resolve({
+        accepted: true,
+        rejected: false,
+        reason: proposed.transition || 'created',
+        record: {
+          ...(proposed || {}),
+          account_id: accountId,
+          client_uuid: clientUuid,
+          cursor_version: 1,
+        },
+      }),
+      read: (_accountId, clientUuid) => {
+        if (clientUuid === UUID && anchorReads === 0) {
+          anchorReads += 1;
+
+          return new Promise((resolve) => {
+            releaseAnchor = () => resolve(null);
+          });
+        }
+
+        if (clientUuid === late && lateReads === 0) {
+          lateReads += 1;
+
+          return new Promise((resolve) => {
+            releaseLate = () => resolve(null);
+          });
+        }
+
+        return Promise.resolve(null);
+      },
+    };
+    const { sync, calls, fire } = harness(spec => Promise.resolve(created(spec, 1)), {
+      ledger,
+      deferResume: true,
+      serverDebounceMs: 0,
+    });
+
+    sync.bindAccount('42');
+    const pending = sync.resume(() => Promise.resolve([snapshot('anchor')]));
+
+    await waitFor(() => typeof releaseAnchor === 'function');
+    await sync.observeLocal({
+      accountId: '42',
+      clientUuid: late,
+      localRevision: 1,
+      contentHash: 'hash-late',
+      payload: { ...snapshot('late', late), content_hash: 'hash-late' },
+      editGeneration: 1,
+      sessionId: 'boot',
+    });
+    releaseAnchor();
+    await pending;
+    await waitFor(() => typeof releaseLate === 'function');
+    await sync.observeLocal({
+      accountId: '42',
+      clientUuid: late,
+      localRevision: 2,
+      contentHash: 'hash-latest',
+      payload: { ...snapshot('latest', late), content_hash: 'hash-latest' },
+      editGeneration: 2,
+      sessionId: 'boot',
+    });
+
+    expect(calls.filter(call => call.body && call.body.client_uuid === late)).toEqual([]);
+    releaseLate();
+    await sync.settle();
+    await fire(0);
+
+    expect(calls.filter(call => call.body.client_uuid === late)).toHaveLength(1);
+    expect(calls.find(call => call.body.client_uuid === late).body.payload.content_hash).toBe('hash-latest');
+
+    sync.bindAccount('7');
+    await fire(0);
+
+    expect(calls.filter(call => call.accountId === '7')).toEqual([]);
+  });
 });
 
 function waitFor (predicate) {
