@@ -3,6 +3,7 @@ import PropTypes from 'prop-types';
 import { supportsPassiveEvents } from 'detect-passive-events';
 import { scrollTop } from '../scroll';
 import classNames from 'classnames';
+import { forgetEmojiMuteAttributeSource, rememberEmojiMuteAttributeSource, rememberEmojiMuteDisplayAttribute } from 'mastodon/features/emoji/emoji_mute_sources';
 
 export default class Column extends React.PureComponent {
 
@@ -36,11 +37,68 @@ export default class Column extends React.PureComponent {
     this.node = c;
   }
 
+  // Only a caller that sets a landmark override may rewrite the mounted
+  // aria-label. Other columns keep whatever the live guard wrote.
+  setLandmarkLabel(label, source) {
+    if (typeof label !== 'string') {
+      this.landmarkActive = false;
+      this.landmarkLabel = undefined;
+      this.landmarkSource = null;
+
+      if (this.node) {
+        forgetEmojiMuteAttributeSource(this.node, 'aria-label');
+      }
+
+      return;
+    }
+
+    this.landmarkActive = true;
+    this.landmarkLabel = label;
+    this.landmarkSource = source && typeof source.plain === 'string' ? source : null;
+    this.applyLandmarkLabel();
+  }
+
+  applyLandmarkLabel() {
+    if (!this.landmarkActive || !this.node || typeof this.landmarkLabel !== 'string') {
+      return;
+    }
+
+    if (this.node.getAttribute('aria-label') !== this.landmarkLabel) {
+      this.node.setAttribute('aria-label', this.landmarkLabel);
+    }
+
+    const source = this.landmarkSource;
+    const emptyFallback = source && typeof source.emptyLabel === 'string' && source.emptyLabel !== '' ? source.emptyLabel : undefined;
+    const fallbackWhenBlank = !!(emptyFallback && source.fallbackWhenBlank);
+
+    if (source && typeof source.html === 'string' && source.html !== '') {
+      rememberEmojiMuteDisplayAttribute(this.node, 'aria-label', source.plain || '', source.html, emptyFallback, fallbackWhenBlank);
+      return;
+    }
+
+    if (source) {
+      rememberEmojiMuteAttributeSource(this.node, 'aria-label', source.plain, 'plain', emptyFallback, fallbackWhenBlank);
+      return;
+    }
+
+    forgetEmojiMuteAttributeSource(this.node, 'aria-label');
+  }
+
   componentDidMount () {
+    if (this.landmarkActive) {
+      this.applyLandmarkLabel();
+    }
+
     if (this.props.bindToDocument) {
       document.addEventListener('wheel', this.handleWheel, supportsPassiveEvents ? { passive: true } : false);
     } else {
       this.node.addEventListener('wheel', this.handleWheel, supportsPassiveEvents ? { passive: true } : false);
+    }
+  }
+
+  componentDidUpdate () {
+    if (this.landmarkActive) {
+      this.applyLandmarkLabel();
     }
   }
 

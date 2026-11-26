@@ -16,6 +16,12 @@ export function rememberEmojiMuteTextSource(node, source) {
   textSources.set(node, source);
 }
 
+export function forgetEmojiMuteTextSource(node) {
+  if (node) {
+    textSources.delete(node);
+  }
+}
+
 // The open menu and mute dialog show one projected tag. Release has to
 // project that tag again from the raw name and its image identity.
 export function rememberEmojiMuteHashtagSlot(node, slot) {
@@ -43,7 +49,18 @@ export function rememberEmojiMuteDisplayHtml(node, html) {
   textSources.set(node, { displayHtml: html });
 }
 
-export function rememberEmojiMuteAttributeSource(element, name, source, kind = 'plain') {
+// A flattened display name. plain is the shared string and html is the
+// emojify document that carries the emoji identity. Release projects this
+// pair once, so a replacement is not treated as another emoji.
+export function rememberEmojiMuteDisplayName(node, plain, html) {
+  if (!node || typeof plain !== 'string' || typeof html !== 'string') {
+    return;
+  }
+
+  textSources.set(node, { displayName: { plain, html } });
+}
+
+export function rememberEmojiMuteAttributeSource(element, name, source, kind = 'plain', emptyFallback, fallbackWhenBlank = false) {
   if (!element || typeof source !== 'string') {
     return;
   }
@@ -55,7 +72,50 @@ export function rememberEmojiMuteAttributeSource(element, name, source, kind = '
     attributeSources.set(element, sources);
   }
 
-  sources.set(name, { value: source, kind: kind === 'html' ? 'html' : 'plain' });
+  const record = { value: source, kind: kind === 'html' ? 'html' : 'plain' };
+
+  if (typeof emptyFallback === 'string') {
+    record.emptyFallback = emptyFallback;
+
+    if (fallbackWhenBlank) {
+      record.fallbackWhenBlank = true;
+    }
+  }
+
+  sources.set(name, record);
+}
+
+export function rememberEmojiMuteDisplayAttribute(element, name, plain, html, emptyFallback, fallbackWhenBlank = false) {
+  if (!element || typeof plain !== 'string' || typeof html !== 'string' || html === '') {
+    return;
+  }
+
+  let sources = attributeSources.get(element);
+
+  if (!sources) {
+    sources = new Map();
+    attributeSources.set(element, sources);
+  }
+
+  const record = { value: plain, html, kind: 'display' };
+
+  if (typeof emptyFallback === 'string') {
+    record.emptyFallback = emptyFallback;
+
+    if (fallbackWhenBlank) {
+      record.fallbackWhenBlank = true;
+    }
+  }
+
+  sources.set(name, record);
+}
+
+export function forgetEmojiMuteAttributeSource(element, name) {
+  const sources = element && attributeSources.get(element);
+
+  if (sources) {
+    sources.delete(name);
+  }
 }
 
 export function logicalEmojiMuteText(node, fallback) {
@@ -89,7 +149,29 @@ export function emojiMuteAttributeSourceKind(element, name) {
     return null;
   }
 
-  return stored.kind === 'html' ? 'html' : 'plain';
+  if (stored.kind === 'html' || stored.kind === 'display') {
+    return stored.kind;
+  }
+
+  return 'plain';
+}
+
+export function emojiMuteAttributeDisplayHtml(element, name) {
+  const stored = storedAttribute(element, name);
+
+  return stored && typeof stored.html === 'string' ? stored.html : null;
+}
+
+export function emojiMuteAttributeEmptyFallback(element, name) {
+  const stored = storedAttribute(element, name);
+
+  return stored && typeof stored.emptyFallback === 'string' ? stored.emptyFallback : null;
+}
+
+export function emojiMuteAttributeFallbackWhenBlank(element, name) {
+  const stored = storedAttribute(element, name);
+
+  return !!(stored && stored.fallbackWhenBlank);
 }
 
 export function hasEmojiMuteAttributeSource(element, name) {

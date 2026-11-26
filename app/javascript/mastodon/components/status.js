@@ -8,8 +8,9 @@ import AvatarComposite from './avatar_composite';
 import AbsoluteTimestamp from './absolute_timestamp';
 import RelativeTimestamp from './relative_timestamp';
 import DisplayName from './display_name';
-import EmojiMutedHtml, { EmojiMutedAria, EmojiMutedPlain, bindCustomEmojiClick, unbindCustomEmojiClick, customEmojiTarget } from './emoji_muted_html';
-import { countEmojiMuteParse, emojiMutedPlainText, replaceMutedEmojiInPlain, replaceUnicodeEmojiInPlainText } from 'mastodon/features/emoji/emoji_mute_text';
+import EmojiMutedHtml, { EmojiMutedAria, EmojiMutedPlain, bindCustomEmojiClick, unbindCustomEmojiClick, customEmojiTarget, withEmojiMuteTextIndex } from './emoji_muted_html';
+import { countEmojiMuteParse, emojiMutedPlainText, presentEmojiMutePlain, replaceMutedEmojiInPlain, replaceUnicodeEmojiInPlainText } from 'mastodon/features/emoji/emoji_mute_text';
+import { forgetEmojiMuteAttributeSource, rememberEmojiMuteAttributeSource, rememberEmojiMuteDisplayAttribute } from 'mastodon/features/emoji/emoji_mute_sources';
 import { attachInlineEmojiMenus, handleInlineEmojiClick } from 'mastodon/features/emoji/emoji_actions/inline_emoji';
 import ExternalSourceIdentity, { TimeLink } from './external_source_identity';
 import StatusContent from './status_content';
@@ -257,6 +258,113 @@ const projectReadableBody = (sourceBody, status, index, poll) => {
 
 // Screen-reader copy is derived at read time. search_index and the saved
 // plain strings stay shared. A hidden CW does not contribute its body.
+// Binds the raw attachment description so a later restore projects that
+// string once. A display-name fallback is not a plain ALT: its identity is
+// the display HTML, which this plain binder would project again as text.
+class DisplayEmojiMuteSource extends React.PureComponent {
+
+  static propTypes = {
+    plain: PropTypes.string,
+    html: PropTypes.string,
+    emptyFallback: PropTypes.string,
+    children: PropTypes.element.isRequired,
+  };
+
+  bind = node => {
+    if (node) {
+      this.node = node;
+    }
+
+    if (!this.node) {
+      return;
+    }
+
+    ['alt', 'aria-label', 'title'].forEach(name => {
+      if (!this.node.hasAttribute(name)) {
+        return;
+      }
+
+      if (typeof this.props.html === 'string' && this.props.html !== '') {
+        rememberEmojiMuteDisplayAttribute(this.node, name, this.props.plain || '', this.props.html, this.props.emptyFallback);
+        return;
+      }
+
+      forgetEmojiMuteAttributeSource(this.node, name);
+    });
+  };
+
+  componentDidMount() {
+    this.bind(this.node);
+  }
+
+  componentDidUpdate() {
+    this.bind(this.node);
+  }
+
+  render() {
+    return React.cloneElement(this.props.children, { ref: this.bind });
+  }
+
+}
+
+class PlainEmojiMuteSource extends React.PureComponent {
+
+  static propTypes = {
+    source: PropTypes.string,
+    emptyFallback: PropTypes.string,
+    children: PropTypes.element.isRequired,
+  };
+
+  bind = node => {
+    if (node) {
+      this.node = node;
+    }
+
+    if (this.node && typeof this.props.source === 'string') {
+      ['alt', 'aria-label', 'title'].forEach(name => {
+        if (this.node.hasAttribute(name)) {
+          rememberEmojiMuteAttributeSource(this.node, name, this.props.source, 'plain', this.props.emptyFallback);
+        }
+      });
+    }
+  };
+
+  componentDidMount() {
+    this.bind(this.node);
+  }
+
+  componentDidUpdate() {
+    this.bind(this.node);
+  }
+
+  render() {
+    return React.cloneElement(this.props.children, { ref: this.bind });
+  }
+
+}
+
+class MediaTileProjection extends React.Component {
+
+  static propTypes = {
+    text: PropTypes.string,
+    html: PropTypes.string,
+    children: PropTypes.func.isRequired,
+    emojiMuteTextIndex: PropTypes.object,
+  };
+
+  render() {
+    const text = typeof this.props.text === 'string' ? this.props.text : '';
+    const projected = typeof this.props.html === 'string'
+      ? emojiMutedPlainText(text, this.props.html, this.props.emojiMuteTextIndex)
+      : presentEmojiMutePlain(text, this.props.emojiMuteTextIndex);
+
+    return this.props.children(projected);
+  }
+
+}
+
+const SubscribedMediaTileProjection = withEmojiMuteTextIndex(MediaTileProjection);
+
 const screenReaderStatusText = (status, index, poll) => {
   const mode = statusTranslationView(status).mode;
   const sourceSpoiler = status.get('spoiler_text') || '';
@@ -1192,64 +1300,95 @@ class Status extends ImmutablePureComponent {
     const preview = attachment.get('preview_url') || (attachment.get('type') === 'image' ? attachment.get('url') : null);
     const canPreview = !concealed && preview && ['image', 'gifv', 'video'].includes(attachment.get('type'));
     const description = attachment.get('description');
-    const alt = description || status.getIn(['account', 'display_name']) || status.getIn(['account', 'username']) || '';
+    const displayName = status.getIn(['account', 'display_name']);
+    const username = status.getIn(['account', 'username']) || '';
+    const rawAlt = description || displayName || username || '';
+    // A missing ALT falls back to the display name. HTML is the emoji
+    // identity when it exists. Without it, the plain name is the source.
+    const nameHtml = !description && displayName ? (status.getIn(['account', 'display_name_html']) || '') : '';
+    const altHtml = nameHtml || undefined;
     const externalIdentity = externalIdentityOf(status);
     const aspect = original && mediaAspectRatio(attachment);
     const itemStyle = aspect ? { aspectRatio: String(aspect) } : undefined;
     const hash = attachment.get('blurhash');
     const thumbnailHash = attachment.get('thumbhash');
     const blurred = concealed && useBlurhash && (hash || thumbnailHash);
-
-    let mediaTileContent;
-    if (canPreview) {
-      mediaTileContent = <img src={preview} alt={alt} loading='lazy' />;
-    } else if (blurred) {
-      mediaTileContent = hash
-        ? <Blurhash className='timeline-media-tile__blurhash' hash={hash} />
-        : <Thumbhash className='timeline-media-tile__blurhash' hash={thumbnailHash} />;
-    } else {
-      let placeholderIcon = 'file-o';
-      if (concealed) {
-        placeholderIcon = 'eye-slash';
-      } else if (attachment.get('type') === 'audio') {
-        placeholderIcon = 'music';
-      }
-
-      mediaTileContent = (
-        <span className='timeline-media-tile__placeholder'>
-          <Icon id={placeholderIcon} />
-        </span>
-      );
-    }
+    const plainSource = description || (altHtml ? null : (displayName || username || ''));
+    const openFallback = this.props.intl.formatMessage(messages.openMediaTile);
 
     return (
-      <div className='status__wrapper status__wrapper--media-tile' data-id={status.get('id')} ref={this.handleRef}>
-        <div className='timeline-media-tile'>
-          <div className='timeline-media-tile__preview'>
+      <SubscribedMediaTileProjection text={rawAlt} html={altHtml}>
+        {alt => {
+          let mediaTileContent;
+          if (canPreview) {
+            const image = <img src={preview} alt={alt} loading='lazy' />;
+
+            if (altHtml) {
+              mediaTileContent = <DisplayEmojiMuteSource plain={displayName || ''} html={altHtml}>{image}</DisplayEmojiMuteSource>;
+            } else if (typeof plainSource === 'string') {
+              mediaTileContent = <PlainEmojiMuteSource source={plainSource}>{image}</PlainEmojiMuteSource>;
+            } else {
+              mediaTileContent = image;
+            }
+          } else if (blurred) {
+            mediaTileContent = hash
+              ? <Blurhash className='timeline-media-tile__blurhash' hash={hash} />
+              : <Thumbhash className='timeline-media-tile__blurhash' hash={thumbnailHash} />;
+          } else {
+            let placeholderIcon = 'file-o';
+            if (concealed) {
+              placeholderIcon = 'eye-slash';
+            } else if (attachment.get('type') === 'audio') {
+              placeholderIcon = 'music';
+            }
+
+            mediaTileContent = (
+              <span className='timeline-media-tile__placeholder'>
+                <Icon id={placeholderIcon} />
+              </span>
+            );
+          }
+
+          const openLabel = concealed ? this.props.intl.formatMessage(messages.revealMediaTile) : (alt || this.props.intl.formatMessage(messages.openMediaTile));
+          const openButton = (
             <button
               type='button'
               className={classNames('timeline-media-tile__open', { 'timeline-media-tile__open--original': original })}
               style={itemStyle}
               onClick={this.handleMediaTileClick}
-              aria-label={concealed ? this.props.intl.formatMessage(messages.revealMediaTile) : (alt || this.props.intl.formatMessage(messages.openMediaTile))}
+              aria-label={openLabel}
             >
               {mediaTileContent}
               {blurred && <span className='timeline-media-tile__concealed-icon'><Icon id='eye-slash' /></span>}
               {!concealed && attachment.get('type') === 'video' && <span className='timeline-media-tile__play'><Icon id='play' /></span>}
             </button>
-            {description && <div className='media-gallery__item__badges'>
-              <AltTextBadge description={description} />
-            </div>}
-          </div>
-          <button type='button' className='timeline-media-tile__source' onClick={this.handleClick} title={this.props.intl.formatMessage(messages.openMediaSource)}>
-            {externalIdentity ? (
-              <EmojiMutedPlain tag='span' plain={externalIdentityName(this.props.intl, externalIdentity)} html='' />
-            ) : (
-              <EmojiMutedPlain tag='span' plain={status.getIn(['account', 'display_name']) || status.getIn(['account', 'username']) || ''} html={status.getIn(['account', 'display_name']) ? (status.getIn(['account', 'display_name_html']) || '') : ''} />
-            )}
-          </button>
-        </div>
-      </div>
+          );
+
+          return (
+            <div className='status__wrapper status__wrapper--media-tile' data-id={status.get('id')} ref={this.handleRef}>
+              <div className='timeline-media-tile'>
+                <div className='timeline-media-tile__preview'>
+                  {altHtml ? (
+                    <DisplayEmojiMuteSource plain={displayName || ''} html={concealed ? '' : altHtml} emptyFallback={concealed ? undefined : openFallback}>{openButton}</DisplayEmojiMuteSource>
+                  ) : (typeof plainSource === 'string' ? (
+                    <PlainEmojiMuteSource source={concealed ? openLabel : plainSource} emptyFallback={concealed ? undefined : openFallback}>{openButton}</PlainEmojiMuteSource>
+                  ) : openButton)}
+                  {description && <div className='media-gallery__item__badges'>
+                    <AltTextBadge description={alt} rawOriginal={description} />
+                  </div>}
+                </div>
+                <button type='button' className='timeline-media-tile__source' onClick={this.handleClick} title={this.props.intl.formatMessage(messages.openMediaSource)}>
+                  {externalIdentity ? (
+                    <EmojiMutedPlain tag='span' plain={externalIdentityName(this.props.intl, externalIdentity)} html='' />
+                  ) : (
+                    <EmojiMutedPlain tag='span' plain={status.getIn(['account', 'display_name']) || status.getIn(['account', 'username']) || ''} html={status.getIn(['account', 'display_name']) ? (status.getIn(['account', 'display_name_html']) || '') : ''} />
+                  )}
+                </button>
+              </div>
+            </div>
+          );
+        }}
+      </SubscribedMediaTileProjection>
     );
   }
 

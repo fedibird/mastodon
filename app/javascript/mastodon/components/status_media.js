@@ -6,6 +6,8 @@ import { FormattedMessage } from 'react-intl';
 import Bundle from '../features/ui/components/bundle';
 import { MediaGallery, Video, Audio } from '../features/ui/util/async-components';
 import { attachmentAccessibility } from 'mastodon/utils/translation_view';
+import { withEmojiMuteTextIndex } from 'mastodon/components/emoji_muted_html';
+import { presentEmojiMutePlain } from 'mastodon/features/emoji/emoji_mute_text';
 import { cropImages, displayMedia, maxAttachments } from '../initial_state';
 import { mediaGalleryAspectRatio } from 'mastodon/utils/media_gallery_layout';
 
@@ -385,7 +387,7 @@ AudioConcealed.propTypes = {
   onToggleVisibility: PropTypes.func,
 };
 
-export const LocalMediaPlayer = ({
+const LocalMediaPlayerView = ({
   attachment,
   Video: VideoComponent,
   Audio: AudioComponent,
@@ -404,12 +406,15 @@ export const LocalMediaPlayer = ({
   translationMode,
   sourceLang,
   targetLang,
+  emojiMuteTextIndex,
 }) => {
   const described = attachmentAccessibility(attachment, {
     mode: translationMode,
     sourceLang,
     targetLang,
   });
+  const describedSource = typeof described.text === 'string' ? described.text : '';
+  const describedText = presentEmojiMutePlain(describedSource, emojiMuteTextIndex);
   const type = attachment.get('type');
 
   if (type === 'audio') {
@@ -420,7 +425,8 @@ export const LocalMediaPlayer = ({
     return (
       <AudioComponent
         src={attachment.get('url')}
-        alt={described.text}
+        alt={describedText}
+        emojiMuteSource={describedSource}
         lang={described.lang}
         poster={attachment.get('preview_url') || posterFallback}
         backgroundColor={attachment.getIn(['meta', 'colors', 'background'])}
@@ -442,7 +448,8 @@ export const LocalMediaPlayer = ({
       thumbhash={attachment.get('thumbhash')}
       blurhash={attachment.get('blurhash')}
       src={attachment.get('url')}
-      alt={described.text}
+      alt={describedText}
+      emojiMuteSource={describedSource}
       lang={described.lang}
       width={width}
       height={height}
@@ -459,7 +466,7 @@ export const LocalMediaPlayer = ({
   );
 };
 
-LocalMediaPlayer.propTypes = {
+LocalMediaPlayerView.propTypes = {
   attachment: ImmutablePropTypes.map.isRequired,
   Video: PropTypes.func,
   Audio: PropTypes.func,
@@ -478,7 +485,10 @@ LocalMediaPlayer.propTypes = {
   translationMode: PropTypes.string,
   sourceLang: PropTypes.string,
   targetLang: PropTypes.string,
+  emojiMuteTextIndex: PropTypes.object,
 };
+
+export const LocalMediaPlayer = withEmojiMuteTextIndex(LocalMediaPlayerView);
 
 export default class StatusMediaStack extends React.PureComponent {
 
