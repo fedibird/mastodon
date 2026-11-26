@@ -167,7 +167,7 @@ export function createIndexedDbDraftBackend ({ openDatabase = openComposerDraftD
       return database().then(db => requestToPromise(db.transaction(COMPOSER_DRAFT_STORE, 'readonly').objectStore(COMPOSER_DRAFT_STORE).get([String(accountId), String(clientDraftUuid)])));
     },
 
-    noteSyncBase (accountId, clientDraftUuid, previous, next) {
+    noteSyncBase (accountId, clientDraftUuid, previous, next, contentHash) {
       return database().then(db => new Promise((resolve, reject) => {
         const tx = db.transaction(COMPOSER_DRAFT_STORE, 'readwrite');
         const store = tx.objectStore(COMPOSER_DRAFT_STORE);
@@ -180,7 +180,7 @@ export function createIndexedDbDraftBackend ({ openDatabase = openComposerDraftD
 
           decision = { status: 'kept', record: row };
 
-          if (row && sameSyncBase(row.sync_base, previous)) {
+          if (row && row.content_hash === contentHash && sameSyncBase(row.sync_base, previous)) {
             const record = { ...row, sync_base: next };
 
             decision = { status: 'saved', record };
@@ -750,12 +750,12 @@ export function createMemoryDraftBackend () {
       return exclusive(async () => records.get(`${accountId}\u0000${clientDraftUuid}`) || null);
     },
 
-    noteSyncBase (accountId, clientDraftUuid, previous, next) {
+    noteSyncBase (accountId, clientDraftUuid, previous, next, contentHash) {
       return exclusive(async () => {
         const key = `${accountId}\u0000${clientDraftUuid}`;
         const current = records.get(key);
 
-        if (!current || !sameSyncBase(current.sync_base, previous)) {
+        if (!current || current.content_hash !== contentHash || !sameSyncBase(current.sync_base, previous)) {
           return { status: 'kept', record: current || null };
         }
 

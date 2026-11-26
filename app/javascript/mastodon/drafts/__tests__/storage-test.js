@@ -421,9 +421,9 @@ describe('composer draft storage', () => {
       input: { text: 'edited' },
     }, { baseRevision: 0, stillCurrent: () => true, isDiscarded: () => false });
 
-    expect((await backend.noteSyncBase('42', 'draft-1', { recorded: true, revision: 9, draft_id: '15', hash: 'other' }, next)).status).toBe('kept');
+    expect((await backend.noteSyncBase('42', 'draft-1', previous, next, 'hash-other')).status).toBe('kept');
     expect((await backend.readDraft('42', 'draft-1')).sync_base.revision).toBe(5);
-    expect((await backend.noteSyncBase('42', 'draft-1', previous, next)).status).toBe('saved');
+    expect((await backend.noteSyncBase('42', 'draft-1', previous, next, 'hash-edited')).status).toBe('saved');
     expect((await backend.readDraft('42', 'draft-1')).sync_base).toEqual(next);
     expect((await backend.readDraft('42', 'draft-1')).input.text).toBe('edited');
   });

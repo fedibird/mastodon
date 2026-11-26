@@ -1,3 +1,4 @@
+import { createMemoryDraftBackend } from '../storage';
 import {
   SERVER_DRAFT_CONFLICT_COPY,
   canonicalJson,
@@ -1361,6 +1362,95 @@ describe('post draft server sync', () => {
 
     expect(calls).toEqual([]);
     expect(sync.snapshot().accountId).toBe('7');
+  });
+
+  it('does not rebase another text that only shares the acknowledged base', async () => {
+    const backend = createMemoryDraftBackend();
+    const base = { recorded: true, revision: 5, draft_id: '15', hash: 'hash-base' };
+    const ack = { recorded: true, revision: 6, draft_id: '15', hash: 'hash-a' };
+
+    await backend.writeDraft({
+      schema_version: 1,
+      account_id: '42',
+      client_draft_uuid: UUID,
+      content_hash: 'hash-b',
+      sync_base: base,
+      input: { text: 'other' },
+    }, { baseRevision: 0, stillCurrent: () => true, isDiscarded: () => false });
+    expect((await backend.noteSyncBase('42', UUID, base, ack, 'hash-a')).status).toBe('kept');
+
+    const ledger = createMemorySyncLedger();
+
+    await ledger.write({
+      account_id: '42',
+      client_uuid: UUID,
+      server_draft_id: '15',
+      server_revision: 6,
+      acked_hash: 'hash-a',
+      cursor_version: 1,
+    });
+
+    const { sync, calls } = harness(() => Promise.resolve({ status: 500, body: {} }), { ledger, deferResume: true });
+    const other = await backend.readDraft('42', UUID);
+
+    sync.bindAccount('42');
+    await sync.resume(() => Promise.resolve([other]));
+
+    expect(calls).toEqual([]);
+    expect(sync.snapshot().drafts[UUID].reason).toBe('unbased');
+    expect((await backend.readDraft('42', UUID)).sync_base.revision).toBe(5);
+  });
+
+  it('sends a draft that appears while startup is reading another draft', async () => {
+    const other = '22222222-2222-4222-8222-222222222222';
+    let release;
+    let holdFirstRead = true;
+    const ledger = {
+      list: () => Promise.resolve([]),
+      commit: (accountId, clientUuid, proposed) => Promise.resolve({
+        accepted: true,
+        rejected: false,
+        reason: proposed.transition || 'created',
+        record: {
+          ...(proposed || {}),
+          account_id: accountId,
+          client_uuid: clientUuid,
+          cursor_version: 1,
+        },
+      }),
+      read: (accountId, clientUuid) => {
+        if (clientUuid === UUID && holdFirstRead) {
+          return new Promise((resolve) => {
+            release = () => {
+              holdFirstRead = false;
+              resolve(null);
+            };
+          });
+        }
+
+        return Promise.resolve(null);
+      },
+    };
+    const { sync, calls, fire } = harness(spec => Promise.resolve(created(spec, 1)), { ledger, deferResume: true, serverDebounceMs: 0 });
+
+    sync.bindAccount('42');
+    const pending = sync.resume(() => Promise.resolve([snapshot('first')]));
+
+    await waitFor(() => typeof release === 'function');
+    await sync.observeLocal({
+      accountId: '42',
+      clientUuid: other,
+      localRevision: 1,
+      contentHash: 'hash-second',
+      payload: { ...snapshot('second', other), content_hash: 'hash-second' },
+      editGeneration: 1,
+      sessionId: 'boot',
+    });
+    release();
+    await pending;
+    await fire(0);
+
+    expect(calls.map(call => call.body.client_uuid).sort()).toEqual([UUID, other].sort());
   });
 });
 

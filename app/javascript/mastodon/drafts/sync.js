@@ -631,6 +631,7 @@ export function createPostDraftSync ({
         return 'rejected';
       }
 
+      const sentHash = job.intent ? job.intent.hash : job.contentHash;
       const previousBase = {
         recorded: true,
         revision: job.intent ? job.intent.baseRevision : null,
@@ -641,9 +642,9 @@ export function createPostDraftSync ({
       adoptCommit(job, merged);
 
       if (merged.reason === 'finished') {
-        job.baseVerified = true;
+        job.verifiedHash = sentHash;
+        job.baseVerified = job.contentHash === sentHash && !job.pendingDirty;
         job.unbased = false;
-        job.verifiedHash = job.contentHash;
         job.previousBase = previousBase;
         job.syncBase = {
           recorded: true,
@@ -658,7 +659,7 @@ export function createPostDraftSync ({
             clientUuid: job.clientUuid,
             previous: previousBase,
             next: job.syncBase,
-            contentHash: job.contentHash,
+            contentHash: sentHash,
           })).catch(() => undefined);
         }
       }
@@ -1545,6 +1546,25 @@ export function createPostDraftSync ({
       return Promise.resolve(false);
     }
 
+    const incomingBase = input.payload && input.payload.sync_base;
+    const foreignBase = incomingBase && (
+      incomingBase.recorded === false
+      || (incomingBase.recorded === true && job.syncBase && job.syncBase.recorded === true && !sameSyncBase(incomingBase, job.syncBase) && !sameSyncBase(incomingBase, job.previousBase))
+    );
+
+    if (foreignBase && job.ackedRevision && input.contentHash !== job.ackedHash) {
+      job.contentHash = input.contentHash || job.contentHash;
+      job.payload = input.payload;
+      job.baseVerified = false;
+      job.unbased = true;
+      job.pendingSend = false;
+      job.verifiedHash = null;
+      job.status = 'local';
+      job.reason = 'unbased';
+      emit();
+      return Promise.resolve(true);
+    }
+
     if (job.intent && job.intent.unresolved && input.contentHash !== job.intent.hash) {
       job.accountId = bound;
       job.localRevision = Number(input.localRevision) || job.localRevision;
@@ -1569,8 +1589,6 @@ export function createPostDraftSync ({
       job.pendingDirty = false;
       job.pendingHash = null;
     }
-
-    const incomingBase = input.payload && input.payload.sync_base;
 
     if (incomingBase && incomingBase.recorded === true && job.syncBase && job.syncBase.recorded === true && job.baseVerified && !sameSyncBase(incomingBase, job.syncBase) && !sameSyncBase(incomingBase, job.previousBase)) {
       job.baseVerified = false;
@@ -1942,6 +1960,96 @@ export function createPostDraftSync ({
 
     const stillHere = () => sentEpoch === epoch && bound === accountId && ticket === protectionTicket;
 
+    const settleResume = (job, listedRecord, cursor) => {
+      const source = job.editedDuringBoot && job.payload ? job.payload : listedRecord;
+
+      if (!source) {
+        job.pendingSend = false;
+        return;
+      }
+
+      if (!job.editedDuringBoot) {
+        job.contentHash = source.content_hash;
+        job.payload = source;
+        job.localRevision = Number(source.revision) || 0;
+      }
+
+      const mode = resumeMode(source, cursor);
+      const newerDirty = job.pendingDirty && job.pendingHash && job.pendingHash !== source.content_hash;
+
+      job.verifiedHash = source.content_hash || null;
+      job.syncBase = source.sync_base && source.sync_base.recorded === true ? source.sync_base : null;
+
+      if (mode === 'protected') {
+        if (cursor) {
+          applyCursor(job, cursor);
+        }
+
+        job.baseVerified = false;
+        job.pendingSend = false;
+
+        if (cursor && cursor.intent_kind && !cursor.tombstone && !cursor.conflict) {
+          job.status = 'local';
+          job.reason = 'intent_held';
+        }
+
+        return;
+      }
+
+      if (mode === 'synced' && job.contentHash === source.content_hash && !newerDirty) {
+        applyCursor(job, cursor);
+        job.baseVerified = true;
+        job.unbased = false;
+        job.pendingSend = false;
+        job.status = 'synced';
+        job.reason = null;
+        return;
+      }
+
+      if (mode === 'synced' && newerDirty) {
+        applyCursor(job, cursor);
+        job.baseVerified = false;
+        job.pendingSend = false;
+        job.status = 'local';
+        job.reason = 'dirty';
+        return;
+      }
+
+      if (mode === 'create' && !cursor) {
+        job.baseVerified = true;
+        job.unbased = false;
+        job.ackedRevision = null;
+        job.serverDraftId = null;
+        job.ackedHash = null;
+        job.ackDirect = false;
+        job.pendingSend = true;
+        return;
+      }
+
+      if (mode === 'patch' && job.contentHash === source.content_hash && !newerDirty) {
+        applyCursor(job, cursor);
+        job.baseVerified = true;
+        job.unbased = false;
+        job.pendingSend = job.contentHash !== job.ackedHash;
+        return;
+      }
+
+      if ((job.intent && job.intent.unresolved) || job.baseVerified) {
+        return;
+      }
+
+      job.baseVerified = false;
+      job.unbased = true;
+      job.ackedRevision = null;
+      job.serverDraftId = null;
+      job.ackedHash = null;
+      job.ackDirect = false;
+      job.pendingSend = false;
+      job.verifiedHash = null;
+      job.status = 'local';
+      job.reason = 'unbased';
+    };
+
     for (const id of ids) {
       if (!stillHere()) {
         return;
@@ -1965,85 +2073,41 @@ export function createPostDraftSync ({
         return;
       }
 
-      const job = ensureJob(id);
-      const listedRecord = listed.get(id) || null;
-      const source = job.editedDuringBoot && job.payload ? job.payload : listedRecord;
+      settleResume(ensureJob(id), listed.get(id) || null, cursor);
+    }
 
-      if (!source) {
-        job.pendingSend = false;
-        continue;
+    const late = [];
+
+    jobs.forEach((job, id) => {
+      if (job.editedDuringBoot && (!ids.has(id) || (job.verifiedHash && job.contentHash !== job.verifiedHash))) {
+        late.push(id);
+      }
+    });
+
+    for (const id of late) {
+      if (!stillHere()) {
+        return;
       }
 
-      if (!job.editedDuringBoot) {
-        job.contentHash = source.content_hash;
-        job.payload = source;
-        job.localRevision = Number(source.revision) || 0;
-      }
+      let cursor = null;
 
-      const mode = resumeMode(source, cursor);
+      if (typeof ledger.read === 'function') {
+        try {
+          cursor = await ledger.read(accountId, id);
+        } catch (_error) {
+          if (ticket === protectionTicket) {
+            finishProtection('unavailable');
+          }
 
-      job.verifiedHash = source.content_hash || null;
-      job.syncBase = source.sync_base && source.sync_base.recorded === true ? source.sync_base : null;
-
-      if (mode === 'protected') {
-        if (cursor) {
-          applyCursor(job, cursor);
+          return;
         }
-
-        job.baseVerified = false;
-        job.pendingSend = false;
-
-        if (cursor && cursor.intent_kind && !cursor.tombstone && !cursor.conflict) {
-          job.status = 'local';
-          job.reason = 'intent_held';
-        }
-
-        continue;
       }
 
-      if (mode === 'synced' && job.contentHash === source.content_hash) {
-        applyCursor(job, cursor);
-        job.baseVerified = true;
-        job.unbased = false;
-        job.pendingSend = false;
-        job.status = 'synced';
-        job.reason = null;
-        continue;
+      if (!stillHere()) {
+        return;
       }
 
-      if (mode === 'create' && !cursor) {
-        job.baseVerified = true;
-        job.unbased = false;
-        job.ackedRevision = null;
-        job.serverDraftId = null;
-        job.ackedHash = null;
-        job.ackDirect = false;
-        job.pendingSend = true;
-        continue;
-      }
-
-      if (mode === 'patch' && job.contentHash === source.content_hash) {
-        applyCursor(job, cursor);
-        job.baseVerified = true;
-        job.unbased = false;
-        job.pendingSend = job.contentHash !== job.ackedHash;
-        continue;
-      }
-
-      if ((job.intent && job.intent.unresolved) || job.baseVerified) {
-        continue;
-      }
-
-      job.baseVerified = false;
-      job.unbased = true;
-      job.ackedRevision = null;
-      job.serverDraftId = null;
-      job.ackedHash = null;
-      job.ackDirect = false;
-      job.pendingSend = false;
-      job.verifiedHash = null;
-      job.status = 'local';
-      job.reason = 'unbased';
+      settleResume(jobs.get(id), null, cursor);
     }
 
     if (!stillHere()) {

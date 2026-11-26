@@ -156,6 +156,7 @@ export function createComposerDraftSession ({
 
     surface.clientDraftUuid = null;
     surface.baseRevision = 0;
+    surface.restoredBase = null;
     surface.lastHash = null;
     surface.persistedHash = null;
     surface.scheduledHash = null;
@@ -205,6 +206,7 @@ export function createComposerDraftSession ({
           ...queued.snapshot,
           client_draft_uuid: nextUuid,
         };
+        delete snapshot.sync_base;
       } else if (surface.stateRef) {
         snapshot = snapshotComposerDraft(surface.stateRef, {
           accountId,
@@ -217,6 +219,7 @@ export function createComposerDraftSession ({
       claimed.delete(clientDraftUuid);
       surface.clientDraftUuid = nextUuid;
       surface.baseRevision = 0;
+      surface.restoredBase = { recorded: false };
       surface.lastHash = null;
       surface.persistedHash = null;
       surface.scheduledHash = null;
@@ -647,24 +650,18 @@ export function createComposerDraftSession ({
 
     refreshOffers,
 
-    noteAcknowledged ({ accountId, clientUuid, previous, next }) {
-      if (!backend || typeof backend.noteSyncBase !== 'function' || !previous || !next) {
+    noteAcknowledged ({ accountId, clientUuid, previous, next, contentHash }) {
+      if (!backend || typeof backend.noteSyncBase !== 'function' || !previous || !next || !contentHash) {
         return Promise.resolve({ status: 'kept' });
       }
 
       surfaces.forEach((surface) => {
-        if (surface.clientDraftUuid === clientUuid && surface.restoredBase && surface.restoredBase.recorded === true) {
-          const same = Number(surface.restoredBase.revision || 0) === Number(previous.revision || 0)
-            && String(surface.restoredBase.draft_id || '') === String(previous.draft_id || '')
-            && (surface.restoredBase.hash || null) === (previous.hash || null);
-
-          if (same) {
-            surface.restoredBase = next;
-          }
+        if (surface.clientDraftUuid === clientUuid && surface.persistedHash === contentHash && surface.restoredBase && surface.restoredBase.recorded === true) {
+          surface.restoredBase = next;
         }
       });
 
-      return backend.noteSyncBase(accountId, clientUuid, previous, next);
+      return backend.noteSyncBase(accountId, clientUuid, previous, next, contentHash);
     },
 
     flush () {
@@ -1114,7 +1111,7 @@ export function createComposerDraftSession ({
           let syncBase = null;
 
           if (surface.restoredBase) {
-            syncBase = surface.restoredBase.recorded === true ? surface.restoredBase : null;
+            syncBase = surface.restoredBase.recorded === true ? surface.restoredBase : { recorded: false };
           } else if (serverSync && typeof serverSync.localBase === 'function') {
             syncBase = serverSync.localBase(surface.clientDraftUuid);
           }
