@@ -7,6 +7,10 @@ import { List as ImmutableList } from 'immutable';
 import ImmutablePropTypes from 'react-immutable-proptypes';
 import Column from '../../components/column';
 import ColumnHeader from '../../components/column_header';
+import EmojiMuteColumnLandmark from '../../components/emoji_mute_column_landmark';
+import { EmojiMutedPlain, withEmojiMuteTextIndex } from '../../components/emoji_muted_html';
+import { presentEmojiMutePlain } from 'mastodon/features/emoji/emoji_mute_text';
+import { rememberEmojiMuteTextSource } from 'mastodon/features/emoji/emoji_mute_sources';
 import Icon from '../../components/icon';
 import StatusList from '../../components/status_list';
 import { addColumn, changeColumnParams, moveColumn, removeColumn } from '../../actions/columns';
@@ -92,6 +96,67 @@ const mapStateToProps = (state, { columnId, params }) => {
     accounts: state.get('accounts'),
   };
 };
+
+const userFacingNoticeName = (item) => {
+  const label = item && item.label;
+  const key = item && item.key;
+
+  if (typeof label !== 'string' || label === '' || label === key) {
+    return null;
+  }
+
+  return label;
+};
+
+// The translated sentence stays one text node. The WeakMap records that
+// sentence with the raw name, so a replacement is not scanned again.
+class MixUserNoticeInner extends React.PureComponent {
+
+  static propTypes = {
+    message: PropTypes.object.isRequired,
+    name: PropTypes.string.isRequired,
+    intl: PropTypes.object.isRequired,
+    emojiMuteTextIndex: PropTypes.object,
+  };
+
+  componentDidMount() {
+    this.bindSource();
+  }
+
+  componentDidUpdate() {
+    this.bindSource();
+  }
+
+  setNode = (node) => {
+    this.node = node;
+  };
+
+  rawSentence() {
+    return this.props.intl.formatMessage(this.props.message, { name: this.props.name });
+  }
+
+  bindSource() {
+    if (!this.node) {
+      return;
+    }
+
+    const text = Array.from(this.node.childNodes).find(node => node.nodeType === Node.TEXT_NODE);
+
+    if (text) {
+      rememberEmojiMuteTextSource(text, this.rawSentence());
+    }
+  }
+
+  render() {
+    const raw = this.rawSentence();
+    const shown = presentEmojiMutePlain(raw, this.props.emojiMuteTextIndex);
+
+    return <span ref={this.setNode}>{shown}</span>;
+  }
+
+}
+
+const MixUserNotice = withEmojiMuteTextIndex(MixUserNoticeInner);
 
 export const mixTimelineMode = ({ mix }) => {
   if (!mix) {
@@ -405,10 +470,14 @@ export class MixTimelinePage extends React.PureComponent {
       const incomplete = view.incomplete && view.incomplete.length ? view.incomplete : (view.suspended || []);
 
       incomplete.forEach(item => {
+        const userName = userFacingNoticeName(item);
+
         notices.push({
           key: `gap-${item.key}`,
           sourceKey: item.key,
-          text: intl.formatMessage(messages.incomplete, { name: item.label || item.key }),
+          message: messages.incomplete,
+          userName,
+          text: userName ? null : intl.formatMessage(messages.incomplete, { name: item.label || item.key }),
           retry: true,
           scope: pane === 'history' ? 'history' : null,
         });
@@ -419,6 +488,7 @@ export class MixTimelinePage extends React.PureComponent {
       }
 
       (view.errors || []).forEach(item => {
+        const userName = userFacingNoticeName(item);
         const name = item.label || item.key;
         let message = messages.sourceUnavailable;
 
@@ -433,7 +503,9 @@ export class MixTimelinePage extends React.PureComponent {
         notices.push({
           key: `error-${item.key}`,
           sourceKey: item.key,
-          text: intl.formatMessage(message, { name }),
+          message,
+          userName,
+          text: userName ? null : intl.formatMessage(message, { name }),
           retry: item.error === 'server' || (item.error === 'rate_limit' && !rateLimited),
           scope: pane === 'history' ? 'history' : null,
         });
@@ -454,9 +526,13 @@ export class MixTimelinePage extends React.PureComponent {
 
     if (view && view.restOnly && view.restOnly.length) {
       view.restOnly.forEach(item => {
+        const userName = userFacingNoticeName(item);
+
         notices.push({
           key: `rest-${item.key}`,
-          text: intl.formatMessage(messages.restOnly, { name: item.label || item.key }),
+          message: messages.restOnly,
+          userName,
+          text: userName ? null : intl.formatMessage(messages.restOnly, { name: item.label || item.key }),
           refresh: item.key,
         });
       });
@@ -464,9 +540,13 @@ export class MixTimelinePage extends React.PureComponent {
 
     if (view && view.offline && view.offline.length) {
       view.offline.forEach(item => {
+        const userName = userFacingNoticeName(item);
+
         notices.push({
           key: `offline-${item.key}`,
-          text: intl.formatMessage(messages.streamOffline, { name: item.label || item.key }),
+          message: messages.streamOffline,
+          userName,
+          text: userName ? null : intl.formatMessage(messages.streamOffline, { name: item.label || item.key }),
         });
       });
     }
@@ -483,9 +563,17 @@ export class MixTimelinePage extends React.PureComponent {
     return notices;
   };
 
+  renderNoticeText = (notice) => {
+    if (!notice.userName) {
+      return notice.text;
+    }
+
+    return <MixUserNotice message={notice.message} name={notice.userName} intl={this.props.intl} />;
+  };
+
   renderNotices = (view, pane) => this.buildNotices(view, pane).map(notice => (
     <p key={notice.key || notice.text} className='mix-editor__notice'>
-      {notice.reveal ? null : (notice.text || notice)}
+      {notice.reveal ? null : this.renderNoticeText(notice)}
       {notice.retry && (
         <button type='button' className='button button-secondary' data-source-key={notice.sourceKey || notice.key} data-scope={notice.scope || undefined} onClick={this.handleRetry}>
           {this.props.intl.formatMessage(messages.retrySource, { name: notice.sourceKey || notice.key })}
@@ -522,6 +610,25 @@ export class MixTimelinePage extends React.PureComponent {
     if (this.props.columnId) {
       this.props.dispatch(changeColumnParams(this.props.columnId, 'columnWidth', value));
     }
+  };
+
+  bindColumn = (column) => {
+    this.column = column;
+
+    if (this.forwardColumnRef) {
+      this.forwardColumnRef(column);
+    }
+
+    if (column && this.landmarkLabel !== undefined && typeof column.setLandmarkLabel === 'function') {
+      column.setLandmarkLabel(this.landmarkLabel, this.landmarkSource);
+    }
+  };
+
+  mixColumn = () => this.column;
+
+  holdLandmark = (label, source) => {
+    this.landmarkLabel = label;
+    this.landmarkSource = source || null;
   };
 
   setInfoButton = (node) => {
@@ -561,6 +668,10 @@ export class MixTimelinePage extends React.PureComponent {
     const mode = mixTimelineMode({ mix });
     const plain = mode === 'ready' ? plainMix(mix) : null;
     const title = plain ? plain.title : intl.formatMessage(messages.heading);
+    const projectTitle = !!(plain && typeof plain.title === 'string' && plain.title !== '');
+    const visibleTitle = projectTitle ? (
+      <EmojiMutedPlain tag='span' plain={plain.title} html='' />
+    ) : title;
     const statusIds = view && view.statusIds ? view.statusIds : ImmutableList();
     const noticeNodes = this.renderNotices(view, 'single');
 
@@ -635,85 +746,90 @@ export class MixTimelinePage extends React.PureComponent {
         onSaveReturnAnchor={this.handleSaveAnchor}
         onClearReturnAnchor={this.handleClearAnchor}
       >
-        {split => (
-          <Column bindToDocument={!multiColumn} ref={split.setColumnRef} label={title} columnWidth={columnWidth}>
-            <ColumnHeader
-              layoutScope='mixTimeline'
-              columnId={columnId}
-              icon='random'
-              title={title}
-              onPin={mode === 'ready' ? this.handlePin : undefined}
-              onMove={this.handleMove}
-              onClick={split.handleHeaderClick}
-              onWidthChange={this.handleWidthChange}
-              pinned={!!columnId}
-              multiColumn={multiColumn}
-              columnWidth={columnWidth}
-              extraButton={mode === 'ready' ? (
+        {split => {
+          this.forwardColumnRef = split.setColumnRef;
+
+          return (
+            <Column bindToDocument={!multiColumn} ref={this.bindColumn} label={typeof title === 'string' ? title : ''} columnWidth={columnWidth}>
+              <EmojiMuteColumnLandmark column={this.mixColumn} holdLabel={this.holdLandmark} plain={typeof title === 'string' ? title : ''} html='' project={projectTitle} emptyLabel={intl.formatMessage(messages.heading)} />
+              <ColumnHeader
+                layoutScope='mixTimeline'
+                columnId={columnId}
+                icon='random'
+                title={visibleTitle}
+                onPin={mode === 'ready' ? this.handlePin : undefined}
+                onMove={this.handleMove}
+                onClick={split.handleHeaderClick}
+                onWidthChange={this.handleWidthChange}
+                pinned={!!columnId}
+                multiColumn={multiColumn}
+                columnWidth={columnWidth}
+                extraButton={mode === 'ready' ? (
+                  <React.Fragment>
+                    <button
+                      type='button'
+                      className={classNames('column-header__button', 'mix-column__info', { active: this.state.infoOpen })}
+                      title={intl.formatMessage(messages.mixInfo)}
+                      aria-label={intl.formatMessage(messages.mixInfo)}
+                      aria-expanded={this.state.infoOpen}
+                      aria-controls={`mix-info-${this.props.columnKey || mixId || 'mix'}`}
+                      onClick={this.handleToggleInfo}
+                      onKeyDown={this.handleInfoButtonKeyDown}
+                      ref={this.setInfoButton}
+                    >
+                      <Icon id='info-circle' />
+                    </button>
+                    {split.splitButton}
+                    {split.closeLiveButton}
+                  </React.Fragment>
+                ) : undefined}
+                appendContent={mode === 'ready' && this.state.infoOpen ? (
+                  <MixInfoPanel
+                    id={`mix-info-${this.props.columnKey || mixId || 'mix'}`}
+                    intl={intl}
+                    mix={mix}
+                    mixId={mixId}
+                    lists={this.props.lists}
+                    accounts={this.props.accounts}
+                    onKeyDown={this.handleInfoKeyDown}
+                  />
+                ) : null}
+                showBackButton
+              />
+              {mode !== 'ready' || !split.isSplit ? body : (
                 <React.Fragment>
-                  <button
-                    type='button'
-                    className={classNames('column-header__button', 'mix-column__info', { active: this.state.infoOpen })}
-                    title={intl.formatMessage(messages.mixInfo)}
-                    aria-label={intl.formatMessage(messages.mixInfo)}
-                    aria-expanded={this.state.infoOpen}
-                    aria-controls={`mix-info-${this.props.columnKey || mixId || 'mix'}`}
-                    onClick={this.handleToggleInfo}
-                    onKeyDown={this.handleInfoButtonKeyDown}
-                    ref={this.setInfoButton}
-                  >
-                    <Icon id='info-circle' />
-                  </button>
-                  {split.splitButton}
-                  {split.closeLiveButton}
+                  <div className='timeline-split' style={{ '--timeline-split-ratio': split.ratio }}>
+                    <div className='timeline-split__pane timeline-split__pane--live'>
+                      {list(liveView ? liveView.statusIds : ImmutableList(), {
+                        key: 'live',
+                        view: liveView,
+                        badgesFor: this.badgesForLive,
+                        hasMore: false,
+                        isLoading: false,
+                        trackIntersection: false,
+                        prepend: this.renderNotices(liveView, 'live'),
+                      })}
+                    </div>
+                    {split.splitter}
+                    <div className='timeline-split__pane timeline-split__pane--history'>
+                      {list(historyView ? historyView.statusIds : ImmutableList(), {
+                        key: 'history',
+                        readingSurface: true,
+                        view: historyView,
+                        badgesFor: this.badgesForHistory,
+                        hasMore: !!(historyView && historyView.hasMore),
+                        isLoading: !!(historyView && (historyView.waiting || historyView.running)),
+                        trackIntersection: true,
+                        onLoadMore: this.handleLoadHistory,
+                        prepend: this.renderNotices(historyView, 'history'),
+                      })}
+                    </div>
+                  </div>
                 </React.Fragment>
-              ) : undefined}
-              appendContent={mode === 'ready' && this.state.infoOpen ? (
-                <MixInfoPanel
-                  id={`mix-info-${this.props.columnKey || mixId || 'mix'}`}
-                  intl={intl}
-                  mix={mix}
-                  mixId={mixId}
-                  lists={this.props.lists}
-                  accounts={this.props.accounts}
-                  onKeyDown={this.handleInfoKeyDown}
-                />
-              ) : null}
-              showBackButton
-            />
-            {mode !== 'ready' || !split.isSplit ? body : (
-              <React.Fragment>
-                <div className='timeline-split' style={{ '--timeline-split-ratio': split.ratio }}>
-                  <div className='timeline-split__pane timeline-split__pane--live'>
-                    {list(liveView ? liveView.statusIds : ImmutableList(), {
-                      key: 'live',
-                      view: liveView,
-                      badgesFor: this.badgesForLive,
-                      hasMore: false,
-                      isLoading: false,
-                      trackIntersection: false,
-                      prepend: this.renderNotices(liveView, 'live'),
-                    })}
-                  </div>
-                  {split.splitter}
-                  <div className='timeline-split__pane timeline-split__pane--history'>
-                    {list(historyView ? historyView.statusIds : ImmutableList(), {
-                      key: 'history',
-                      readingSurface: true,
-                      view: historyView,
-                      badgesFor: this.badgesForHistory,
-                      hasMore: !!(historyView && historyView.hasMore),
-                      isLoading: !!(historyView && (historyView.waiting || historyView.running)),
-                      trackIntersection: true,
-                      onLoadMore: this.handleLoadHistory,
-                      prepend: this.renderNotices(historyView, 'history'),
-                    })}
-                  </div>
-                </div>
-              </React.Fragment>
-            )}
-          </Column>
-        )}
+              )}
+            </Column>
+          );
+        }}
       </TimelineSplitControllerCore>
     );
   }

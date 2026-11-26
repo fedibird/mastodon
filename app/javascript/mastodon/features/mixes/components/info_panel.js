@@ -1,6 +1,7 @@
 import React from 'react';
 import PropTypes from 'prop-types';
 import { Link } from 'react-router-dom';
+import { EmojiMutedPlain } from 'mastodon/components/emoji_muted_html';
 import Icon from 'mastodon/components/icon';
 import { describeMixSource } from 'mastodon/mix/source_badges';
 import { plainMix } from 'mastodon/mix/definition';
@@ -33,7 +34,9 @@ export default class MixInfoPanel extends React.PureComponent {
     return (
       <li key={row.key || index} className='mix-info__source'>
         <Icon id={row.icon} className='mix-info__icon' fixedWidth aria-hidden='true' />
-        <span className='mix-info__label'>{row.label}</span>
+        <span className='mix-info__label'>
+          {row.showChip ? <EmojiMutedPlain tag='span' plain={row.label || ''} html='' /> : row.label}
+        </span>
         {row.showChip && <span className='mix-info__chip'>{row.typeLabel}</span>}
       </li>
     );

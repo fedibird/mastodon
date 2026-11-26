@@ -6,6 +6,8 @@ import StatusListContainer from '../ui/containers/status_list_container';
 import Column from '../../components/column';
 import ColumnBackButton from '../../components/column_back_button';
 import ColumnHeader from '../../components/column_header';
+import EmojiMuteColumnLandmark from '../../components/emoji_mute_column_landmark';
+import { EmojiMutedPlain } from '../../components/emoji_muted_html';
 import { addColumn, removeColumn, moveColumn } from '../../actions/columns';
 import { FormattedMessage, defineMessages, injectIntl } from 'react-intl';
 import { connectListStream } from '../../actions/streaming';
@@ -33,6 +35,7 @@ import StatusTimelineSplitController, { clampTimelineSplitRatio } from '../ui/co
 import { readTimelineLayout } from 'mastodon/utils/timeline_layout';
 
 const messages = defineMessages({
+  columnTitle: { id: 'column.lists', defaultMessage: 'Lists' },
   deleteMessage: { id: 'confirmations.delete_list.message', defaultMessage: 'Are you sure you want to permanently delete this list?' },
   deleteConfirm: { id: 'confirmations.delete_list.confirm', defaultMessage: 'Delete' },
   followed:   { id: 'lists.replies_policy.followed', defaultMessage: 'Any followed user' },
@@ -176,12 +179,26 @@ class ListTimeline extends React.PureComponent {
   }
 
   bindColumn = (column) => {
+    this.column = column;
     this.columnNode = columnNodeFromRef(column);
 
     if (this.forwardColumnRef) {
       this.forwardColumnRef(column);
     }
+
+    // The landmark mounts before this ref. Apply the label it already computed
+    // without rendering the timeline again.
+    if (column && this.landmarkLabel !== undefined && typeof column.setLandmarkLabel === 'function') {
+      column.setLandmarkLabel(this.landmarkLabel, this.landmarkSource);
+    }
   }
+
+  listColumn = () => this.column;
+
+  holdLandmark = (label, source) => {
+    this.landmarkLabel = label;
+    this.landmarkSource = source || null;
+  };
 
   restoreComposerScroll = (prevProps) => {
     if (prevProps.params.id !== this.props.params.id) {
@@ -307,6 +324,10 @@ class ListTimeline extends React.PureComponent {
     const { id } = this.props.params;
     const pinned = !!columnId;
     const title  = list ? list.get('title') : id;
+    const projectTitle = !!(list && typeof title === 'string' && title !== '');
+    const visibleTitle = projectTitle ? (
+      <EmojiMutedPlain tag='span' plain={title} html='' />
+    ) : title;
     const replies_policy = list ? list.get('replies_policy') : undefined;
     const sourceTimelineId = `list:${id}`;
     const composerId = listComposerId(id, columnId);
@@ -381,12 +402,13 @@ class ListTimeline extends React.PureComponent {
 
     return (
       <Column bindToDocument={!multiColumn} ref={this.bindColumn} label={title} columnWidth={columnWidth} dropComposerId={portableComposer ? composerId : null}>
+        <EmojiMuteColumnLandmark column={this.listColumn} holdLabel={this.holdLandmark} plain={typeof title === 'string' ? title : ''} html='' project={projectTitle} emptyLabel={intl.formatMessage(messages.columnTitle)} />
         <ColumnHeader
           columnId={columnId}
           layoutScope='list'
           icon='list-ul'
           active={hasUnread}
-          title={title}
+          title={visibleTitle}
           onPin={this.handlePin}
           onMove={this.handleMove}
           onClick={this.handleHeaderClick}
