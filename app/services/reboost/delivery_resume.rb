@@ -48,8 +48,8 @@ class Reboost::DeliveryResume
     resume_unsent_undos!
   end
 
-  # A terminal row can still owe its saved Undo when the enqueue raised.
-  # The next pass sends that Undo and does not create another wrapper.
+  # A terminal row keeps a payload only when that Undo is still owed.
+  # This pass sends it. A newer boost of the same post does not clear it.
   def resume_unsent_undos!
     ReboostOperation.where(state: %w(cancelled failed), undo_enqueued_at: nil).where.not(undo_payload: [nil, '']).find_each(batch_size: 100) do |operation|
       Reboost::UndoDelivery.settle!(operation)

@@ -641,6 +641,58 @@ RSpec.describe ReblogService do
       expect(ActivityPub::DeliveryWorker).to have_received(:push_bulk).once
     end
 
+    it 'sends the removed boost Undo after a newer boost exists' do
+      Fabricate(:account, domain: 'remote.example', inbox_url: 'https://remote.example/inbox', protocol: :activitypub).follow!(account)
+      allow(ActivityPub::DeliveryWorker).to receive(:push_bulk)
+      stop_after_removing!(first)
+      calls = 0
+      allow(Reboost::FederationWorker).to receive(:perform_async).and_wrap_original do |method, *args|
+        calls += 1
+        raise Redis::BaseConnectionError if calls <= 2
+
+        method.call(*args)
+      end
+
+      travel 301.seconds do
+        expect { described_class.new.call(account, original, reboost: true) }.to raise_error(RuntimeError, 'stopped after removal')
+        operation = ReboostOperation.order(:id).last
+        operation.update_column(:updated_at, 31.seconds.ago)
+        disable_reboost!
+
+        Scheduler::ReboostDeliveryScheduler.new.perform
+
+        expect(operation.reload).to have_attributes(state: 'cancelled', error_code: 'reboost_disabled', undo_enqueued_at: nil)
+        expect(operation.undo_payload).to be_present
+        expect(Status.find_by(id: first.id)).to be_nil
+
+        replacement = described_class.new.call(account, original)
+
+        Scheduler::ReboostDeliveryScheduler.new.perform
+
+        expect(operation.reload.undo_enqueued_at).to be_present
+        expect(operation.undo_payload).to be_present
+        expect(account.statuses.where(reblog_of_id: original.id).pluck(:id)).to eq [replacement.id]
+        expect(ActivityPub::DeliveryWorker).to have_received(:push_bulk).with(array_including('https://remote.example/inbox')).once
+      end
+    end
+
+    it 'does not send the saved Undo when the kept boost is removed later' do
+      allow(ActivityPub::DeliveryWorker).to receive(:push_bulk)
+      operation = stranded_operation
+      disable_reboost!
+
+      Scheduler::ReboostDeliveryScheduler.new.perform
+
+      expect(operation.reload).to have_attributes(state: 'cancelled', error_code: 'reboost_disabled', undo_payload: nil)
+      RemoveStatusService.new.call(first, skip_remote: true, immediate: true)
+
+      Scheduler::ReboostDeliveryScheduler.new.perform
+
+      expect(operation.reload).to have_attributes(undo_payload: nil, undo_enqueued_at: nil)
+      expect(Status.find_by(id: first.id)).to be_nil
+      expect(ActivityPub::DeliveryWorker).not_to have_received(:push_bulk)
+    end
+
     it 'sends the saved Undo when the removed boost was kept for a report' do
       allow(ActivityPub::DeliveryWorker).to receive(:push_bulk)
       first.discard
@@ -677,8 +729,9 @@ RSpec.describe ReblogService do
 
       Scheduler::ReboostDeliveryScheduler.new.perform
 
-      expect(operation.reload).to have_attributes(state: 'cancelled', error_code: 'unreblogged')
+      expect(operation.reload).to have_attributes(state: 'cancelled', error_code: 'unreblogged', undo_payload: nil)
       expect(account.statuses.where(reblog_of_id: original.id).pluck(:id)).to eq [first.id]
+      expect(ActivityPub::DeliveryWorker).not_to have_received(:push_bulk)
     end
 
     it 'retries a notification enqueue that failed after the wrapper was saved' do
@@ -878,9 +931,64 @@ RSpec.describe ReblogService do
       operation = ReboostOperation.order(:id).last
       expect(operation.undo_payload).to be_present
       expect(operation.error_code).to eq 'create_failed'
+      expect(operation.state).to eq 'failed'
       expect(operation.new_status_id).to be_nil
       expect(Reboost::FederationWorker).to have_received(:perform_async).with(operation.id)
       expect(Status.find_by(id: first.id)).to be_nil
+    end
+
+    it 'recovers the saved Undo from the scheduler when create fails and enqueue fails' do
+      Fabricate(:account, domain: 'remote.example', inbox_url: 'https://remote.example/inbox', protocol: :activitypub).follow!(account)
+      allow(ActivityPub::DeliveryWorker).to receive(:push_bulk)
+      calls = 0
+      allow(Reboost::FederationWorker).to receive(:perform_async).and_wrap_original do |method, *args|
+        calls += 1
+        raise Redis::BaseConnectionError if calls == 1
+
+        method.call(*args)
+      end
+      allow_any_instance_of(Reboost::Placement).to receive(:create_reblog!).and_raise(Mastodon::ValidationError, 'nope')
+
+      travel 301.seconds do
+        expect { described_class.new.call(account, original, reboost: true) }.to raise_error(Mastodon::ValidationError, 'nope')
+      end
+
+      operation = ReboostOperation.order(:id).last
+      expect(operation).to have_attributes(state: 'failed', error_code: 'create_failed', undo_enqueued_at: nil)
+      expect(operation.undo_payload).to be_present
+      expect(ReboostOperation.where(account: account, reblog_of_id: original.id).pluck(:id)).to eq [operation.id]
+
+      Scheduler::ReboostDeliveryScheduler.new.perform
+
+      expect(operation.reload).to have_attributes(state: 'failed', error_code: 'create_failed')
+      expect(operation.undo_enqueued_at).to be_present
+      expect(ActivityPub::DeliveryWorker).to have_received(:push_bulk).with(array_including('https://remote.example/inbox')).once
+      expect(account.statuses.where(reblog_of_id: original.id)).to be_empty
+    end
+
+    it 'fails the same pending operation when the replacement cannot be created' do
+      allow(Reboost::FederationWorker).to receive(:perform_async)
+      boost = described_class.new.call(account, original)
+      boost.discard
+      operation = ReboostOperation.create!(
+        account: account,
+        reblog_of_id: original.id,
+        old_status_id: boost.id,
+        state: 'pending',
+        reboost: true,
+        undo_payload: '{"type":"Undo"}',
+        undo_inboxes: ['https://remote.example/inbox'],
+        options: { 'audience' => [] }
+      )
+      allow_any_instance_of(Reboost::Placement).to receive(:create_reblog!).and_raise(Mastodon::ValidationError, 'nope')
+
+      travel 301.seconds do
+        expect { Reboost::Placement.resume!(operation) }.to raise_error(Mastodon::ValidationError, 'nope')
+      end
+
+      expect(operation.reload).to have_attributes(state: 'failed', error_code: 'create_failed')
+      expect(ReboostOperation.where(account: account, reblog_of_id: original.id).pluck(:id, :state)).to eq [[operation.id, 'failed']]
+      expect(Reboost::FederationWorker).to have_received(:perform_async).with(operation.id)
     end
 
     def recover_limited_audience!(step, raise_on: 1)

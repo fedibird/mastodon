@@ -1,9 +1,10 @@
 # frozen_string_literal: true
 
 module Reboost
-  # Undo leaves this process only after the old wrapper is gone or discarded.
-  # A terminal row keeps that decision: a payload with no undo_enqueued_at still
-  # needs delivery, and the scheduler can enqueue that delivery again.
+  # The Undo belongs to operation.old_status_id. A later boost of the same
+  # post does not cancel that delivery. The decision is stored with the
+  # terminal update: a payload that remains is still owed, and a cleared
+  # payload is not sent again when that old boost is removed later.
   module UndoDelivery
     module_function
 
@@ -11,22 +12,24 @@ module Reboost
       return if operation.nil?
 
       operation.reload
-      return if operation.undo_enqueued_at.present? || operation.undo_payload.blank?
-
-      if due?(operation)
-        enqueue!(operation)
-      else
-        release!(operation)
-      end
+      enqueue!(operation)
     end
 
-    # A boost that is still present keeps its remote copy. A removed or
-    # discarded wrapper, or a saved Undo with no wrapper left, is delivered.
+    # Merged into the same update that marks the operation terminal.
+    def terminal_undo_attributes(operation)
+      return {} if operation.nil? || operation.undo_enqueued_at.present? || operation.undo_payload.blank?
+      return {} if due?(operation)
+
+      { undo_payload: nil, undo_inboxes: [] }
+    end
+
+    # A recorded id is due only when that status is gone or discarded.
+    # A payload with no recorded id is due when this actor has no boost left.
     def due?(operation)
       return false if operation.nil? || operation.undo_payload.blank? || operation.undo_enqueued_at.present?
-      return false if active_wrapper?(operation)
+      return removed_wrapper?(operation) if operation.old_status_id.present?
 
-      operation.old_status_id.blank? || removed_wrapper?(operation)
+      !active_wrapper?(operation)
     end
 
     def enqueue!(operation)
@@ -35,13 +38,7 @@ module Reboost
       Reboost::FederationWorker.perform_async(operation.id)
     end
 
-    private_class_method def self.release!(operation)
-      operation.update!(undo_payload: nil, undo_inboxes: [])
-    end
-
     private_class_method def self.removed_wrapper?(operation)
-      return false if operation.old_status_id.blank?
-
       status = Status.unscoped.find_by(id: operation.old_status_id)
       status.nil? || status.deleted_at.present?
     end

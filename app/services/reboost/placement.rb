@@ -47,16 +47,13 @@ class Reboost::Placement
   def cancel_pending!
     with_redis_lock(lock_name) do
       now = Time.current
-      pending = ReboostOperation.where(account_id: account.id, reblog_of_id: options[:lock_status_id], state: 'pending')
-      ids = pending.pluck(:id)
-      pending.update_all(
-        state: 'cancelled',
-        error_code: 'unreblogged',
-        completed_at: now,
-        updated_at: now
-      )
-      ids.each do |operation_id|
-        Reboost::UndoDelivery.settle!(ReboostOperation.find(operation_id))
+      ReboostOperation.where(account_id: account.id, reblog_of_id: options[:lock_status_id], state: 'pending').find_each do |operation|
+        operation.update!({
+          state: 'cancelled',
+          error_code: 'unreblogged',
+          completed_at: now,
+        }.merge(Reboost::UndoDelivery.terminal_undo_attributes(operation)))
+        Reboost::UndoDelivery.enqueue!(operation)
       end
     end
   end
@@ -345,21 +342,43 @@ class Reboost::Placement
   end
 
   def recover_failed_create!(existing, error)
-    if @recovery&.undo_payload.present?
-      @recovery.update!(state: 'federating', error_code: 'create_failed')
-      Reboost::FederationWorker.perform_async(@recovery.id)
-    else
-      ReboostOperation.create!(
-        account: account,
-        reblog_of_id: original.id,
-        old_status_id: existing&.id,
-        state: 'failed',
-        error_code: 'create_failed',
-        reboost: options[:reboost] == true,
-        completed_at: Time.current
-      )
+    operation = failed_create_operation!(existing)
+    begin
+      # The row is already terminal. A raised enqueue stays on that row for the scheduler.
+      Reboost::UndoDelivery.enqueue!(operation)
+    rescue StandardError
+      nil
     end
     Reboost::Log.emit('failed', account_id: account.id, status_id: original.id, error: error.class)
+  end
+
+  # Create failure closes this operation. It does not open a second failed row,
+  # and it does not stay federating where the scheduler cannot see it.
+  def failed_create_operation!(existing)
+    operation = @recovery || resumed_operation
+    attributes = {
+      state: 'failed',
+      error_code: 'create_failed',
+      completed_at: Time.current,
+      old_status_id: operation&.old_status_id || existing&.id || @retired_id,
+    }
+    if operation
+      operation.reload
+      operation.update!(attributes.merge(Reboost::UndoDelivery.terminal_undo_attributes(operation)))
+      operation
+    else
+      created = ReboostOperation.create!(
+        attributes.merge(
+          account: account,
+          reblog_of_id: original.id,
+          reboost: options[:reboost] == true,
+          undo_payload: @undo_payload,
+          undo_inboxes: @undo_inboxes || []
+        )
+      )
+      created.update!(Reboost::UndoDelivery.terminal_undo_attributes(created))
+      created
+    end
   end
 
   def ordered_undo?

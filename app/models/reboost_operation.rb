@@ -42,8 +42,8 @@ class ReboostOperation < ApplicationRecord
     TERMINAL_STATES.include?(state)
   end
 
-  def fail!(code)
-    update!(state: 'failed', error_code: code, completed_at: Time.current)
+  def fail!(code, extra = {})
+    update!({ state: 'failed', error_code: code, completed_at: Time.current }.merge(extra))
     Reboost::Log.emit('failed', operation_id: id, error: code, account_id: account_id, status_id: reblog_of_id)
   end
 end
