@@ -49,6 +49,10 @@ class ActivityPub::Activity::Announce < ActivityPub::Activity
 
     return if defer_to_open_hold?(parsed_published)
 
+    # Undo leaves no wrapper, but this pair was already boosted. The recovery
+    # hold has to exist before the new status is saved, the same as a direct
+    # replacement of a wrapper that is still present.
+    remember_direct_replacement! if ReboostCooldown.exists?(account_id: @account.id, status_id: @original_status.id)
     accept_new_announce!
   end
 
@@ -165,7 +169,9 @@ class ActivityPub::Activity::Announce < ActivityPub::Activity
   end
 
   # The incoming Announce is recoverable before the old boost is deleted.
-  # The inline attempt owns it until delivery finishes or the attempt raises.
+  # apply_enqueued_at stays empty until a worker enqueue returns. A stop
+  # before that return leaves the row visible to the scheduler. The
+  # actor+original lock keeps that worker behind the inline attempt.
   def remember_direct_replacement!
     return if @json['id'].blank?
 
@@ -184,7 +190,6 @@ class ActivityPub::Activity::Announce < ActivityPub::Activity
       published_at: parsed_published,
       available_at: Time.current,
       payload: @json.is_a?(Hash) ? @json.deep_stringify_keys : {},
-      apply_enqueued_at: Time.current,
       delivery_options: RemoteReboostHold.normalize_delivery_options(
         'delivery' => @options[:delivery] == true,
         'override_timestamps' => @options[:override_timestamps] == true,

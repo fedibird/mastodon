@@ -53,7 +53,7 @@ class RemoteReboostHold < ApplicationRecord
     end
 
     Reboost::RemoteApplyWorker.perform_at(available_at, id)
-    update!(apply_enqueued_at: Time.current)
+    update!(apply_enqueued_at: Time.current) if self.class.exists?(id)
   end
 
   # Same Announce id only. A later fetch cannot downgrade a delivery or drop

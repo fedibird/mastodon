@@ -421,6 +421,85 @@ RSpec.describe ActivityPub::Activity::Announce do
     end
   end
 
+  it 'recovers a direct replacement from the scheduler when the process stops after the hold is saved' do
+    Fabricate(:user, account: status.account)
+    allow(DistributionWorker).to receive(:perform_async)
+    announce('https://example.com/announce/a', 10.minutes.ago.iso8601)
+    crash = Class.new(Exception)
+    stop = true
+    allow(ReboostAnnounceState).to receive(:supersede!).and_wrap_original do |method, *args, **kwargs|
+      raise crash if stop && args[1] == 'https://example.com/announce/a'
+
+      method.call(*args, **kwargs)
+    end
+
+    travel 301.seconds do
+      json = announce_json('https://example.com/announce/c', Time.current.iso8601)
+      expect { described_class.new(json, sender, delivery: true, override_timestamps: true).perform }.to raise_error(crash)
+
+      hold = RemoteReboostHold.find_by!(account: sender, reblog_of: status)
+      expect(hold.activity_uri).to eq 'https://example.com/announce/c'
+      expect(hold.apply_enqueued_at).to be_nil
+      expect(sender.statuses.where(reblog_of_id: status.id).pick(:uri)).to eq 'https://example.com/announce/a'
+
+      stop = false
+      Scheduler::ReboostDeliveryScheduler.new.perform
+
+      boost = sender.statuses.find_by!(reblog_of_id: status.id)
+      expect(boost.uri).to eq 'https://example.com/announce/c'
+      expect(sender.statuses.where(reblog_of_id: status.id).count).to eq 1
+      expect(Status.find_by(uri: 'https://example.com/announce/a')).to be_nil
+      expect(Notification.where(account: status.account, from_account: sender, activity: boost, type: :reblog).count).to eq 1
+      expect(DistributionWorker).to have_received(:perform_async).with(boost.id)
+      expect(RemoteReboostHold.find_by(account: sender, reblog_of: status)).to be_nil
+      expect(ReboostAnnounceState.current_for(sender.id, status.id)&.uri).to eq 'https://example.com/announce/c'
+      expect(ReboostCooldown.remaining_seconds(sender.id, status.id)).to be_positive
+    end
+  end
+
+  it 'recovers an Announce after Undo from the scheduler when the process stops after the hold is saved' do
+    Fabricate(:user, account: status.account)
+    allow(DistributionWorker).to receive(:perform_async)
+    announce('https://example.com/announce/a', Time.current.iso8601)
+    ActivityPub::Activity::Undo.new({
+      id: 'https://example.com/undo/a',
+      type: 'Undo',
+      actor: sender.uri,
+      object: { id: 'https://example.com/announce/a', type: 'Announce', object: object_uri },
+    }.with_indifferent_access, sender).perform
+    expect(sender.statuses.where(reblog_of_id: status.id)).to be_empty
+
+    crash = Class.new(Exception)
+    stop = true
+    allow_any_instance_of(described_class).to receive(:process_status).and_wrap_original do |method, *args|
+      raise crash if stop
+
+      method.call(*args)
+    end
+
+    travel 301.seconds do
+      json = announce_json('https://example.com/announce/b', Time.current.iso8601)
+      expect { described_class.new(json, sender, delivery: true, override_timestamps: true).perform }.to raise_error(crash)
+
+      hold = RemoteReboostHold.find_by!(account: sender, reblog_of: status)
+      expect(hold.activity_uri).to eq 'https://example.com/announce/b'
+      expect(hold.apply_enqueued_at).to be_nil
+      expect(sender.statuses.where(reblog_of_id: status.id)).to be_empty
+
+      stop = false
+      Scheduler::ReboostDeliveryScheduler.new.perform
+
+      boost = sender.statuses.find_by!(reblog_of_id: status.id)
+      expect(boost.uri).to eq 'https://example.com/announce/b'
+      expect(sender.statuses.where(reblog_of_id: status.id).count).to eq 1
+      expect(Notification.where(account: status.account, from_account: sender, activity: boost, type: :reblog).count).to eq 1
+      expect(DistributionWorker).to have_received(:perform_async).with(boost.id)
+      expect(RemoteReboostHold.find_by(account: sender, reblog_of: status)).to be_nil
+      expect(ReboostAnnounceState.current_for(sender.id, status.id)&.uri).to eq 'https://example.com/announce/b'
+      expect(ReboostCooldown.remaining_seconds(sender.id, status.id)).to be_positive
+    end
+  end
+
   it 'ends the held Announce when a newer id arrives after the cooldown' do
     announce('https://example.com/announce/a', 10.minutes.ago.iso8601)
 
