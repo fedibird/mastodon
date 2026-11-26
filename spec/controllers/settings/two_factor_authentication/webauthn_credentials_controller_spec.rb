@@ -346,6 +346,22 @@ describe Settings::TwoFactorAuthentication::WebauthnCredentialsController do
             expect(user.reload.webauthn_id).to be_present
             post_rejected_registration(new_webauthn_credential, WebAuthn::Credential.options_for_get.challenge)
           end
+
+          context 'when the user already has a security key' do
+            let!(:existing_credential) { add_webauthn_credential(user) }
+
+            before do
+              user.update!(webauthn_id: WebAuthn.generate_user_id)
+            end
+
+            it 'does not change the stored credential when verification fails' do
+              snapshot = existing_credential.reload.attributes.slice('user_id', 'external_id', 'public_key', 'sign_count')
+
+              post_rejected_registration(new_webauthn_credential, WebAuthn::Credential.options_for_get.challenge)
+
+              expect(existing_credential.reload.attributes.slice('user_id', 'external_id', 'public_key', 'sign_count')).to eq(snapshot)
+            end
+          end
         end
 
         context 'when user have not enabled webauthn' do

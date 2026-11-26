@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require 'rails_helper'
+require 'webauthn/fake_client'
 
 # Public fixtures only. No private keys.
 #

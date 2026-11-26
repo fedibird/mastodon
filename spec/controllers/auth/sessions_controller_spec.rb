@@ -626,6 +626,8 @@ RSpec.describe Auth::SessionsController, type: :controller do
         sign_count: 4
       )
 
+      original_webauthn_id = user.reload.webauthn_id
+
       get :webauthn_options, session: { attempt_user_id: user.id }
 
       body = JSON.parse(response.body)
@@ -634,7 +636,7 @@ RSpec.describe Auth::SessionsController, type: :controller do
       expect(body['challenge']).to eq(@controller.session[:webauthn_challenge])
       expect(body['allowCredentials'].map { |item| item['id'] }).to eq([credential.external_id])
       expect(credential.reload.sign_count).to eq(4)
-      expect(user.reload.webauthn_id).to be_present
+      expect(user.reload.webauthn_id).to eq(original_webauthn_id)
     end
   end
 end
