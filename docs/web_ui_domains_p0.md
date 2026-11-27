@@ -35,18 +35,18 @@ WebUI は正規 URL をデータとして保持する。画面遷移と、Fedibi
 
 ## レビューで決める提案
 
-実装はこれらの採用を待ってから行う。推奨を先に書く。
+初回レビュー（PR #867）を受けて、推奨は次に更新した。実装は採用を待ってから行う。比較が要る項目は本文の該当節に表がある。
 
-1. **有効化ゲート。** `WEB_UI_DOMAINS` を読んでも、`WEB_UI_DOMAINS_READY=true` かつ検証を通過するまで `config.hosts` にも WebAuthn にも反映しない。途中の PR をマージしても入口は開かない。推奨は二段階ゲート。
-2. **登録できるホスト。** 既存の WebAuthn RP ID（下の「認証」）と一致するホストか、そのホストのサブドメインだけを許可する。別の registrable domain は起動時に拒否する。RP ID を親ドメインへ広げる変更は、登録済みキーの rpId ハッシュと一致しなくなるため行わない。`LOCAL_DOMAIN != WEB_DOMAIN` で正規ホストがすでにサブドメインのとき、その兄弟名（`cf.example.com` に対する RP ID `web.example.com`）は既存キーを使えない。その場合も拒否する。
-3. **`ALTERNATE_DOMAINS` との重複。** 同じホストが両方に入っていたら起動時に拒否する。WebFinger 別名と UI 専用入口を一つの名前に重ねない。
-4. **Streaming。** ゲートが開いている WebUI では、初期状態の Streaming URL をそのリクエストの Origin の `wss://`（開発時は `ws://`）にする。`STREAMING_API_BASE_URL` は `/api/v1/instance` と、UI 入口ではない専用 Streaming ホスト向けに残す。その値が別の `WEB_UI_DOMAINS` ホストを指すとき、WebUI はそれを使わず同一 Origin にする。
-5. **アセット。** UI 入口の HTML から出す JS/CSS/フォント/アプリ配下のパスは同一 Origin の相対 URL にする。`CDN_HOST` が別の UI 入口でも、そこへ自動では取りにいかない。`S3_ALIAS_HOST` / `S3_CLOUDFRONT_HOST` / Swift のオブジェクトホストはストレージ例外として残す。REST JSON には入口ホストを書き込まない。
-6. **メール、SAML、CAS、ATProto、外部 OAuth。** コールバックと本文リンクは `WEB_DOMAIN` のままにする。入口へ戻すワンタイムコードは、この一連の必須範囲に入れない。戻しを足すときは、トークンをクエリに載せず、許可した相対パスだけを返す。
-7. **Cookie 名。** `__Host-` への改名は有効化リリースに入れない。既存セッションを一斉に落とさない。ホスト束縛は今の署名付き Cookie の値を二重読みする形で足す（「セッション」）。
-8. **入口の選択 UI。** P1 から P5 では作らない。ユーザーは入口の URL を開く。入口をまたぐスイッチャは Cookie をコピーしない明示遷移として、別仕様にする。
-9. **連合を別名入口で受けるか。** UI 入口では HTML の WebUI と、その UI が使う同一 Origin の API/Streaming/アセットを返す。ActivityPub の content negotiation、inbox/outbox、WebFinger、host-meta、NodeInfo、インスタンス Actor は拒否し、正規 URL を案内する。別名を新しい Actor や Node として広告しない。HTTP 301 で入口全体を正規ホストへ寄せることはしない。
-10. **本文中の正規リンク。** 通常クリックはアプリ内ルートへ留める。新規タブ、コピー、共有は正規 URL のままにする。
+1. **公開ゲート。** P1 から P5 のマージでは本番の入口を開かない。検証環境だけで全経路を開き、P6 の総合検証のあと、運営者が明示した本番公開で初めて DNS、edge、アプリが揃って開く。`WEB_UI_DOMAINS` を書いただけでは開かない。詳細は「公開ゲート」。
+2. **登録できるホスト。** 既存の WebAuthn RP ID と一致するホストか、そのサブドメインだけを許可する。別の registrable domain と、RP ID の兄弟名は起動時に拒否する。RP ID を親ドメインへ広げない。この初期範囲は既存キーとの互換を優先する。
+3. **`ALTERNATE_DOMAINS` との重複。** 同じホストが両方に入っていたら起動時に拒否する。ゲートの開閉は `ALTERNATE_DOMAINS` の WebFinger を変えない。
+4. **Streaming。** 公開後の WebUI は、そのページの Origin へ同一 Origin で繋ぐ。ゲートが閉じているときの `STREAMING_API_BASE_URL`（専用 Streaming ホストを含む）は今のまま回帰する。公開後にその値が別の UI 入口や正規ホストを指すとき、WebUI はそれを使わない。`/api/v1/instance` の広告値は変えない。
+5. **メディアと静的ファイル。** 一律のストレージ例外にはしない。インスタンス入口（`LOCAL_DOMAIN`、`WEB_DOMAIN`、他の `WEB_UI_DOMAINS`）への自動アクセスは 0 にする。専用ストレージ／CDN を例外にする案と、入口の固定パスで配信する案は「アセットとメディア」で分けて書く。推奨は、計算したホストがインスタンス入口なら同一 Origin、それ以外の専用ホストだけ例外。
+6. **外部認証。** 新しい入口では、開始から callback まで同じ Origin のセッションを使えない外部ログイン（SAML、CAS、ATProto、OmniAuth）を自動では正規ホストへ送らない。その入口では未対応として止め、正規入口を案内する。外部認証が必須の環境を追加入口の対象に含めるかは未決。
+7. **Cookie。** 正規ホストと `ALTERNATE_DOMAINS` の Cookie 名は変えない。新しい UI 入口だけ `__Host-` 名を使う。旧形式の署名付き `_session_id` を新しい入口では受けない。比較は「セッション」。
+8. **入口の選択 UI。** P1 から P5 では作らない。ユーザーは入口の URL を開く。
+9. **連合。** 新しい UI 入口では、HTML と同一 Origin の API／Streaming／アセットを返す。ActivityPub の表現、inbox、WebFinger、host-meta、NodeInfo、インスタンス Actor は拒否し、正規 URL を案内する。`/api/*` の REST JSON は 406 にしない。判定表は「連合境界」。
+10. **内部リンク。** 同一インスタンスのリンクは、左クリック、Ctrl／Cmd、中クリック、コンテキストメニューの「リンクを開く」も現在の入口を開く。正規 URL を出すのは、明示した「投稿 URL をコピー」「共有」「正規 URL で開く」だけである。
 
 ## ホストの正規化
 
@@ -61,7 +61,7 @@ P1 のパーサは次を満たす。比較は許可リストとの完全一致�
 - WebAuthn の接尾辞条件を満たさないホストは拒否する（提案 2）。
 - 不正な値が一つでもあれば、リスト全体を無効にし、ゲートは開かない。一部だけ採用しない。
 
-`config.hosts` へ入れる文字列は、ブラウザが送る Host ヘッダと一致する正規化後のホスト名である。`X-Forwarded-Host` は見ない。
+`config.hosts` へ入れる文字列は、ブラウザが送る Host ヘッダと一致する正規化後のホスト名である。入口判定は raw Host だけでは終わらない。Rails の `request.host`、`request.url`、`redirect_to` は、信頼済みプロキシ経由のとき `X-Forwarded-Host` と `X-Forwarded-Proto` を実効 Origin に使う。設計は「転送ヘッダ」。
 
 ## リクエスト境界
 
@@ -76,82 +76,189 @@ P1 のパーサは次を満たす。比較は許可リストとの完全一致�
 Rails の URL ヘルパは二系統ある。
 
 - `RoutingHelper#default_url_options` はメーラー設定を返す。ここを include する serializer、`TagManager`、`ActivityPub::TagManager`、WebFinger、host-meta、メディアプロキシは **WEB_DOMAIN** を出す。正規 ID はこちらに残す。
-- `ApplicationController` は `default_url_options` を上書きしない。API コントローラの `*_url`（Link ヘッダ）と、通常の HTML の `url_for(only_path: false)` は **そのリクエストの Host** を使う。`og:url` は `app/views/shared/_og.html.haml` がこの形である。
+- `ApplicationController` は `default_url_options` を上書きしない。API コントローラの `*_url`（Link ヘッダ）と、通常の HTML の `url_for(only_path: false)` は **そのリクエストの Host** を使う。ゲートが閉じている間の `og:url` はこの形である。
 
-この分岐を崩さない。Link ヘッダを WEB_DOMAIN に寄せる変更も、serializer の `url` を入口ホストへ寄せる変更もしない。
+Link ヘッダを WEB_DOMAIN に寄せる変更も、serializer の `url` を入口ホストへ寄せる変更もしない。公開後の追加入口で `og:url` と `rel=canonical` だけ正規 URL にする例外は「内部リンクと公開メタデータ」に書く。保存値の一括置換ではない。
+
+## 転送ヘッダ
+
+入口の実効 Origin は、正規化後の raw `Host` と、Rails／Streaming が使う `request.host` およびスキームが一致したときだけ成立する。
+
+例示の `dist/nginx.conf` は `Host $host` と `X-Forwarded-Proto $scheme` を上書きし、`X-Forwarded-Host` は付けない。この形を参考にする。本番のプロキシ構成はリポジトリに無い。
+
+公開後の edge は、クライアントが送った値を連結しない。
+
+- `Host` は、edge が証明書と server_name で受けたホストのまま上流へ渡す。
+- `X-Forwarded-Host` は消すか、その同じホストで上書きする。クライアントの値は捨てる。
+- `X-Forwarded-Proto` は edge が終端したスキームで上書きする。
+- `Forwarded` は消す。
+
+Rails と Node Streaming は、正規化後の raw `Host` と実効ホストが違うリクエストを拒否する。両方とも許可リストに入っていても拒否する。例: `Host: 1.fedibird.com` かつ `X-Forwarded-Host: fedibird.com`、およびその逆。信頼済みでない接続元からの `X-Forwarded-For` は、今の `remote_ip_extensions.rb` が拒否する。この機能のために `CF-Connecting-IP` は足さない。
+
+`dist/nginx.conf` の静的ファイル、`/api/v1/streaming`、`/ns` は Rails の Host Authorization を通らない。これらの経路の Host 許可は edge の server_name が担う。アプリに届いたリクエストの拒否は Rails と Streaming が担う。責任の分割は「公開ゲート」。
 
 ## WebUI の自動通信
 
-axios（`app/javascript/mastodon/api.js`）は `baseURL` を持たず、`/api/v1/...` のような相対パスでページの Origin へ送る。`Authorization: Bearer` は Redux `meta.access_token`、CSRF は `meta[name=csrf-token]` である。相対パスはこのままにする。
+axios（`app/javascript/mastodon/api.js`）は `baseURL` を持たず、相対パスでページの Origin へ送る。インスタンスは `Authorization: Bearer` と `X-CSRF-Token` を同時に付ける。送出前の共通ガードが、この二つのヘッダ、WebSocket のサブプロトコル、EventSource の `access_token` クエリを同じ判定にかける。
 
-絶対 URL を自動リクエストに使う前に、`new URL` で分解し、次がすべて一致するときだけ同一 Origin とみなす。
+ガードは `new URL(input, document.baseURI)` で分解する。次をすべて満たすときだけ自動リクエストを送る。
 
-- スキームがページと同じ `https` または `http`
-- ホストが punycode で一致
+- スキームがページと同じ `http` または `https`（Streaming は同じホストの `ws` または `wss`）
+- ホストが punycode でページと一致
 - ポートが一致
 - ユーザー情報が無い
+- network-path（`//host/...`）をページ以外のホストへ解決しない
 
-一致しない絶対 URL には `Authorization` を付けない。`credentials` は付けない。EventSource の `access_token` クエリにも載せない。文字列の `startsWith(origin)` は使わない。`https://fedibird.com.evil.example`、ユーザー情報付き URL、バックスラッシュやエンコードでホストが変わる URLは、パーサが別 Origin と判定したものとしてトークンを付けない。
+不一致、パース不能、リダイレクト先の Origin 不一致では、ヘッダを外して送り直さない。その自動 API／Streaming 通信を失敗として止める。30x の `Location` も同じパーサで見て、別 Origin ならボディを読まない。文字列の `startsWith` や `split('/')` は使わない。`public_quote_navigation.js` の `url.split('/')[2]` はこのガードへ置き換える。
 
-Fedibird 自身のアプリパス（API、Streaming、`/packs`、`/emoji`、`/system`、既存のメディアプロキシ配下）で、ホストが正規ホストか許可済み UI 入口のときは、パスとクエリを保ったままページ Origin の相対 URL へ投影してから送る。判定不能な URL はフェイルクローズで、自動リクエストしない。ユーザーが明示した外部リンクは、トークン無しの遷移として残す。
+相対パスはページ Origin への解決後に同じ判定を通す。明示した外部リンクは別関数で、API クライアントを使わず、CSRF も Bearer も付けない。
+
+ゲートが閉じている間、専用の `STREAMING_API_BASE_URL` への既存接続は回帰させる。この例外は「公開後の入口における同一 Origin」とは別のモードとしてコード上で分ける。公開後の WebUI は提案 4 のとおり同一 Origin だけを自動接続に使う。
 
 ページネーションは二種類ある。
 
 - タイムラインの追加読み込みは、最後の ID から相対パスを組む。この形を維持する。
-- `scheduled_statuses` など一部は Link の絶対 URL を `api.get` に渡す。サーバは API コントローラの `*_url` でリクエスト Host の絶対 URL を出す。クライアントは上記の同一 Origin 検査を通ったものだけを Bearer 付きで追う。検査に落ちたらそのページ送りを止める。
+- `scheduled_statuses` など一部は Link の絶対 URL を `api.get` に渡す。ガードを通った同一 Origin だけを追う。それ以外はページ送りを止める。
 
-初期状態（`InitialStateSerializer#meta`）の `streaming_api_base_url` は、今は `config.x.streaming_api_base_url` 固定で、本番の既定は `wss://WEB_DOMAIN` である。ゲートが開いた WebUI では提案 4 のとおりリクエスト Origin にする。`/api/v1/instance` の `urls.streaming_api` はネイティブクライアント向けに今の設定値のままにする。
+`Api::V1::StreamingController#index` は、リクエスト Host が Streaming 基底と違うと 301 する。`same_host?` はポート省略時に 80 と比較するので、`wss://` の 443 とは一致しない。公開後の UI 入口では別入口へ 301 しない。Node は `streaming/index.js` でトークンを `Authorization`、クエリ `access_token`、`Sec-WebSocket-Protocol` から取る。Host は見ていない。WebUI 用トークンとネイティブトークンの差は「セッション」に書く。
 
-`app/controllers/api/v1/streaming_controller.rb` は、リクエスト Host が Streaming 基底と違うと 301 で基底ホストへ送る。`same_host?` はポート省略時に 80 と比較する。`wss://` の既定ポート 443 とは一致しない。例示の `dist/nginx.conf` は `/api/v1/streaming` を Rails の前で Streaming プロセスへ渡す。P2 では、UI 入口から Rails に届いた場合も別入口へ 301 しない。WebSocket のトークンは `@gamestdio/websocket` のプロトコル引数、EventSource はクエリの `access_token` である。HAR に残さない（「検証」）。
+## 内部リンクと公開メタデータ
 
-`HomeController#redirect_unauthenticated_to_permalinks!` は、未ログインの `/web/statuses/:id` と `/web/accounts/:id` を `ActivityPub::TagManager#url_for` へ送る。これは WEB_DOMAIN の絶対 URL である。HTML の入口では、同じパスをリクエスト Host 上の短絡パスへ戻す。連合用の正規 URL 生成は変えない。
+同一インスタンスへのリンクは、現在の入口の絶対 URL を `href` にする。SPA の `to` も同じパスである。左クリック、Ctrl／Cmd、中クリック、コンテキストメニューの「リンクを開く」は、ブラウザがその `href` を開くので現在の入口に留まる。
 
-`Permalink` は `href` に正規 URL を持ち、通常の左クリックは `to` のアプリ内ルートへ進む。Ctrl/中クリックは正規 URL を開く。提案 10 のとおり、通常クリックは入口に残し、新規タブとコピーは正規 URL とする。ステータス HTML 内のメンションとハッシュタグは `Formatter` が WEB_DOMAIN の `href` を出す。ActivityPub の `content` は正規のままキャッシュされる。WebUI の表示時だけ、同一インスタンスへの通常クリックをアプリ内遷移にする。
+| 操作 | URL |
+| --- | --- |
+| アプリ内遷移、新規タブ、リンクのアドレスをコピー | 現在の入口。`href` がそうであるため |
+| 「投稿 URL をコピー」「共有」「正規 URL で開く」 | API が返す正規 URL。`href` とは別の値 |
+
+ブラウザの「リンクのアドレスをコピー」は `href` をコピーする。正規の共有 URL が欲しい操作は、画面上の共有アクションが正規フィールドを読む。この差を UI の文言で示す。ActivityPub の保存 HTML は正規 `href` のままである。WebUI が描画するときだけ、同一インスタンスの `href` を現在の入口へ投影する。`packs/public.js` の `.webapp-btn` と引用クリック（`public_quote_navigation.js`）もこの投影後の URL を開く。
+
+未ログインの `/web/statuses/:id` を `ActivityPub::TagManager#url_for`（WEB_DOMAIN）へ飛ばす `HomeController` のリダイレクトは、公開後の HTML 入口では現在の入口の短絡パスにする。正規 URL の生成関数は変えない。
+
+`og:url` と `rel=canonical` は、追加入口では正規 URL を出す。共有カードと検索が第二のインスタンス識別を作らないようにするためである。ゲートが閉じている間は、今の `url_for(only_path: false)` と `about_url`（リクエスト Host）を維持する。
 
 ## アセットとメディア
 
-優先順位は次のとおり。REST と共有 URL には入口ホストを混ぜない。
+REST と ActivityPub の保存値には入口ホストを書かない。ブラウザが自動で読む URL と、302 の `Location` は次の二つの提案で分類する。インスタンス入口とは `LOCAL_DOMAIN`、`WEB_DOMAIN`、および他の `WEB_UI_DOMAINS` のホストである。
 
-1. WebUI が読むアプリ自身のパスは、入口の相対 URL にする。選んだ入口の CDN がそれをキャッシュする。
-2. Paperclip の S3/Swift URL はストレージホストのままにする。`S3_ALIAS_HOST` は `S3_HOSTNAME` より優先され、`CDN_HOST` では書き換えない（`config/initializers/paperclip.rb`）。
-3. `CDN_HOST` は、UI 入口ではないアセットホスト、およびメール CSS（`PremailerWebpackStrategy`）に残す。UI 入口の HTML からは、別の UI 入口である `CDN_HOST` へ自動リクエストしない（提案 5）。
-4. リモートの画像・動画・カード・絵文字は、今のメディアプロキシとリモート URL のままにする。許可していない URL を入口経由で取得するオープンプロキシは足さない。
+**提案 M1（推奨の第一段）。** 計算した配信ホストがインスタンス入口なら、現在の入口の固定パスで配信する。対象パスは既存の `/packs`、`/emoji`、`/system`、`/media_proxy`、`/headers`、アバターとヘッダのアプリ配下である。`MediaProxyController#show` は `RoutingHelper#full_asset_url` を `Location` にする。ローカルディスクではこれが `root_url`（WEB_DOMAIN）の絶対 URL になる。ブラウザの `src` を投影しても、302 が正規ホストへ戻す。公開後は、この `Location` も現在の入口の同一 Origin にする。認可、許可 variant、サイズ、キャッシュ、Range の扱いは維持する。Range はアプリが処理せず、最終の配信先に依存する。
 
-`MediaProxyController` は添付 ID と許可した variant だけを受け、302 でストレージ URL へ返す。任意 URL のクエリは無い。再取得は `Remotable` と `Request` のプライベートアドレス検査を通る。Range はアプリ内では処理せず、302 先のストレージに依存する。入口化してもプロキシの許可パス、認可、サイズ、キャッシュは今の制約を維持する。署名付きストレージ URL のクエリは、投影しても改変しない。投影してよいのは「ホストが正規ホストまたは UI 入口で、パスがアプリ自身のもの」だけである。ストレージホストは投影しない。
+**提案 M2（専用ホストだけの例外）。** `S3_ALIAS_HOST`、`S3_CLOUDFRONT_HOST`、Swift のオブジェクトホスト、`CDN_HOST` がインスタンス入口のどれでもないときだけ、その専用ホストへの自動リクエストを許す。Paperclip は別名ホストを `S3_HOSTNAME` より優先し、`CDN_HOST` では書き換えない。メール CSS（`PremailerWebpackStrategy`）は `CDN_HOST`、無ければ `WEB_DOMAIN`、それも無ければ `LOCAL_DOMAIN` を今どおり使う。メールはブラウザの入口通信ではない。
 
-CSP（`config/initializers/content_security_policy.rb`）は起動時に決まり、`connect-src` は `:self`、アセットホスト、メディアホスト、Streaming 基底を許す。UI 入口どうしを `connect-src` に足さない。バグで別入口へ繋いでも CSP が止める。`form-action` は `:self` のままにする。
+優先順位:
 
-CORS（`config/initializers/cors.rb`）は `/api/*` を `origins '*'`、`credentials: false` で開いている。ネイティブアプリと他サーバー向けのこの形は維持する。ブラウザの Cookie 付きクロス Origin はここで開かない。WebUI のトークン送出防止はクライアントの同一 Origin 検査が担う。
+1. 配信ホストがインスタンス入口なら M1。別の入口や正規ホストへは自動で取りにいかない。
+2. それ以外で専用ストレージまたは CDN が設定されていれば M2。
+3. どちらも無ければ現在の入口の相対パス。
+
+リモートの第三者がホストする画像は外部 URL である。任意 URL を入口経由で取得するオープンプロキシは足さない。既存の添付 ID プロキシは M1／M2 の `Location` 規則に従う。
+
+Service Worker の通知はクリック先と API だけでなく画像も絶対 URL を使う。`web_push_notifications.js` は `avatar_static` を `icon`、先頭添付の `preview_url` を `image` と `hiddenImage`、失敗時はペイロードの `icon` をそのまま `showNotification` に渡す。`badge` の `/badge.png` とクリック先の `/web/...` は `self.location` 基準で同一 Origin である。公開後は、通知を出す前に `icon`、`image`、`hiddenImage`、ペイロード `icon` を M1／M2 で投影する。インスタンス入口のホストは `self.location` 上の URL にする。専用ストレージは M2 のまま残す。これらの画像取得にアクセストークンは付けない。
+
+### CSP
+
+CSP は全通信を止めない。現行の `content_security_policy.rb` は次のとおりである。
+
+- `connect-src` は `:self`、`assets_host`、`media_host`、`streaming_api_base_url`
+- `img-src` と `media-src` は `:https` を含む
+- `frame-src` は `:https` を含む
+- `script-src` は `:self` と `assets_host`
+
+`:https` があるので、画像・音声・動画・フレームは CSP だけでは他の入口も正規ホストも止まらない。`assets_host` や Streaming 基底が正規ホストや別入口だと、`connect-src` がそのホストを明示的に許す。
+
+公開後、UI 入口の HTML では文書ごとに CSP を組む。
+
+- `connect-src` と `script-src` から、インスタンス入口であるホストを外す。同一 Origin は `:self` が担う。`:self` が同一ホストの `wss` を含むかはブラウザ差がある。対応ブラウザの確認項目にし、足りないブラウザには現在の入口の `wss` Origin だけを足す。兄弟入口の `wss` は足さない。
+- `img-src`、`media-src`、`frame-src` の `:https` は、外部メディアのために残し得る。ここは CSP が入口間の画像を止めるとは書かない。入口間の画像は M1 の URL 生成と 302 が止める。
+- `form-action` は `:self` のまま。
+- ゲートが閉じている間の CSP は今の初期化子のまま回帰する。
+
+CORS は `/api/*` を `origins '*'`、`credentials: false` のまま維持する。ネイティブアプリはこの形で Bearer を送る。WebUI の自動通信はクライアントのガードが同一 Origin 以外を送らない。
 
 ## セッション、Cookie、信頼境界
 
-今の Cookie は Domain 属性を持たない。ホスト専用である。
+今の Cookie は Domain 属性を持たない。ブラウザはそれを他の Host へは送らない。これは、兄弟サブドメインが `Domain=親` の同名 Cookie を作れないという意味ではない。`__Host-` が付かない名前は、親ドメインを Domain にした Cookie として送られ得る。SameSite=Lax は、同じ registrable domain のサブドメイン間の POST を止めない。サブドメインは same-site である。
 
-| Cookie | 設定箇所 | 属性 |
+| Cookie | 設定箇所 | 今の属性 |
 | --- | --- | --- |
-| `_mastodon_session` | `config/initializers/session_store.rb` | `same_site: :lax`。本番または `LOCAL_HTTPS` で `secure`。Domain 無し |
-| `_session_id` | `config/initializers/devise.rb` の Warden フック | 署名付き。HttpOnly。`same_site: :lax`。1 年。Domain 無し。値は `SessionActivation.session_id` |
-| `remember_user_token` | Devise `:rememberable`。`rememberable_options` は `secure: true` のみ | Domain 無し。SameSite の明示は初期化子に無い |
+| `_mastodon_session` | `session_store.rb` | SameSite=Lax。本番または `LOCAL_HTTPS` で Secure。Rails セッション。未認証の 2FA（`attempt_user_id`）と WebAuthn チャレンジと CSRF が入る |
+| `_session_id` | `devise.rb` の Warden | 署名付き文字列の session id。HttpOnly。SameSite=Lax。1 年 |
+| `remember_user_token` | Devise。`on_authentication_success` が常に `remember_me` を呼ぶ。`rememberable_options` は `secure: true` のみ | Domain 無し。SameSite の明示は初期化子に無い |
 
-ホスト専用なので、入口 A の Cookie は入口 B へ送られない。同一アカウントのサーバデータは共通で、ログイン状態は入口ごとに別の `SessionActivation` になる。`SessionActivation` は作成時に専用の Doorkeeper トークンを作る（`assign_access_token`）。初期状態の `access_token` はそのトークンである。ログアウトは現在の `_session_id` の activation を破棄し、そのトークンも `dependent: :destroy` で破棄する。他入口の activation は残る。パスワードリセットは全セッションと全トークンを無効にする。この既存仕様を維持する。
+読み書きは一箇所に揃える。今は次が別々に Cookie を見ている。
 
-同時ログインは `MAX_SESSION_ACTIVATIONS`（既定 10、`config/initializers/session_activations.rb`）の枠を消費する。古い activation から破棄される。検証では、入口数とこの上限の両方を見る。
+- `Warden::Manager.after_set_user` と `after_fetch` は `cookies.signed['_session_id']` を見て、空なら `warden.raw_session['auth_id']` に落ちる。`auth_id` への代入はこのリポジトリの Ruby には無い。fallback は残っている。
+- `before_logout` は `cookies.signed['_session_id']` だけを `SessionActivation.deactivate` に渡す。
+- `ApplicationController#current_session` は署名付き `_session_id` だけで `SessionActivation.find_by` する。`render_initial_state` はそのトークンと Push 購読を HTML に埋める。
 
-有効化時に既存セッションを落とさないため、Cookie 名は変えない。P4 のホスト束縛は次の二重読みにする。
+公開後の新しい UI 入口では、旧形式の文字列 `_session_id` も `auth_id` も受けない。発行 Host が記録されていない Cookie を、新しい入口の認証にしてはならない。
 
-- 署名付き `_session_id` の値が従来の文字列なら、今どおり受け入れる。正規ホストの既存ログインは継続する。
-- 新しく発行する値は、session id と発行ホストを一緒に署名する。検証時、ホストがリクエスト Host と一致するときだけ受け入れる。
-- ゲートが閉じている間は従来の文字列だけを書く。
+### Cookie 名の比較
 
-`__Host-` プレフィックスは、Secure、Path=/、Domain 無しをブラウザが強制する。改名は既存 Cookie を読めなくなる。提案 7 のとおり有効化には入れない。サブドメインからの Cookie tossing は、名前が `__Host-` でない限り残る。緩和はホスト専用のまま Domain を付けないこと、UI 入口を運営者の管理下だけにすること、P4 のホスト束縛で「コピーされた session id」を別 Host では拒否することである。許可リストに無いサブドメインをまとめて信用することはしない。
+| 案 | 既存ログイン | 新しい入口への tossing | 正規ホストへの tossing | ロールバック |
+| --- | --- | --- | --- | --- |
+| A. 全入口で旧名のまま、文字列 Cookie をどこでも受ける | 継続する | コピーや `Domain=親` の同名 Cookie を新しい入口が受ける | 残る | 容易 |
+| B. 全ホストを `__Host-` に改名する | 既存 Cookie を読めず、一斉にログアウトする | ブラウザが Domain 付き `__Host-` を拒否する | 同じ | 旧 Cookie へ戻すと再びログアウトし得る |
+| C. 推奨。新しい UI 入口だけ `__Host-`。正規ホストと `ALTERNATE_DOMAINS` は旧名のまま | 正規ホストのログインは継続する | `__Host-` は Domain を付けられず、他 Host の旧名 Cookie は読まない | 旧名の tossing は残る。重複した同名 Cookie は全ホストで拒否する | 公開を閉じると新しい入口の Cookie は使われなくなる。正規ホストの Cookie はそのまま |
 
-CSRF は HTML が `protect_from_forgery with: :exception`、API が `:null_session`、`Api::Web` は CSRF を要求する。SameSite=Lax のため、別入口からのクロスサイト POST にセッション Cookie は付かない。P4 で、Cookie を使うログインとセッション変更 POST は、`Origin`（無ければ `Referer`）がリクエストの Origin と一致することを追加で見る。欠ける場合は拒否する。ActivityPub inbox は署名で受け、この Origin 検査の対象にしない。
+推奨は C である。新しい入口が発行し読む名前は `__Host-mastodon_session`、`__Host-session_id`、`__Host-remember_user_token` だけである。属性は Secure、Path=/、Domain 無し、HttpOnly、SameSite=Lax。値は署名付きの `{ session_id, host, user_id }` である。remember もユーザー id と発行ホストを含む。
 
-実 IP は `TRUSTED_PROXY_IP` の `config.action_dispatch.trusted_proxies` と、`lib/action_dispatch/remote_ip_extensions.rb` が担う。信頼済みプロキシ以外からの `X-Forwarded-For` / `Client-Ip` は `IpSpoofAttackError` になる。このリポジトリは `CF-Connecting-IP` を読まない。この機能のためにそのヘッダは足さない。Cloudflare を使う場合、オリジンが信頼してよいのは Cloudflare の接続元だけであり、その設定は運営者のプロキシ側で行う。アプリは今の X-Forwarded-For 経路を維持する。
+レガシー入口（正規ホストと `ALTERNATE_DOMAINS`）は今の名前と、文字列の `_session_id` を受け続ける。`auth_id` fallback もレガシー入口だけに残し、解決した activation のユーザーが、そのリクエストで認証されたユーザーと一致するときだけ使う。新しい入口へはこの fallback をコピーしない。
 
-Rack::Attack のキーはユーザー ID、トークン ID、IP であり、Host は含まない。Host をキーに足すと、入口の数だけ制限が緩む。足さない。
+同一リクエストに同じ Cookie 名が複数あるときは、どちらの入口でもそのリクエストを拒否する。どれが host-only でどれが `Domain=親` かをサーバは区別できないためである。
 
-キャッシュは `CacheConcern#enforce_cache_control!` が、Vary に Cookie / Authorization / Signature があり、そのヘッダがリクエストに付いているとき `private, no-store` にする。認証済み応答を入口間で共有しない。公開 HTML をプロキシキャッシュするときは、キャッシュキーに `$host` を含める。例示の `dist/nginx.conf` は `proxy_cache_key` を書いておらず、nginx の既定は上流ホストであってクライアントの Host ではない。参考設定では `$scheme$host$request_uri` を提案する。本番の nginx はこのリポジトリに無いので、ここでは断定しない。
+正規ホストの旧名を後から `__Host-` へ移す作業は、この公開とは別の変更にする。そのときも、既存の host-only Cookie を読む期間を置き、一斉失効を公開の前提にしない。
+
+### 解決の手順
+
+ログイン確立、リクエストごとの復元、`current_session`、初期状態、Push、ログアウトは同じ解決関数を使う。
+
+1. 転送ヘッダの検査を通過した実効 Origin を取る。
+2. 新しい UI 入口では `__Host-` の三つだけを読む。署名を検証し、`host` が実効ホストと一致し、`user_id` が認証済みユーザーと一致し、そのユーザーの `SessionActivation` が存在し、紐づくトークンが失効していないことを確認する。一つでも欠ければ未認証にする。別ユーザーの activation は読み込まない。
+3. レガシー入口では旧名を読む。文字列の session id は、その activation のユーザーが認証済みユーザーと一致するときだけ採用する。
+4. `remember_user_token` だけでは新しい入口にセッションを作らない。remember は、その入口でパスワードまたは第二要素が成功した同じユーザーのときだけ、その入口の `__Host-` remember を書く。他入口の remember は名前が違うので読まない。
+5. ログアウトは、この関数が解決した activation だけを破棄する。破棄はそのトークンも消す（`dependent: :destroy`）。他入口の activation は残る。Cookie 削除はその入口の名前だけである。
+6. パスワードリセットは、今どおり全セッションと全トークンを無効にする。
+7. 未認証の 2FA 状態（`session[:attempt_user_id]`、`attempt_user_updated_at`、`webauthn_challenge`）は、その入口のセッション Cookie にだけ置く。新しい入口では `__Host-mastodon_session` である。
+
+同時ログインは `MAX_SESSION_ACTIVATIONS`（既定 10）を消費する。検証で入口数とこの上限を見る。
+
+### トークンの種類
+
+`SessionActivation` は作成時に、`superapp: true` の Doorkeeper アプリケーションへスコープ `read write follow` のトークンを作る。WebUI の初期状態に埋まるのはこのトークンである。ネイティブと他アプリのトークンは、それぞれの OAuth アプリケーションに属し、SessionActivation を持たない。
+
+Node Streaming（`streaming/index.js`）はトークン文字列だけを見る。Host も superapp も見ない。公開後の規則は Rails API と Node で同じにする。
+
+- WebUI の superapp トークンは、接続の実効 Origin が、その activation の発行ホストと一致するときだけ受ける。新しい入口のトークンを正規ホストの Streaming では受けない。逆も受けない。
+- superapp ではない OAuth トークンは Host に縛らない。ネイティブクライアントは今どおり使える。
+- 署名付き ActivityPub はトークンを使わない。Bearer 専用の REST はセッション Cookie を認証に使わない（`Api::BaseController` は `:null_session`）。Cookie と Bearer が両方付いていても、API の主体は Bearer のトークンである。Origin ヘッダだけではユーザーを切り替えない。
+
+### CSRF
+
+Cookie を認証に使う書込は、POST、PUT、PATCH、DELETE のすべてで、`Origin` が実効 Origin と完全一致することを要求する。`Origin` が無いときは `Referer` の Origin を見る。どちらも無ければ拒否する。対象はログイン、ログアウト、設定、`Api::Web`（`protect_from_forgery with: :exception`）、その他セッション Cookie で状態が変わる経路である。
+
+対象にしないもの:
+
+- 署名付きの ActivityPub POST
+- Bearer だけで、セッション Cookie を認証に使わない API
+- 外部 IdP の callback。これは「外部認証」のとおり、同じ Origin で開始していないセレモニーを成功させない
+
+SameSite=Lax や CSRF トークンの一致だけをもって、別ユーザーの Cookie の組合せを正当化しない。主体の一致は解決関数が行う。
+
+### レートとキャッシュ
+
+Host を Rack::Attack のキーに足さない。足すと入口の数だけ枠が増える。
+
+基点の実装では、認証済み API の throttle（`throttle_authenticated_api`、メディア投稿、ページング、削除）は `authenticated_user_id`（`resource_owner_id`）である。同じユーザーのセッションが増えても、この枠は増えない。`authenticated_token_id` は定義されているが、throttle のキーには使っていない。トークン id をキーにするとセッション数だけ枠が増えるので、使わない。
+
+未認証とログイン試行は IP（IPv6 は /64）またはメールである。入口が違っても同じ IP の枠は共有される。2FA の Redis キーは `2fa_auth_attempts:{user_id}:{hour}` で、入口では分かれない。
+
+`CacheConcern#enforce_cache_control!` は、Vary に Cookie、Authorization、Signature のいずれかがあり、そのヘッダがリクエストに付いているときだけ `private, no-store` にする。これだけで認証済み応答の非キャッシュは保証されない。edge は次を保存せず、保存済みの応答を返さない。
+
+- `Set-Cookie` がある応答
+- Cookie または Authorization が付いたリクエストへの HTML、初期状態を含む文書、認証 API、認証付きリダイレクト
+
+公開アセットをキャッシュするキーは `$scheme$host$request_uri` を含める。例示の `dist/nginx.conf` は `proxy_cache_key` を書いていない。nginx の既定は上流ホストであり、クライアントの Host ではない。`/ns` は語彙文書の静的バイトで、中の IRI は `http://fedibird.com/ns#` のままである。ホストごとに同じバイトをキャッシュしてよい。本番 nginx はこのリポジトリに無い。
 
 ## 認証（webauthn 3.5.1）
 
@@ -163,30 +270,52 @@ gem 3.5.1 の挙動は、タグ `v3.5.1` の `authenticator_response.rb` で確�
 - `allowed_origins` が複数で `id` が nil のとき、`rp_id_from_origin` は nil を返し、`valid_rp_id?` は失敗する。グローバルな許可 Origin に入口を足すと、正規ホストの既存検証も壊れる。
 - 登録オプションは `rp.id` が nil なら id を埋めない。ブラウザは呼び出し元 Origin のホストを rpId にする。正規ホストで登録した既存キーの rpId は、`WEB_DOMAIN` のホストである。
 
-したがってグローバル設定は書き換えない。正規ホストの登録と検証は、今の `WebAuthn.configuration` をそのまま呼ぶ。
+正規ホストの登録と検証は、今の `WebAuthn.configuration` をそのまま呼ぶ。グローバルな `allowed_origins` に入口を足さない。
 
-UI 入口のセレモニーだけ、リクエストスコープの `WebAuthn::RelyingParty.new` を使う。
+新しい UI 入口の `options_for_create`、`options_for_get`、`from_create`、`from_get`、`verify` は、同じリクエストスコープの `WebAuthn::RelyingParty` を通す。
 
-- `id` は既存の実効 RP ID。つまり今の単一 `allowed_origins` のホスト。ここを親ドメインへ変えない。
-- `allowed_origins` はそのリクエストの Origin 一つと、正規 Origin のうち、RP ID の接尾辞条件を満たすもの。入口の Origin が条件を満たさない場合はセレモニーを開始しない。
-- チャレンジは今どおりセッションに置く。セッション Cookie がホスト専用なので、入口をまたいでは共有されない。加えて、発行 Origin と用途（登録かログインか）をセッションに結び、検証時にリクエストと一致しなければ捨てる。用途を分けるキーは、進行中のセレモニー以外の既存ログインを落とさない。
+- `id` は既存の実効 RP ID。今の単一許可 Origin のホストである。親ドメインへ広げない。
+- `allowed_origins` は、転送ヘッダ検査を通過したそのリクエストの Origin 一つだけである。正規 Origin は足さない。入口で発行したチャレンジに、正規 Origin の assertion や attestation が通る余地を残さない。
+- `name` は `Mastodon`、`credential_options_timeout` は 120_000、アルゴリズムは gem の既定（ES256、PS256、RS256）、attestation と cross-origin の検証フラグは今の既定のままコピーする。グローバル設定オブジェクトは書き換えない。
+- 入口の Origin が RP ID の接尾辞条件を満たさなければ、セレモニーを開始しない。
+
+チャレンジは、その入口のセッションに次のレコードで置く。
+
+- challenge 本体
+- 発行 Origin（その一つ）
+- 用途。登録か認証か。用途の違うレコードでは検証しない
+- ユーザー。登録は `current_user`、認証は `session[:attempt_user_id]`
+- そのログイン試行またはセッションを識別する値
+- 発行時刻と TTL。TTL は 120 秒で、超過したら破棄する
+- 消費フラグ。検証に入る前にレコードを消す。再試行は options を取り直す
+
+同じ用途の options を再度発行すると、前のレコードを上書きし、前のチャレンジは検証できない。セッション Cookie はタブ間で共有されるので、後から発行したタブが有効なチャレンジになる。複数チャレンジを同時に残してユーザーを取り違えない。
+
+既存の進行中チャレンジは文字列だけが `session[:webauthn_challenge]` に入っている。この文字列を受けるのは、正規ホストで、リクエスト Origin が正規 Origin のときだけである。新しい入口は文字列チャレンジを受けない。
+
+検証項目は、Origin 不一致、既存キー、入口で作った新しいキー、OTP、リカバリーコード、二つの入口に同じユーザー、二つの入口に別のユーザー、options の並行発行である。
 
 WebAuthn の仕様では、RP ID は Origin の実効ドメインそのものか、その registrable domain の接尾辞でなければならない。`WEB_DOMAIN` が `fedibird.com` なら、`https://1.fedibird.com` は rpId `fedibird.com` を使える。登録オプションに rpId を明示しないと、ブラウザは `1.fedibird.com` を rpId にし、既存キーを見つけない。入口では rpId を明示する。
 
 OTP、リカバリーコード、既存の `webauthn_credentials` 行は Origin に縛られていない。入口が違っても同じユーザーの第二要素として使える。サインカウンタはクレデンシャルごとに一つで、どの入口で使っても同じ行を更新する。
 
-外部認証の信頼境界は次のとおり。
+## 外部認証
 
-- ATProto の client id、redirect、jwks は `ExternalBridge::Atproto::ClientDocument` が `WEB_DOMAIN` 固定である。入口へ複製しない。
-- SAML は `SAML_ENABLED` と `SAML_ACS_URL` などの環境変数（`config/initializers/omniauth.rb`）。CAS は `CAS_CALLBACK_URL`。登録済み URL は正規ホストのままにする。
-- Doorkeeper の認可は、リクエストが来たホストのセッションを見る。`redirect_uri` はクライアント登録値のまま検証する。入口ホストを許可リダイレクトへ自動追加しない。
-- メールのリンクはメーラーの `default_url_options` により `WEB_DOMAIN` である。クリックした人は正規ホストにセッションを作る。別名入口のセッションは別 Cookie なので残る。
+callback を正規ホストに固定し、開始時の Cookie、state、PKCE が別 Origin にあると、セレモニーは一致しない。新しい入口から正規ホストへ黙って遷移させて完了扱いにしない。
+
+推奨は、新しい UI 入口では SAML、CAS、OmniAuth、ATProto を開始しないことである。画面は正規入口でのログインを案内し、自動リダイレクトはしない。ATProto の client id、redirect、jwks は `ExternalBridge::Atproto::ClientDocument` が `WEB_DOMAIN` 固定である。入口ごとに client id を複製しない。SAML の `SAML_ACS_URL` と CAS の `CAS_CALLBACK_URL` も、登録済みの正規 URL のままにする。
+
+同じ Origin で開始から callback まで通すには、その Origin を IdP に登録する必要がある。ATProto は client id が正規ホストの URL なので、追加入口ではこの形にできない。
+
+未決: `SAML_ENABLED` や `OAUTH_REDIRECT_AT_SIGN_IN` で外部認証が必須の環境を、追加入口の対象に含めるかどうか。含む場合は、その入口の callback を IdP に登録する別設計が要る。含まない場合、その環境の利用者は正規ホストだけを使う。
+
+Doorkeeper の `redirect_uri` はクライアント登録値のまま検証する。入口ホストを許可リダイレクトへ自動追加しない。メールのリンクは `WEB_DOMAIN` のままである。クリックした人は正規ホストにセッションを作る。新しい入口のセッションは別 Cookie なので残る。メール内リンクを入口へ戻す処理は、この範囲に入れない。
 
 ## PWA、Push、ブラウザ保存
 
 Service Worker はページの Origin に登録され、スコープは `/`（`config/webpack/production.js` の OfflinePlugin、`publicPath`）である。入口ごとに別の登録になる。Push 購読は `Web::PushSubscription` が `SessionActivation` に紐づく。入口ごとのセッションが、それぞれの購読とトークンを持つ。同じアカウントの通知設定（サーバ保存）は共通である。
 
-クリック先は `app/javascript/mastodon/service_worker/web_push_notifications.js` が `new URL(path, self.location)` で組む。Service Worker の Origin に留まる。この形を維持する。購読のペイロードに載る `access_token` は、そのセッションのトークンである。他入口の SW からは読めない。
+クリック先は `web_push_notifications.js` が `new URL(path, self.location)` で組む。Service Worker の Origin に留まる。通知の `icon`、`image`、`hiddenImage`、ペイロードの `icon` は「アセットとメディア」の M1／M2 で投影する。購読ペイロードの `access_token` は、そのセッションの superapp トークンである。画像取得には付けない。他入口の SW からは読めない。
 
 `ManifestSerializer` は `RoutingHelper` を include する。`scope` とアイコン絶対 URL は `root_url` になり、今は WEB_DOMAIN である。別 Origin のページから見ると、manifest の scope がそのページの外に出る。P5 では、manifest を返すリクエストの Origin で `scope`、`start_url`、アイコン、`share_target` を組む。`id` は今の serializer に無い。入口ごとに別アプリとしてインストールできるよう、`id` をその Origin にするか、フィールドを付けない。複数入口で一つの `id` を共有しない。
 
@@ -208,73 +337,90 @@ UI 入口の Host を `TagManager#local_url?`、`ActivityPub::TagManager#local_u
 
 署名検証（`SignatureVerification#build_signed_string`）は、リクエストの Host ヘッダとパスを見る。正規 URI のホストへ読み替えない。UI 入口で ActivityPub の GET/POST を拒否すれば、別名 Host 向けの署名を成功扱いにしてキャッシュさせる経路ができない。既存の正規ホストと `ALTERNATE_DOMAINS` への署名付き GET/POST は、今のコントローラのまま回帰させる。
 
-HTML と ActivityPub は、同じパスでも Accept と format で分かれる（`config/initializers/mime_types.rb` が `application/activity+json` を `:json` に登録、`config/routes.rb` の HTML 制約）。UI 入口では JSON/ActivityPub 形式を 406 とし、`Link` で正規 URL を示す。inbox への POST は 404 とする。WebFinger、host-meta、NodeInfo、`/actor` も UI 入口では拒否し、正規 URL を案内する。`ALTERNATE_DOMAINS` のホストはこの拒否の対象にしない。
+HTML と ActivityPub は、同じパスでも Accept と format で分かれる（`mime_types.rb` が `application/activity+json` を `:json` に登録、`routes.rb` の HTML 制約）。`/api/*` の REST JSON をまとめて 406 にはしない。
+
+| リクエスト | 正規ホストと `ALTERNATE_DOMAINS` | 新しい UI 入口 |
+| --- | --- | --- |
+| HTML の Accept、format 無し | 今の HTML | その入口の HTML |
+| `application/activity+json`、`ld+json`、`jrd+json` | 今の ActivityPub と WebFinger | 406。`Link` で正規 URL |
+| Actor パスの `?format=json` または `.json` | 今の Actor JSON | 406。`Link` で正規 URL |
+| `/api/*` の REST | 今の API | REST を返す。WebUI の自動通信は同一 Origin ガード。ネイティブの Bearer は Host に縛らない |
+| inbox、outbox、コレクションへの連合 POST／GET | 今のとおり | POST は 404。連合 GET は 406 と正規 URL |
+| WebFinger、host-meta、NodeInfo、`/actor` | 今のとおり | 拒否し、正規 URL を案内 |
+| `/ns`、`/ns/group/v1` | 例示 nginx が静的 JSON-LD を返す。IRI は `http://fedibird.com/ns#` | 公開前は edge が server_name に含めない。公開後に同じバイトを返しても、語彙の識別子は正規 IRI のまま |
+
+`ALTERNATE_DOMAINS` はこの表の右列に入れない。
+
+## 公開ゲート
+
+P1 から P5 のコードを本番にマージしても、入口は開かない。アプリは `WEB_UI_DOMAINS` を読んでも、本番では `config.hosts` に足さない。テストと検証環境だけで、テスト専用のフラグが明示されたときだけ入口の挙動を有効にする。そのフラグを本番は無視する。
+
+本番公開は P6 の総合検証が終わったあと、運営者が別に行う。アプリの公開フラグ、edge の server_name、証明書、DNS が揃ったときだけ開く。アプリのフラグだけでは、nginx の静的ファイル、`/api/v1/streaming`、`/ns` は Rails の Host Authorization を通らない。edge が server_name に入れていなければ、それらの経路は開かない。入れてしまった設定ミスはアプリでは閉じられない。公開チェックリストに edge の allowlist を含める。
+
+| 層 | 閉じる責任 | 開いたあとの責任 |
+| --- | --- | --- |
+| DNS と CDN | 検証が終わるまで新しい名前を向けない | 選んだ入口へだけ向ける |
+| edge | server_name、上流、Streaming、静的ファイル、`/ns` を新しい名前で受けない | Host と転送ヘッダの上書き、キャッシュキー、認証応答の非キャッシュ |
+| Rails | 本番では `config.hosts` に足さない。届いた不正 Host は拒否 | セッション解決、CSRF、WebAuthn、連合の拒否、302 の入口維持 |
+| Node Streaming | 新しい名前を受けない | superapp トークンと発行ホストの一致 |
+| ブラウザ | 公開前は入口が無い | 自動通信の同一 Origin ガード |
+
+ゲートを閉じる、設定を消す、ロールバックする、のいずれでも正規ホストの Cookie と `ALTERNATE_DOMAINS` の WebFinger は維持する。新しい入口の `__Host-` Cookie は使われなくなる。再開は同じ公開手順を最初から行う。公開フラグだけを戻しても、edge が開いたままであれば静的経路は残る。edge とアプリを同じ手順で閉じる。
 
 ## 実装の順序
 
-各 PR はテストできる単位にする。ゲートが閉じている限り、本番の Host 許可とセレモニーは増えない。
+各 PR はテストできる単位にする。本番の入口はこの表のあいだ開かない。
 
-| 段階 | 中身 | ゲート |
+| 段階 | 中身 | 本番 |
 | --- | --- | --- |
-| P1 基盤 | 正規化、拒否規則、リクエストローカルな判定オブジェクト。`config.hosts` は変えない | 閉 |
-| P2 API / Streaming / 遷移 | 同一 Origin 検査、初期状態の Streaming、未ログイン短絡リダイレクト、Link の検査。serializer の正規 URL は不変 | 閉。テストは Host を直接渡す |
-| P3 アセット / メディア | ブラウザ投影、CSP に兄弟入口を足さない、ストレージ例外 | 閉 |
-| P4 認証 / セッション / 連合境界 | ホスト束縛の二重読み、リクエストスコープの RelyingParty、UI 入口での連合拒否、Cookie POST の Origin 検査、`config.hosts` への追加 | この PR で `WEB_UI_DOMAINS_READY` を見て開く。P2 と P3 が無い状態では開かない |
-| P5 PWA / Push | manifest をリクエスト Origin に合わせる。SW と Push は入口に留める | P4 の後 |
-| P6 総合検証 | 下の手順。実ブラウザと CDN | 有効化のあと |
-
-P4 より前に `config.hosts` へ入口を足すと、セッション分離と WebAuthn が未完了の Host が開く。追加は P4 にまとめる。
+| P1 基盤 | 正規化、拒否規則、転送ヘッダの一致検査、リクエストローカルな判定。`config.hosts` は変えない | 閉 |
+| P2 API / Streaming / 遷移 | 送出前ガード、公開後モードの同一 Origin Streaming、内部リンクの `href`、Link の拒否。serializer の正規 URL は不変。ゲート閉鎖時の `STREAMING_API_BASE_URL` は回帰 | 閉。テストは Host を直接渡す |
+| P3 アセット / メディア | M1 の 302 と `src`、M2 の専用ホスト、入口 HTML の CSP。CSP が全通信を止めるとは扱わない | 閉 |
+| P4 認証 / セッション / 連合 | `__Host-` は新しい入口だけ、解決関数、同一 Origin の CSRF、リクエストスコープの RelyingParty、連合の判定表 | 閉。テスト環境のフラグだけで有効 |
+| P5 PWA / Push | manifest、SW、通知画像の投影 | 閉 |
+| P6 検証環境 | 上のすべてと edge を検証環境だけで開く | 本番は閉 |
+| 本番公開 | P6 のあと、運営者が edge とアプリを同時に開く | 明示したときだけ |
 
 ## 検証
 
 ここは手順である。この P0 ではアプリを起動して実行していない。
 
-比較の軸は四つである。
+比較の軸は、未設定、設定済みで正規ホストが `LOCAL_DOMAIN` と一致、`LOCAL_DOMAIN != WEB_DOMAIN`、既存の `ALTERNATE_DOMAINS` を維持、の四つである。
 
-- `WEB_UI_DOMAINS` 未設定
-- 設定済みで、正規ホストが `LOCAL_DOMAIN` と一致
-- `LOCAL_DOMAIN != WEB_DOMAIN`
-- 既存の `ALTERNATE_DOMAINS` を維持
+正規 URL は、同じステータスとアカウントについて、変更前後と各 Host で ActivityPub JSON、WebFinger subject、署名対象の inbox URL を比較する。違ってよいのは、公開後の入口における HTML、同一 Origin の自動リクエスト、内部リンクの `href` だけである。
 
-正規 URL は、同じステータスとアカウントについて、変更前後と各 Host で ActivityPub JSON、WebFinger subject、署名対象の inbox URL を比較する。違ってよいのは UI 入口での HTML と、UI が組み立てる自動リクエストだけである。
+生の HAR は共有しない。初期状態のトークン、`Authorization`、`Cookie`、`Set-Cookie`、`Sec-WebSocket-Protocol`、クエリの `access_token`、フォームの password と OTP、WebAuthn のチャレンジと attestation、非公開投稿の本文が入り得る。証跡は、抽出した host、path、status、リダイレクト先の host、リソース種別だけにする。
 
-ブラウザの Network/HAR では、選択した入口以外の Fedibird 入口への自動リクエストが 0 件であることを見る。対象はリダイレクト、WebSocket、EventSource、ページ送り、動的 import、メディア、Push のクリックである。意図した例外は、外部リンク、正規 URL の新規タブまたはコピー、ストレージホスト、UI 入口ではない `STREAMING_API_BASE_URL`、メールと外部認証の正規ホストである。例外は HAR に印を付けてレビューする。
-
-HAR とサーバログにはトークンを残さない。
-
-- 保存前に `Authorization`、`Cookie`、`Set-Cookie`、`X-CSRF-Token` を消す
-- クエリの `access_token`、WebAuthn のチャレンジと attestation、remember Cookie を消す
-- Streaming URL をコピーするときもクエリを落とす
-- ログ採取はトークンと Cookie をマスクしたレベルで行う
+自動リクエストが選択中の入口以外のインスタンス入口へ 0 件であることを、この証跡で見る。対象はリダイレクト、WebSocket、EventSource、ページ送り、動的 import、メディア、通知の画像、Push のクリックである。意図した例外は、外部リンク、明示した正規 URL の共有、M2 の専用ストレージ、ゲート閉鎖時の専用 `STREAMING_API_BASE_URL`、メールである。外部認証は新しい入口では開始しない。
 
 シナリオは次を含む。
 
-- 3 入口 × 3 アカウントの同時ログイン。投稿、リアクション、通知、設定、下書き、ログアウト、再読込、期限切れ、再ログインで他入口と混ざらない
-- 同一アカウントの複数入口。片方のログアウトが他方のセッションと Push を残す。パスワードリセットは両方を無効にする
-- WebAuthn の既存キー（正規ホストで #865 以前に登録したもの）、入口で新規登録したキー、OTP、リカバリーコード
-- 直接接続と CDN 入口
-- 否定: 未許可 Host、偽装した `X-Forwarded-Host`、信頼済みでない接続元からの `X-Forwarded-For`、別 Origin への Bearer、オープンリダイレクト、CSRF、兄弟サブドメインからの Cookie、アカウントの取り違え、認証済み応答の共有キャッシュ、Host を変えただけのレート制限回避
+- 3 入口 × 3 アカウント。投稿、リアクション、通知、設定、下書き、ログアウト、再読込、期限切れ、再ログイン
+- 同一アカウントの複数入口。片方のログアウトが他方を残す。パスワードリセットは両方を無効にする
+- WebAuthn の既存キー、入口の新しいキー、OTP、リカバリーコード、二つの入口で同一ユーザーと別ユーザー、options の並行発行
+- 否定: 有効な旧 `_session_id` を新しい入口へ渡す、別ユーザーの Cookie の組合せ、remember だけ、`auth_id` fallback、兄弟からの Cookie tossing、同名 Cookie の重複、両方許可済みの Host と `X-Forwarded-Host` の不一致、別 Origin への自動 API、オープンリダイレクト、same-site サブドメインからの Cookie 付き POST、認証済み応答の共有キャッシュ、Host をキーにしたレート制限の増加
 
 ## 調査の範囲と未確認
 
-基点 `54bd41378f` を読み、ripgrep で次を検索した。`vendor`、`node_modules`、`tmp`、`log`、ロケール YAML の翻訳文は対象外にした。WebAuthn の現行契約を固定している spec は読んだ。
+基点 `54bd41378f` を読み、ripgrep で検索した。`vendor`、`node_modules`、`tmp`、`log`、ロケール YAML の翻訳文は対象外にした。二回目のレビュー対応では、ドメイン名の検索に加えて次も実行した。
 
 ```sh
-git grep -n -E 'WEB_DOMAIN|LOCAL_DOMAIN|ALTERNATE_DOMAINS|alternate_domains|web_domain|local_domain' -- '*.rb' '*.js' '*.haml'
-git grep -n -E 'local_url\?|local_uri\?|web_domain\?|local_domain\?' -- '*.rb'
-git grep -n -E 'CDN_HOST|S3_ALIAS_HOST|S3_HOSTNAME|STREAMING_API_BASE_URL|asset_host' -- '*.rb' '*.js'
-git grep -n -E 'streaming_api_base_url|access_token' -- app/javascript app/serializers/initial_state_serializer.rb
-git grep -n -E '_session_id|_mastodon_session|rememberable_options|cookie_store' -- '*.rb'
-git grep -n -E 'WebAuthn|allowed_origins|rp_id' -- '*.rb'
-git grep -n -E 'config\.hosts|trusted_proxies|CF-Connecting-IP|X-Forwarded' -- '*.rb' '*.conf' '*.erb'
+git grep -n -E 'request\.(url|base_url|host)|default_url_options|_url\b|url_for|redirect_to' -- app config '*.rb' '*.haml'
+git grep -n -E 'href=|src=|srcset=|url\(' -- app/javascript app/views '*.scss' '*.css'
+git grep -n -E 'fetch\(|axios\.|EventSource|WebSocket|new URL\(|window\.location' -- app/javascript streaming
+git grep -n -E 'publicPath|avatar_static|preview_url|hiddenImage' -- app/javascript config/webpack
+git grep -n -E 'auth_id|remember_me|oauth.*state|redirect_uri|SAML_ACS|CAS_CALLBACK' -- app config '*.rb'
 ```
 
-未確認のまま残しているもの:
+ヒットは監査表の機構へ対応づけた。行単位の全 `*_url` は列挙していない。実装 PR は同じ検索を差分に対してやり直す。
 
-- Rails は起動していない。`og:url` がリクエスト Host になるという判断は、`ApplicationController` が `default_url_options` を上書きしないことと、ビューが `url_for(only_path: false)` を呼ぶことから導いた。
+未確認:
+
+- Rails は起動していない。`og:url` がゲート閉鎖時にリクエスト Host になる判断は、`ApplicationController` が `default_url_options` を上書きしないことから導いた。
 - webauthn 3.5.1 の RP ID 導出は GitHub の `cedarcode/webauthn-ruby` タグ `v3.5.1` を読んだ。ローカルの `bundle show` は使っていない。
-- 本番の nginx、CDN、証明書、Cloudflare の実設定はこのリポジトリに無い。`dist/nginx.conf` と `nanobox/*.conf` は例である。
-- `remember_user_token` の SameSite は、この初期化子では明示されていない。
-- メディアの Range は 302 先のストレージ依存で、エッジの対応は未確認である。
+- 本番の nginx、CDN、証明書、Cloudflare の実設定はこのリポジトリに無い。
+- `remember_user_token` の SameSite は初期化子に明示が無い。
+- メディアの Range は最終配信先に依存し、エッジの対応は未確認である。
+- `:self` が同一ホストの `wss` を含むブラウザの範囲は未確認である。
 - 複数 Origin で同一 VAPID 鍵を使えることは P5 で確認する。
-- `*_url` の全呼び出しを行単位では列挙していない。機構ごとに代表箇所を監査表へ書いた。実装 PR は上の検索をやり直して、新しい生成箇所が表に載っていることを確認する。
+- `auth_id` を書くコードは、このリポジトリの Ruby 検索では見つかっていない。読む fallback だけがある。
