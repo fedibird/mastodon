@@ -25,7 +25,7 @@
 | keep-canonical | 正規ホストのまま生成・保存する |
 | project-at-browser | WebUI が読むときだけ入口 Origin へ投影する。保存値と他クライアント向け JSON は変えない |
 | request-host | 今どおり、そのリクエストの Host を使う |
-| same-origin-guard | 自動リクエストを始める前に URL パーサで Origin を検査し、不一致なら送信しない |
+| same-origin-guard | 追加入口の厳密モードだけで、自動リクエストの前に URL パーサで Origin を検査し、不一致なら送信しない。レガシーモードの専用 Streaming は止めない |
 | refuse-on-ui-host | UI 入口では拒否し、正規 URL を案内する |
 | unchanged | この機能では挙動を変えない |
 | gate | 有効化ゲートが開くまで本番の挙動を変えない |
@@ -79,7 +79,7 @@
 | API `set_pagination_headers` と各 `next_path` の `*_url` | Link ヘッダ | API コントローラは RoutingHelper を include しないのでリクエスト Host | api-absolute | request-host。クライアントは same-origin-guard | P2 | 入口への API リクエストの Link がその入口。トークンは別 Host の Link へ出ない |
 | タイムラインの追加読み込み（`max_id`） | 相対パスを再リクエスト | ページ Origin | api-absolute | unchanged | P2 | ホームのページ送りが同一 Origin |
 | `scheduled_statuses` などの `api.get(nextUrl)` | Link の絶対 URL をそのまま GET | Link のホスト | api-absolute | same-origin-guard。不一致ならページ送りを止める | P2 | 不正な絶対 URL で Bearer が送られない |
-| `app/javascript/mastodon/stream.js` `connectStream` | WebSocket は基底 URL とプロトコル引数のトークン。EventSource はクエリ `access_token` | `meta.streaming_api_base_url` | streaming | 基底を入口 Origin にし、same-origin-guard を通す | P2 | 選択外の入口への WS/SSE が 0。HAR からトークンを消す |
+| `app/javascript/mastodon/stream.js` `connectStream` | WebSocket は基底 URL とプロトコル引数のトークン。EventSource はクエリ `access_token` | `meta.streaming_api_base_url` | streaming | 追加入口だけ同一 Origin。レガシー入口の専用 Streaming は今の基底のまま | P2 | 未設定時と正規ホストの専用 Streaming が残る。追加入口から選択外の入口への WS/SSE が 0 |
 | `Api::V1::StreamingController#index` | Host が Streaming 基底と違うと 301。ポート省略時は 80 と比較 | `STREAMING_API_BASE_URL` または `wss://WEB_DOMAIN` | streaming | レガシー入口の 301 は維持。追加入口では別 Origin の Location を出さない | P2 | 未設定時と正規ホストの専用 Streaming リダイレクトが残る。追加入口からはその Location が出ない |
 | `HomeController#redirect_unauthenticated_to_permalinks!` | 未ログインの `/web/statuses/:id` を `TagManager#url_for` へ | WEB_DOMAIN | browser-navigation | HTML 入口ではリクエスト Host の短絡パス。正規 URL 生成は維持 | P2 | 入口の未ログイン状態遷移が正規ホストへ自動で飛ばない |
 | `Permalink`、`packs/public.js` の `.webapp-btn`、`public_quote_navigation.js` | `href` または `dataurl` を開く。引用クリックは `url.split('/')[2]` でホストを見ている | `href` は API の正規 URL になり得る | browser-navigation | 同一インスタンスの `href` は現在の入口。正規 URL は共有アクションだけ。ホスト判定は `URL` パーサ | P2 | 中クリックと「リンクのアドレスをコピー」が現在の入口。共有ボタンだけが正規 URL |
@@ -110,7 +110,7 @@
 
 | 箇所 | 用途 | 現行ホスト | 分類 | 方針 | フェーズ | 回帰 |
 | --- | --- | --- | --- | --- | --- | --- |
-| `1_hosts.rb` の `config.hosts` | Host Authorization。テスト環境では未設定 | LOCAL、WEB、ALTERNATE | session | 追加入口は P6 以降の明示公開まで足さない。raw Host と実効ホストの一致。default server は未知の Host を拒否 | P6 | 未設定時の許可リストは今と同じ。両方許可済みでも Host と X-Forwarded-Host の不一致は拒否 |
+| `1_hosts.rb` の `config.hosts` と `dist/nginx.conf` | Host Authorization。テスト環境では未設定。例示 nginx に `default_server` と転送ヘッダの消去は無い | LOCAL、WEB、ALTERNATE | session | 追加入口は P6 以降の明示公開まで足さない。未知 Host の拒否と `Forwarded` の除去は、公開前に運営者が満たす条件であり、例示ファイルの現状ではない | P6 | 未設定時の許可リストは今と同じ。両方許可済みでも Host と X-Forwarded-Host の不一致は拒否 |
 | `session_store.rb` `_mastodon_session` | Rails の暗号化 Cookie Store。CSRF、flash、未認証 2FA。認証 tuple ではない | Domain 無し、SameSite=Lax、本番で Secure | session | 共有の `@key` は書き換えない。actionpack 6.1.7.10 は `cookie_jar[@key]` を直接使う。追加入口は別 CookieStore かリクエストスコープの Store。旧名は読まない | P4 | 正規ホストの既存セッションが残る。入口 A と B の Cookie が混ざらない |
 | `devise.rb` Warden `_session_id` と `auth_id` fallback、`ApplicationController#current_session`、`before_logout` | ログイン、復元、初期状態のトークン、ログアウトが別々に Cookie を読む | 旧名。文字列の session id。`auth_id` を書くコードは検索範囲に無い | session | 一つの解決関数。新しい入口は `__Host-` だけを読み、旧文字列と `auth_id` は拒否。レガシー入口は旧文字列を、ユーザー一致のときだけ受ける | P4 | 有効な旧 Cookie を新しい入口へ渡しても未認証。別入口のログアウトが他を消さない |
 | `rememberable_options` と `on_authentication_success` の `remember_me` | レガシー入口は `remember_user_token`。追加入口では発行も復元もしない | Domain 無し。SameSite は初期化子に明示無し | session | レガシー入口の発行と復元は維持。追加入口は Devise の remember 戦略でもログインしない | P4 | 正規ホストの remember が継続する。追加入口へ remember Cookie を渡してもログインしない |

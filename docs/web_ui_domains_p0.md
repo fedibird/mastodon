@@ -85,7 +85,13 @@ Link ヘッダを WEB_DOMAIN に寄せる変更も、serializer の `url` を入
 
 入口の実効 Origin は、正規化後の raw `Host` と、Rails／Streaming が使う `request.host` およびスキームが一致したときだけ成立する。
 
-例示の `dist/nginx.conf` は `Host $host` と `X-Forwarded-Proto $scheme` を上書きし、`X-Forwarded-Host` は付けない。`server_name` に無い名前でも、nginx の default server が受け得る。参考設定では、知らない Host と SNI の不一致を default server で拒否する。静的ファイル、Streaming、`/ns` を含む全 location で、`Forwarded` と `X-Forwarded-*` を消してから edge が上書きする。本番のプロキシ構成はリポジトリに無い。
+例示の `dist/nginx.conf` は `Host $host` と `X-Forwarded-Proto $scheme` を上書きする。`default_server` は無く、`Forwarded` と `X-Forwarded-Host` の消去もない。`X-Forwarded-For` は `$proxy_add_x_forwarded_for` で、クライアントの値を連結し得る。この例は、未知の Host の拒否と転送ヘッダの除去を備えていない。
+
+公開前に運営者が満たす条件は次である。例示ファイルがこれを満たしているとは書かない。443 の `default_server` に使う証明書は運営者が決める。
+
+- 知らない Host と、SNI と Host の不一致を拒否する。一致しない名前を最初の server で受けない。
+- 静的ファイル、Streaming、`/ns` を含む全 location で、`Forwarded` と `X-Forwarded-*` を消してから edge が上書きする。
+- 本番のプロキシ構成はこのリポジトリに無い。公開チェックは、運用中の設定に対して行う。
 
 `request.host` が信頼済みプロキシの `X-Forwarded-Host` だけを見る、とは仮定しない。`TRUSTED_PROXY_IP` と `remote_ip_extensions.rb` は接続元 IP の検査であり、Host の信頼とは別である。アプリは raw `Host` と、Cookie と Origin に使うホストが一致しなければ拒否する。
 
@@ -102,9 +108,9 @@ Rails と Node Streaming は、正規化後の raw `Host` と実効ホストが�
 
 ## WebUI の自動通信
 
-axios（`app/javascript/mastodon/api.js`）は `baseURL` を持たず、相対パスでページの Origin へ送る。インスタンスは `Authorization: Bearer` と `X-CSRF-Token` を同時に付ける。送出前の共通ガードが、この二つのヘッダ、WebSocket のサブプロトコル、EventSource の `access_token` クエリを同じ判定にかける。
+axios（`app/javascript/mastodon/api.js`）は `baseURL` を持たず、相対パスでページの Origin へ送る。インスタンスは `Authorization: Bearer` と `X-CSRF-Token` を同時に付ける。送出前の共通ガードは、追加入口の厳密モードだけに適用する。レガシーモードでは今の接続を維持し、専用 Streaming ホストへの WebSocket をこのガードで止めない。
 
-ガードは `new URL(input, document.baseURI)` で分解する。次をすべて満たすときだけ自動リクエストを送る。
+厳密モードのガードは `new URL(input, document.baseURI)` で分解する。次をすべて満たすときだけ自動リクエストを送る。
 
 - スキームがページと同じ `http` または `https`（Streaming は同じホストの `ws` または `wss`）
 - ホストが punycode でページと一致
@@ -119,7 +125,7 @@ axios（`app/javascript/mastodon/api.js`）は `baseURL` を持たず、相対�
 - 追加入口の API、Streaming、Cookie 認証の自動通信は、別 Origin の `Location`、`Refresh`、meta refresh を出さない。返すなら同一入口の相対パスだけにする。Rails の Streaming 301 は、追加入口では出さない。
 - M2 は、公開前に承認した専用ストレージホストへの配信だけが例外である。インスタンス入口（`LOCAL_DOMAIN`、`WEB_DOMAIN`、`ALTERNATE_DOMAINS`、他の `WEB_UI_DOMAINS`）への自動通信は 0 のままにする。署名付き URL のホストは書き換えない。
 - こちらが `fetch` を呼ぶ箇所（Service Worker の通知 API を含む）は `redirect: 'error'` にする。`redirect: 'manual'` の opaque redirect は成功として読まない。
-- WebSocket はページが `https` なら `wss`、`http` なら `ws` だけを、同一ホストで開く。ダウングレードした URL はコンストラクタを呼ばない。クエリの `access_token` と `Sec-WebSocket-Protocol` は、その判定のあとでだけ付ける。試験は、不一致のときにハンドシェイクも EventSource も発生しないことである。
+- 厳密モードの WebSocket は、ページが `https` なら `wss`、`http` なら `ws` だけを、同一ホストで開く。ダウングレードした URL はコンストラクタを呼ばない。クエリの `access_token` と `Sec-WebSocket-Protocol` は、その判定のあとでだけ付ける。試験は、追加入口で不一致のときにハンドシェイクも EventSource も発生しないことである。レガシー入口の専用 Streaming は、今のスキームとホストのまま接続できる。
 - CSP の `connect-src` は、追加入口の文書では `:self` と、インスタンス入口ではない M2 ホストだけにする。CSP は二段目であり、これだけで 0 件を保証したことにはしない。
 
 相対パスはページ Origin への解決後に同じ判定を通す。明示した外部リンクは別関数で、API クライアントを使わず、CSRF も Bearer も付けない。
@@ -282,7 +288,7 @@ Node は今、`oauth_access_tokens` だけを見る（`streaming/index.js`）。
 
 | 種類 | 作り方 | `issued_origin` | 受理する経路 |
 | --- | --- | --- | --- |
-| レガシー Web セッション | 公開前、またはレガシー入口で作った activation | NULL | 正規ホスト、`ALTERNATE_DOMAINS`、専用 Streaming。追加入口では拒否 |
+| レガシー Web セッション | 公開前、またはレガシー入口で作った activation | NULL | 正規ホスト、`LOCAL_DOMAIN`、`ALTERNATE_DOMAINS`、専用 Streaming。`LOCAL_DOMAIN != WEB_DOMAIN` でも未束縛の既存セッションを受理する。追加入口では拒否 |
 | 追加入口の Web セッション | 厳密モードのログインで作った activation | その Origin | その Origin の Rails と Node だけ。正規、レガシー、他の入口では拒否 |
 | Push の fallback | `Web::PushSubscription#find_or_create_access_token`。`access_token_id` が空のとき、superapp で scope に `push` を含むトークンを作り、activation には紐づけない | 行が無いので未束縛 | レガシー経路だけ。追加入口の購読はこの fallback を使わず、その activation のトークンだけを使う |
 | 通常の OAuth | セッション行を持たないアプリのトークン | 行が無い | 今の API と専用 Streaming。追加入口では拒否 |
@@ -459,7 +465,11 @@ P1 から P5 のコードを本番にマージしても、入口は開かない�
 
 比較の軸は、未設定、設定済みで正規ホストが `LOCAL_DOMAIN` と一致、`LOCAL_DOMAIN != WEB_DOMAIN`、既存の `ALTERNATE_DOMAINS` を維持、の四つである。
 
-正規 URL は、同じステータスとアカウントについて、変更前後と各 Host で ActivityPub JSON、WebFinger subject、署名対象の inbox URL を比較する。違ってよいのは、公開後の入口における HTML、同一 Origin の自動リクエスト、内部リンクの `href` だけである。
+同じステータスとアカウントについて、比較はホストの種類で分ける。
+
+- 正規ホストでは、変更前後の ActivityPub JSON、WebFinger subject、署名対象の inbox URL を比較する。これらは変わらない。
+- 追加入口では ActivityPub の表現を 406 とし、正規 URL の案内を確認する。追加入口の ActivityPub JSON を正規ホストの JSON と比較することはしない。
+- 追加入口で違ってよいのは、HTML、同一 Origin の自動リクエスト、内部リンクの `href` である。
 
 生の HAR は共有しない。初期状態のトークン、`Authorization`、`Cookie`、`Set-Cookie`、`Sec-WebSocket-Protocol`、クエリの `access_token`、フォームの password と OTP、WebAuthn のチャレンジと attestation、非公開投稿の本文が入り得る。証跡は、抽出した host、path、status、リダイレクト先の host、リソース種別だけにする。
 
