@@ -25,7 +25,7 @@
 | keep-canonical | 正規ホストのまま生成・保存する |
 | project-at-browser | WebUI が読むときだけ入口 Origin へ投影する。保存値と他クライアント向け JSON は変えない |
 | request-host | 今どおり、そのリクエストの Host を使う |
-| same-origin-guard | 自動リクエストの前に URL パーサで Origin を検査し、不一致ならトークンを付けない |
+| same-origin-guard | 自動リクエストを始める前に URL パーサで Origin を検査し、不一致なら送信しない |
 | refuse-on-ui-host | UI 入口では拒否し、正規 URL を案内する |
 | unchanged | この機能では挙動を変えない |
 | gate | 有効化ゲートが開くまで本番の挙動を変えない |
@@ -38,7 +38,7 @@
 
 | 箇所 | 用途 | 現行ホスト | 分類 | 方針 | フェーズ | 回帰 |
 | --- | --- | --- | --- | --- | --- | --- |
-| `config/initializers/1_hosts.rb` `local_domain` / `web_domain` / `alternate_domains` | 環境変数の読み込み。メーラー `default_url_options` は `web_host`。`config.hosts` は local、web、alternate。`/health` は Host 検査の対象外 | WEB_DOMAIN が URL 生成。LOCAL は acct。alternate は許可リスト | mixed | keep-canonical。UI 入口の `config.hosts` 追加は P4 のゲート後 | P1, P4 | 未設定時、`root_url` のホストは WEB_DOMAIN、インスタンスの domain 表示は LOCAL_DOMAIN |
+| `config/initializers/1_hosts.rb` `local_domain` / `web_domain` / `alternate_domains` | 環境変数の読み込み。メーラー `default_url_options` は `web_host`。`config.hosts` は local、web、alternate。`/health` は Host 検査の対象外 | WEB_DOMAIN が URL 生成。LOCAL は acct。alternate は許可リスト | mixed | keep-canonical。追加入口の `config.hosts` 追加は P6 の検証のあと、明示した本番公開まで行わない | P1, P6 | 未設定時、`root_url` のホストは WEB_DOMAIN、インスタンスの domain 表示は LOCAL_DOMAIN |
 | `RoutingHelper#default_url_options` | include 先の `*_url` をメーラー設定へ固定 | WEB_DOMAIN | canonical-identity | keep-canonical。リクエストごとの書き換え禁止 | P1 | LOCAL と WEB が違うとき、このモジュール経由の URL は WEB |
 | `TagManager#web_domain?` / `#local_domain?` / `#local_url?` | メンションとローカル URL 判定。`local_url?` は WEB のみ。alternate も UI ホストも見ない | WEB または LOCAL | canonical-identity | unchanged。UI ホストを足さない | P4 | WEB 以外のホストは `local_url?` が偽 |
 | `ActivityPub::TagManager#url_for` / `#uri_for` / `#key_uri_for` / コレクション URI | ローカル Actor、Note、絵文字、鍵の正規 URL | WEB_DOMAIN（RoutingHelper） | canonical-identity | keep-canonical | P4 | 入口で作った投稿の `id` と `url` が正規ホストのまま |
@@ -56,10 +56,10 @@
 | `REST::V1::InstanceSerializer` の `uri` と `urls.streaming_api` | インスタンス識別子と Streaming 広告 | `uri` は LOCAL の文字列。Streaming は設定値 | api-absolute | unchanged。WebUI 初期状態とは別に扱う | P2 | `/api/v1/instance` が入口ホストを `uri` にしない |
 | メーラーの `web_url` と `default_url_options` | 通知リンク | WEB_DOMAIN | email | keep-canonical | P4 | メールのリンクホストが WEB |
 | `NotificationMailer` の Message-ID | スレッド識別 | LOCAL_DOMAIN | email | unchanged | P4 | Message-ID のドメインが LOCAL |
-| `shared/_og.html.haml` の `og:url` | OGP。`url_for(only_path: false)` | リクエスト Host（ApplicationController は default_url_options を上書きしない） | browser-navigation | request-host。共有用にコピーする値は正規 URL を別に出す | P2 | 入口の HTML の `og:url` がその入口、連合 JSON は WEB |
-| `about/show.html.haml` の `rel=canonical` | `about_url`。`routes.default_url_options` は未設定で、ApplicationController も上書きしない | リクエスト Host | browser-navigation | 入口の HTML は request-host のまま。共有用に正規 URL を出す場合は RoutingHelper 経由を明示し、この `about_url` を暗黙に WEB へ変えない | P2 | ゲート閉鎖時、about の canonical がリクエスト Host のまま |
+| `shared/_og.html.haml` の `og:url` | OGP。`url_for(only_path: false)` | リクエスト Host | browser-navigation | 未設定とレガシー入口は request-host。追加入口では正規 URL | P2 | 未設定時はリクエスト Host。追加入口の `og:url` は WEB。連合 JSON は WEB |
+| `about/show.html.haml` の `rel=canonical` | `about_url`。`routes.default_url_options` は未設定 | リクエスト Host | browser-navigation | 未設定とレガシー入口は request-host。追加入口では正規 URL を明示して出す | P2 | 未設定時はリクエスト Host。追加入口の canonical は WEB |
 | `Mastodon::Version.user_agent` | 送出 User-Agent の `+https://WEB_DOMAIN` | WEB_DOMAIN | federation-transport | unchanged | P4 | User-Agent の URL が WEB |
-| `ExternalBridge::Atproto::ClientDocument.origin` | client id、redirect、jwks | WEB_DOMAIN。ポートとローカル名は拒否 | external | keep-canonical | P4 | 入口から開始しても client id が WEB |
+| `ExternalBridge::Atproto::ClientDocument.origin` | client id、redirect、jwks | WEB_DOMAIN。ポートとローカル名は拒否 | external | keep-canonical。追加入口では開始しない。外部認証必須のサーバは初期範囲で追加入口を公開しない | P4 | 未設定時の client id は WEB。追加入口に開始ボタンが無い |
 
 ## 2. 署名と配送
 
@@ -73,20 +73,20 @@
 
 | 箇所 | 用途 | 現行ホスト | 分類 | 方針 | フェーズ | 回帰 |
 | --- | --- | --- | --- | --- | --- | --- |
-| `InitialStateSerializer#meta` | `streaming_api_base_url`、`access_token`、`domain` | Streaming は設定値（本番既定 `wss://WEB_DOMAIN`）。`domain` は LOCAL。トークンは `current_session.token` | streaming, session | ゲート開放後の WebUI だけ Streaming をリクエスト Origin へ。`domain` とトークンの意味は維持。`/api/v1/instance` は変えない | P2 | 未設定時の初期状態 Streaming が今の設定値 |
+| `InitialStateSerializer#meta` | `streaming_api_base_url`、`access_token`、`domain` | Streaming は設定値（本番既定 `wss://WEB_DOMAIN`）。`domain` は LOCAL。トークンは `current_session.token` | streaming, session | 未設定とレガシー入口は今の Streaming URL。追加入口のブラウザだけ同一 Origin。`/api/v1/instance` は変えない | P2 | 未設定時と正規ホストの初期状態 Streaming が今の設定値 |
 | `ApplicationHelper#render_initial_state` | `#initial-state` にセッショントークンを埋める | その HTML を出した Host のセッション | session | 入口の Cookie から引いた activation のトークンだけを埋める | P4 | 入口 A の HTML に入口 B のトークンが無い |
 | `app/javascript/mastodon/api.js` | axios。`baseURL` 無し。Bearer と `X-CSRF-Token` | 相対パスならページ Origin | api-absolute | 相対パスは維持。絶対 URL は same-origin-guard | P2 | 相対 `/api/v1` に Bearer が付く。別 Origin には付かない |
 | API `set_pagination_headers` と各 `next_path` の `*_url` | Link ヘッダ | API コントローラは RoutingHelper を include しないのでリクエスト Host | api-absolute | request-host。クライアントは same-origin-guard | P2 | 入口への API リクエストの Link がその入口。トークンは別 Host の Link へ出ない |
 | タイムラインの追加読み込み（`max_id`） | 相対パスを再リクエスト | ページ Origin | api-absolute | unchanged | P2 | ホームのページ送りが同一 Origin |
 | `scheduled_statuses` などの `api.get(nextUrl)` | Link の絶対 URL をそのまま GET | Link のホスト | api-absolute | same-origin-guard。不一致ならページ送りを止める | P2 | 不正な絶対 URL で Bearer が送られない |
 | `app/javascript/mastodon/stream.js` `connectStream` | WebSocket は基底 URL とプロトコル引数のトークン。EventSource はクエリ `access_token` | `meta.streaming_api_base_url` | streaming | 基底を入口 Origin にし、same-origin-guard を通す | P2 | 選択外の入口への WS/SSE が 0。HAR からトークンを消す |
-| `Api::V1::StreamingController#index` | Host が Streaming 基底と違うと 301。ポート省略時は 80 と比較 | `STREAMING_API_BASE_URL` または `wss://WEB_DOMAIN` | streaming | UI 入口では別入口へ 301 しない。nginx が `/api/v1/streaming` を先に受ける構成を参考設定に書く | P2 | 正規ホストで明示 Streaming ホストがある既存リダイレクトを、ゲート閉鎖時に維持 |
+| `Api::V1::StreamingController#index` | Host が Streaming 基底と違うと 301。ポート省略時は 80 と比較 | `STREAMING_API_BASE_URL` または `wss://WEB_DOMAIN` | streaming | レガシー入口の 301 は維持。追加入口では別 Origin の Location を出さない | P2 | 未設定時と正規ホストの専用 Streaming リダイレクトが残る。追加入口からはその Location が出ない |
 | `HomeController#redirect_unauthenticated_to_permalinks!` | 未ログインの `/web/statuses/:id` を `TagManager#url_for` へ | WEB_DOMAIN | browser-navigation | HTML 入口ではリクエスト Host の短絡パス。正規 URL 生成は維持 | P2 | 入口の未ログイン状態遷移が正規ホストへ自動で飛ばない |
 | `Permalink`、`packs/public.js` の `.webapp-btn`、`public_quote_navigation.js` | `href` または `dataurl` を開く。引用クリックは `url.split('/')[2]` でホストを見ている | `href` は API の正規 URL になり得る | browser-navigation | 同一インスタンスの `href` は現在の入口。正規 URL は共有アクションだけ。ホスト判定は `URL` パーサ | P2 | 中クリックと「リンクのアドレスをコピー」が現在の入口。共有ボタンだけが正規 URL |
 | `main.js` の `/web` 付与 | `history.replaceState` | ページ Origin | browser-navigation | unchanged | P2 | 入口のパスが入口に残る |
 | 設定画面・管理画面のフォーム | `form-action 'self'` | ページ Origin | browser-navigation | unchanged | P2 | ログイン POST がページ Origin |
 | Doorkeeper 認可とトークン | セッションはリクエスト Host。`redirect_uri` はクライアント登録値。CORS は `/oauth/token` を資格情報無しで許可 | リクエスト Host と登録済み redirect | session | 入口を許可 redirect に自動追加しない。トークン応答は今の CORS | P4 | 既存アプリの redirect_uri が通る。オープンリダイレクトにならない |
-| `config/initializers/omniauth.rb` の SAML / CAS | ACS と callback は環境変数 | 運営者が登録した URL。既定はリクエストに依存し得る | external | 登録値は WEB を前提に維持。入口専用の callback は作らない | P4 | `SAML_ACS_URL` を変えない限り既存 IdP が使える |
+| `config/initializers/omniauth.rb` の SAML / CAS | ACS と callback は環境変数 | 運営者が登録した URL | external | 追加入口では開始せず、正規 callback へ自動遷移しない。必須のサーバは追加入口を公開しない | P4 | レガシー入口の既存 IdP は今どおり。追加入口から ACS へ飛ばない |
 | 外部ブリッジの WebUI（`external_feeds`、reading bookmarks、emoji mute） | 相対 `/api/v1/...` | ページ Origin | api-absolute | same-origin-guard の対象に含める | P2 | ブリッジ画面が別入口へ Bearer を送らない |
 
 ## 4. アセットとメディア
@@ -110,10 +110,10 @@
 
 | 箇所 | 用途 | 現行ホスト | 分類 | 方針 | フェーズ | 回帰 |
 | --- | --- | --- | --- | --- | --- | --- |
-| `1_hosts.rb` の `config.hosts` | Host Authorization。テスト環境では未設定 | LOCAL、WEB、ALTERNATE | session | UI 入口の追加は P4 ゲート後。`X-Forwarded-Host` は見ない。完全一致 | P4 | 未許可 Host は拒否。偽装 Forwarded Host では開かない |
-| `session_store.rb` `_mastodon_session` | Rails セッション | Domain 無し、SameSite=Lax、本番で Secure | session | ホスト専用のまま。名前を変えない | P4 | 既存ブラウザのセッションがゲート投入後も正規ホストで残る |
+| `1_hosts.rb` の `config.hosts` | Host Authorization。テスト環境では未設定 | LOCAL、WEB、ALTERNATE | session | 追加入口は P6 以降の明示公開まで足さない。raw Host と実効ホストの一致。default server は未知の Host を拒否 | P6 | 未設定時の許可リストは今と同じ。両方許可済みでも Host と X-Forwarded-Host の不一致は拒否 |
+| `session_store.rb` `_mastodon_session` | Rails の暗号化 Cookie Store。CSRF、flash、未認証 2FA。認証 tuple ではない | Domain 無し、SameSite=Lax、本番で Secure | session | グローバルな key は変えない。追加入口のリクエストだけ `rack.session.options` の key を `__Host-mastodon_session` にする | P4 | 正規ホストの既存セッションが残る。追加入口は旧名を読まない |
 | `devise.rb` Warden `_session_id` と `auth_id` fallback、`ApplicationController#current_session`、`before_logout` | ログイン、復元、初期状態のトークン、ログアウトが別々に Cookie を読む | 旧名。文字列の session id。`auth_id` を書くコードは検索範囲に無い | session | 一つの解決関数。新しい入口は `__Host-` だけを読み、旧文字列と `auth_id` は拒否。レガシー入口は旧文字列を、ユーザー一致のときだけ受ける | P4 | 有効な旧 Cookie を新しい入口へ渡しても未認証。別入口のログアウトが他を消さない |
-| `rememberable_options` | `remember_user_token`。`secure: true` のみ | Domain 無し。SameSite は初期化子に明示無し | session | Domain を付けない。`__Host-` 改名はしない | P4 | 正規ホストの remember が継続する |
+| `rememberable_options` と `on_authentication_success` の `remember_me` | レガシー入口は `remember_user_token`。初期範囲の追加入口では発行しない | Domain 無し。SameSite は初期化子に明示無し | session | レガシー入口の名前と挙動は維持。追加入口では remember を無効にする | P4 | 正規ホストの remember が継続する。追加入口は remember だけではログインしない |
 | `SessionActivation#assign_access_token` | セッションごとに Doorkeeper トークン | サーバ共有。Cookie はホスト専用 | session | 入口ごとに別 activation。ログアウトは現在の ID だけ破棄 | P4 | 入口 A のログアウト後、B のトークンが有効 |
 | `User#reset_password!` | 全セッションと全トークンを無効化 | サーバ全体 | session | unchanged | P4 | パスワードリセットで全入口が落ちる |
 | `session_activations.rb` `max_session_activations` | 既定 10。超過分は古い順に破棄 | ユーザー単位 | session | unchanged。検証で入口数との関係を見る | P6 | 11 個目のログインが最も古い activation を消す既存挙動 |
@@ -139,7 +139,7 @@
 | `ManifestSerializer#scope` / `#start_url` / `#share_target` | `scope` は `root_url`（RoutingHelper なので WEB）。`start_url` は相対パス。`id` は無い | WEB と相対パス | static-asset | レスポンス時のリクエスト Origin で scope とアイコンを組む。`id` は入口ごと。複数入口で共有しない | P5 | 正規ホストの manifest scope が正規 Origin |
 | `config/webpack/production.js` OfflinePlugin | `sw.js` を `/` スコープで生成 | 配信された Origin | static-asset | スコープ `/` を維持。入口ごとに別 SW | P5 | 正規ホストの SW が今のスコープ |
 | `service_worker/web_push_notifications.js` | クリックは `self.location`。`icon` は `avatar_static`、`image` と `hiddenImage` は `preview_url`、失敗時はペイロードの `icon` | クリックは SW の Origin。画像は JSON の絶対 URL | media-asset, session | クリックと API は同一 Origin。画像は M1／M2。トークンは画像に付けない | P5 | 通知の画像リクエストが他のインスタンス入口へ出ない |
-| `Web::PushSubscription` と `SessionActivation` | 購読はセッションに紐づく | サーバ共有、セッション単位 | session | 入口ごとの activation が自分の購読を持つ | P5 | A のログアウトが B の購読を消さない。パスワードリセットは両方消す |
+| `Web::PushSubscription#associated_access_token` | `access_token_id` が空だと `find_or_create_access_token` が activation に紐づかない superapp トークンを作る | 未束縛の superapp | session | 追加入口ではこの fallback を使わない。購読はその activation の束縛トークンだけ | P5 | レガシーの fallback トークンは追加入口で拒否。ログアウトは自分の activation だけ |
 | `settings.js` localStorage、`storage/db.js` IndexedDB `mastodon` | 表示設定とオフラインキャッシュ。絵文字セットのマーカーも localStorage | Origin ごと | session | 入口をまたいで複製しない | P5 | 入口 B に A の localStorage 下書きが出ない。サーバ保存の下書きは両方から見える |
 | `service_worker/entry.js` の sign-out | その SW の IndexedDB を削除 | その Origin | session | unchanged | P5 | 他 Origin の DB が残る |
 
@@ -147,7 +147,7 @@
 
 | 箇所 | 用途 | 現行ホスト | 分類 | 方針 | フェーズ | 回帰 |
 | --- | --- | --- | --- | --- | --- | --- |
-| `config/routes.rb` の HTML 制約と ActivityPub コントローラ | 同じパスで HTML と `application/activity+json` を分ける。Vary 付きリダイレクトあり | リクエスト Host で受ける。JSON の id は WEB | mixed | UI 入口の ActivityPub/JSON は 406 と正規 URL の Link。HTML の WebUI は返す。301 で入口全体を正規へ寄せない | P4 | 正規ホストの content negotiation が今どおり |
+| `config/routes.rb` の HTML 制約と ActivityPub コントローラ | 同じパスで HTML と ActivityPub 表現を分ける。拒否は route と action | リクエスト Host。JSON の id は WEB | mixed | Actor 系の ActivityPub 表現だけ 406 と正規 URL。REST、manifest、WebUI JSON は 406 にしない | P4 | 正規ホストの content negotiation と `/api` が今どおり |
 | `ActivityPub::InboxesController` | 共有 inbox とアカウント inbox。署名必須。Host の独自検査は無い | リクエスト Host | federation-transport | UI 入口の POST は 404。正規と alternate は unchanged | P4 | 正規 inbox の署名付き POST が 202 |
 | `InstanceActorsController` `/actor` | インスタンス Actor JSON | リクエスト Host で JSON。id は WEB | federation-transport | UI 入口では拒否 | P4 | 正規 `/actor` の id が WEB |
 | `ExternalBridge::Rss::PlayerResolver#instance_host?` | RSS プレイヤー用に web、local、alternate と、そのサブドメイン接尾辞を自インスタンスとみなす | 上記に加え接尾辞 | external | UI 許可リストには使わない。完全一致の別判定にする | P1 | このメソッドの真偽が UI 入口追加で変わらない |
@@ -158,13 +158,15 @@
 
 | 箇所 | 用途 | 現行ホスト | 分類 | 方針 | フェーズ | 回帰 |
 | --- | --- | --- | --- | --- | --- | --- |
-| `streaming/index.js` `accountFromRequest` | トークンを Bearer、クエリ、`Sec-WebSocket-Protocol` から取る。Host は見ない | トークンが有効ならどの Host でも可 | streaming | superapp トークンは発行ホストと実効 Origin が一致するときだけ。それ以外の OAuth トークンは Host に縛らない。Rails と同じ規則 | P4 | WebUI トークンを別入口の Streaming へ出すと 401。ネイティブトークンは正規ホストで今どおり |
+| `streaming/index.js` `accountFromRequest` | トークンを Bearer、クエリ、`Sec-WebSocket-Protocol` から取る。Host も `issued_origin` も見ない | トークンが有効ならどの Host でも可 | streaming | 正本は activation の nullable `issued_origin`。NULL はレガシー経路。非 NULL はその Origin だけ。公開閉鎖時は非 NULL を先に revoke する。superapp だけでは分類しない | P4 | 束縛トークンを正規ホストや専用 Streaming へ持っていくと 401。未束縛トークンはレガシー経路で今どおり、追加入口では拒否 |
 | `dist/nginx.conf` の `/ns`、静的 `/packs`、`/api/v1/streaming` | Rails の Host Authorization を通らない | `server_name` の例は `example.com` | static-asset | 公開前は edge が新しい名前を受けない。公開後も転送ヘッダを上書きし、認証応答をキャッシュしない | P6 | アプリのフラグだけではこれらの経路が開かない |
 | Rails `request.host` / `request.url` | 信頼済みプロキシ越しに `X-Forwarded-Host` と `X-Forwarded-Proto` を実効 Origin に使う | 転送ヘッダ次第 | session | raw Host と実効ホストが一致しないリクエストは、両方が許可済みでも拒否 | P1 | `Host` と `X-Forwarded-Host` が別の許可済みホストなら拒否 |
-| `on_authentication_success` の `remember_me` | ログイン成功のたびに remember Cookie を書く | `remember_user_token` | session | 新しい入口は `__Host-remember_user_token`。remember だけではセッションを作らない | P4 | remember だけの Cookie を新しい入口へ渡してもログインしない |
-| `session[:attempt_user_id]` と `session[:webauthn_challenge]` | 未認証の 2FA とチャレンジ。`_mastodon_session` に入る | その Host の Rails セッション | session | 新しい入口では `__Host-mastodon_session`。文字列チャレンジは正規ホストだけ | P4 | 正規ホストの 2FA 途中状態が新しい入口に現れない |
+| `on_authentication_success` の `remember_me` | ログイン成功のたびに remember Cookie を書く | `remember_user_token` | session | 追加入口では呼ばない。レガシー入口は今の Cookie のまま | P4 | 追加入口に remember Cookie が出ない |
+| `session[:attempt_user_id]` と `session[:webauthn_challenge]` | 未認証の 2FA は Cookie Store。追加入口のチャレンジ正本は Redis。Cookie には nonce だけ | 正規ホストは文字列チャレンジ | session | 正規ホストの文字列チャレンジは維持。追加入口は Redis の compare-and-delete。Redis 障害は失敗 | P4 | 古い暗号化 Cookie の再送では追加入口のチャレンジが成功しない |
 | `CacheConcern#enforce_cache_control!` | Vary に Cookie 等があり、そのヘッダが付いているときだけ no-store | 応答ごと | session | edge は Set-Cookie、認証付き HTML、初期状態、認証 API、認証付きリダイレクトを保存しない | P6 | Cookie 付きリクエストに公開キャッシュを返さない |
-| 連合の content negotiation | Accept、`?format=json`、`.json`、`/api/*` は別物 | リクエスト Host | federation-transport | `/api/*` は 406 にしない。Actor の JSON 表現と inbox は新しい入口で拒否。表は設計文書 | P4 | 正規ホストの Actor JSON と REST API が今どおり |
+| 連合の content negotiation | 拒否は Actor、inbox、WebFinger、NodeInfo、host-meta の route と action。JSON 一般ではない | リクエスト Host | federation-transport | REST、manifest、WebUI JSON は 406 にしない。表は設計文書 | P4 | 正規ホストの Actor JSON と `/api` が今どおり |
+| `Api::BaseController#current_user` | `current_resource_owner \|\| super`。`:null_session` は Cookie fallback を止めない | Cookie セッションまたは Bearer | session | Bearer が無効または別 Origin の束縛なら 401。Cookie へ落ちない。主体が食い違うときも 401。公開 GET はユーザーを足さない | P4 | 追加入口のトークンを正規ホストへ持っていくと 401。ゲートを閉じたあとも revoke 済みで 401 |
+| `SessionActivation` | 発行 Origin の列は無い。トークンは `access_token_id` | 未束縛 | session | nullable の `issued_origin` を正本にする。既存行は NULL。全件 backfill はしない | P4 | NULL のトークンはレガシー経路で使える。非 NULL は発行 Origin 以外で拒否 |
 
 ## 実装時に再実行する確認
 
