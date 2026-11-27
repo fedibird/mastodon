@@ -7,10 +7,12 @@ import Icon from '../../../components/icon';
 import ColumnLink from 'mastodon/features/ui/components/column_link';
 import { openModal } from '../../../actions/modal';
 import { favouriteList, unfavouriteList } from '../../../actions/lists';
+import { EmojiMutedPlain } from 'mastodon/components/emoji_muted_html';
 
 const messages = defineMessages({
   favourite: { id: 'lists.favourite', defaultMessage: 'Favourite list' },
   edit: { id: 'lists.edit', defaultMessage: 'Edit list' },
+  column: { id: 'column.lists', defaultMessage: 'Lists' },
 });
 
 export default @connect()
@@ -65,7 +67,7 @@ class List extends React.PureComponent {
 
     return (
       <div className='list-link'>
-        <div className='list-name'><ColumnLink to={`/timelines/list/${id}`} icon='list-ul' text={text} /></div>
+        <div className='list-name'><ColumnLink to={`/timelines/list/${id}`} icon='list-ul' text={<EmojiMutedPlain tag='span' plain={text} html='' emptyLabel={intl.formatMessage(messages.column)} />} /></div>
         <button className={classNames('list-favourite-button icon-button star-icon', {active: favourite, pressed: favourite, activate, deactivate})} title={intl.formatMessage(messages.favourite)} onClick={this.handleFavouriteClick}>
           <Icon id='star' className='column-link__icon' fixedWidth />
         </button>

@@ -20,6 +20,7 @@ import { getOrderedLists } from 'mastodon/features/ui/components/list_panel';
 import { getOrderedDomains } from 'mastodon/features/ui/components/favourite_domain_panel';
 import { getOrderedTags } from 'mastodon/features/ui/components/favourite_tag_panel';
 import TrendsContainer from './containers/trends_container';
+import { EmojiMutedPlain } from 'mastodon/components/emoji_muted_html';
 import ColumnBackButton from 'mastodon/components/column_back_button';
 
 const messages = defineMessages({
@@ -43,6 +44,7 @@ const messages = defineMessages({
   limited_timeline: { id: 'navigation_bar.limited_timeline', defaultMessage: 'Limited home' },
   personal_timeline: { id: 'navigation_bar.personal_timeline', defaultMessage: 'Personal' },
   lists: { id: 'navigation_bar.lists', defaultMessage: 'Lists' },
+  list_column: { id: 'column.lists', defaultMessage: 'Lists' },
   mixes: { id: 'navigation_bar.mixes', defaultMessage: 'Mix' },
   circles: { id: 'navigation_bar.circles', defaultMessage: 'Circles' },
   discover: { id: 'navigation_bar.discover', defaultMessage: 'Discover' },
@@ -271,7 +273,7 @@ class GettingStarted extends ImmutablePureComponent {
       height += 34;
 
       lists.map(list => {
-        navItems.push(<ColumnLink key={`list:${list.get('id')}`} icon='list-ul' text={list.get('title')} to={`/timelines/list/${list.get('id')}`} />);
+        navItems.push(<ColumnLink key={`list:${list.get('id')}`} icon='list-ul' text={<EmojiMutedPlain tag='span' plain={list.get('title') || ''} html='' emptyLabel={intl.formatMessage(messages.list_column)} />} to={`/timelines/list/${list.get('id')}`} />);
         height += 48;
       });
     }

@@ -27,7 +27,7 @@ const ColumnLink = ({ icon, text, to, href, method, badge }) => {
 
 ColumnLink.propTypes = {
   icon: PropTypes.string.isRequired,
-  text: PropTypes.string.isRequired,
+  text: PropTypes.node.isRequired,
   to: PropTypes.string,
   href: PropTypes.string,
   method: PropTypes.string,

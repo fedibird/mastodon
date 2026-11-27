@@ -10,6 +10,7 @@ import ColumnBackButtonSlim from '../../components/column_back_button_slim';
 import Icon from 'mastodon/components/icon';
 import { defaultColumnWidth } from 'mastodon/initial_state';
 import { describeMixSource } from 'mastodon/mix/source_badges';
+import { EmojiMutedPlain } from 'mastodon/components/emoji_muted_html';
 import messages from './messages';
 
 const mapStateToProps = state => ({
@@ -56,7 +57,9 @@ class MixListItem extends React.PureComponent {
 
   render () {
     const { mix, intl, lists, accounts } = this.props;
-    const title = mix.get('title') || intl.formatMessage(messages.heading);
+    const storedTitle = mix.get('title');
+    const fallback = intl.formatMessage(messages.heading);
+    const named = typeof storedTitle === 'string' && storedTitle !== '';
     const settingsLabel = intl.formatMessage(messages.settings);
     const rows = sourceRows(mix, (message, values) => intl.formatMessage(message, values), lists, accounts);
 
@@ -65,15 +68,28 @@ class MixListItem extends React.PureComponent {
         <Link className='mix-list__link' to={`/timelines/mixes/${mix.get('id')}`}>
           <Icon id='random' fixedWidth className='column-link__icon' />
           <span className='mix-list__text'>
-            <span className='mix-list__title'>{title}</span>
+            <span className='mix-list__title'>
+              {named ? (
+                <EmojiMutedPlain tag='span' plain={storedTitle} html='' emptyLabel={fallback} />
+              ) : fallback}
+            </span>
             {rows.length > 0 && (
               <span className='mix-list__sources'>
-                {rows.map(row => (
-                  <span className='mix-list__source' key={`${row.key || 'source'}:${row.position}`}>
-                    <Icon id={row.icon} className='mix-list__source-icon' aria-hidden='true' />
-                    <span className='mix-list__source-label'>{row.label}</span>
-                  </span>
-                ))}
+                {rows.map(row => {
+                  const accountName = row.labelOrigin === 'account-display-name';
+                  const project = accountName || row.showChip;
+
+                  return (
+                    <span className='mix-list__source' key={`${row.key || 'source'}:${row.position}`}>
+                      <Icon id={row.icon} className='mix-list__source-icon' aria-hidden='true' />
+                      <span className='mix-list__source-label'>
+                        {project ? (
+                          <EmojiMutedPlain tag='span' plain={row.label || ''} html={accountName ? (row.labelHtml || '') : ''} />
+                        ) : row.label}
+                      </span>
+                    </span>
+                  );
+                })}
               </span>
             )}
           </span>

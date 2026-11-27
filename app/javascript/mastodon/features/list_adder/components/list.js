@@ -8,6 +8,7 @@ import { defineMessages, injectIntl } from 'react-intl';
 import { unsubscribeAccount, subscribeAccount } from '../../../actions/accounts';
 import { removeFromListAdder, addToListAdder } from '../../../actions/lists';
 import Icon from 'mastodon/components/icon';
+import { EmojiMutedPlain } from 'mastodon/components/emoji_muted_html';
 
 const messages = defineMessages({
   remove: { id: 'lists.account.remove', defaultMessage: 'Remove from list' },
@@ -82,7 +83,7 @@ class List extends ImmutablePureComponent {
         <div className='list__wrapper'>
           <div className='list__display-name'>
             <Icon id='list-ul' className='column-link__icon' fixedWidth />
-            {list.get('title')}
+            <EmojiMutedPlain tag='span' plain={list.get('title') || ''} html='' />
           </div>
 
           <div className='account__relationship'>
