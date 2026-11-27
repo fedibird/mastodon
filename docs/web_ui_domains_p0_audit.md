@@ -111,9 +111,9 @@
 | 箇所 | 用途 | 現行ホスト | 分類 | 方針 | フェーズ | 回帰 |
 | --- | --- | --- | --- | --- | --- | --- |
 | `1_hosts.rb` の `config.hosts` | Host Authorization。テスト環境では未設定 | LOCAL、WEB、ALTERNATE | session | 追加入口は P6 以降の明示公開まで足さない。raw Host と実効ホストの一致。default server は未知の Host を拒否 | P6 | 未設定時の許可リストは今と同じ。両方許可済みでも Host と X-Forwarded-Host の不一致は拒否 |
-| `session_store.rb` `_mastodon_session` | Rails の暗号化 Cookie Store。CSRF、flash、未認証 2FA。認証 tuple ではない | Domain 無し、SameSite=Lax、本番で Secure | session | グローバルな key は変えない。追加入口のリクエストだけ `rack.session.options` の key を `__Host-mastodon_session` にする | P4 | 正規ホストの既存セッションが残る。追加入口は旧名を読まない |
+| `session_store.rb` `_mastodon_session` | Rails の暗号化 Cookie Store。CSRF、flash、未認証 2FA。認証 tuple ではない | Domain 無し、SameSite=Lax、本番で Secure | session | 共有の `@key` は書き換えない。actionpack 6.1.7.10 は `cookie_jar[@key]` を直接使う。追加入口は別 CookieStore かリクエストスコープの Store。旧名は読まない | P4 | 正規ホストの既存セッションが残る。入口 A と B の Cookie が混ざらない |
 | `devise.rb` Warden `_session_id` と `auth_id` fallback、`ApplicationController#current_session`、`before_logout` | ログイン、復元、初期状態のトークン、ログアウトが別々に Cookie を読む | 旧名。文字列の session id。`auth_id` を書くコードは検索範囲に無い | session | 一つの解決関数。新しい入口は `__Host-` だけを読み、旧文字列と `auth_id` は拒否。レガシー入口は旧文字列を、ユーザー一致のときだけ受ける | P4 | 有効な旧 Cookie を新しい入口へ渡しても未認証。別入口のログアウトが他を消さない |
-| `rememberable_options` と `on_authentication_success` の `remember_me` | レガシー入口は `remember_user_token`。初期範囲の追加入口では発行しない | Domain 無し。SameSite は初期化子に明示無し | session | レガシー入口の名前と挙動は維持。追加入口では remember を無効にする | P4 | 正規ホストの remember が継続する。追加入口は remember だけではログインしない |
+| `rememberable_options` と `on_authentication_success` の `remember_me` | レガシー入口は `remember_user_token`。追加入口では発行も復元もしない | Domain 無し。SameSite は初期化子に明示無し | session | レガシー入口の発行と復元は維持。追加入口は Devise の remember 戦略でもログインしない | P4 | 正規ホストの remember が継続する。追加入口へ remember Cookie を渡してもログインしない |
 | `SessionActivation#assign_access_token` | セッションごとに Doorkeeper トークン | サーバ共有。Cookie はホスト専用 | session | 入口ごとに別 activation。ログアウトは現在の ID だけ破棄 | P4 | 入口 A のログアウト後、B のトークンが有効 |
 | `User#reset_password!` | 全セッションと全トークンを無効化 | サーバ全体 | session | unchanged | P4 | パスワードリセットで全入口が落ちる |
 | `session_activations.rb` `max_session_activations` | 既定 10。超過分は古い順に破棄 | ユーザー単位 | session | unchanged。検証で入口数との関係を見る | P6 | 11 個目のログインが最も古い activation を消す既存挙動 |
@@ -158,11 +158,11 @@
 
 | 箇所 | 用途 | 現行ホスト | 分類 | 方針 | フェーズ | 回帰 |
 | --- | --- | --- | --- | --- | --- | --- |
-| `streaming/index.js` `accountFromRequest` | トークンを Bearer、クエリ、`Sec-WebSocket-Protocol` から取る。Host も `issued_origin` も見ない | トークンが有効ならどの Host でも可 | streaming | 正本は activation の nullable `issued_origin`。NULL はレガシー経路。非 NULL はその Origin だけ。公開閉鎖時は非 NULL を先に revoke する。superapp だけでは分類しない | P4 | 束縛トークンを正規ホストや専用 Streaming へ持っていくと 401。未束縛トークンはレガシー経路で今どおり、追加入口では拒否 |
+| `streaming/index.js` `accountFromRequest` | トークンを Bearer、クエリ、`Sec-WebSocket-Protocol` から取る。Host も `issued_origin` も見ない | トークンが有効ならどの Host でも可 | streaming | 正本は activation の nullable `issued_origin`。NULL はレガシー経路。非 NULL はその Origin だけ。閉鎖は発行停止のあと対象 Origin だけを失効する。superapp だけでは分類しない | P4 | 束縛トークンを正規ホストや専用 Streaming へ持っていくと 401。未束縛トークンはレガシー経路で今どおり、追加入口では拒否 |
 | `dist/nginx.conf` の `/ns`、静的 `/packs`、`/api/v1/streaming` | Rails の Host Authorization を通らない | `server_name` の例は `example.com` | static-asset | 公開前は edge が新しい名前を受けない。公開後も転送ヘッダを上書きし、認証応答をキャッシュしない | P6 | アプリのフラグだけではこれらの経路が開かない |
-| Rails `request.host` / `request.url` | 信頼済みプロキシ越しに `X-Forwarded-Host` と `X-Forwarded-Proto` を実効 Origin に使う | 転送ヘッダ次第 | session | raw Host と実効ホストが一致しないリクエストは、両方が許可済みでも拒否 | P1 | `Host` と `X-Forwarded-Host` が別の許可済みホストなら拒否 |
-| `on_authentication_success` の `remember_me` | ログイン成功のたびに remember Cookie を書く | `remember_user_token` | session | 追加入口では呼ばない。レガシー入口は今の Cookie のまま | P4 | 追加入口に remember Cookie が出ない |
-| `session[:attempt_user_id]` と `session[:webauthn_challenge]` | 未認証の 2FA は Cookie Store。追加入口のチャレンジ正本は Redis。Cookie には nonce だけ | 正規ホストは文字列チャレンジ | session | 正規ホストの文字列チャレンジは維持。追加入口は Redis の compare-and-delete。Redis 障害は失敗 | P4 | 古い暗号化 Cookie の再送では追加入口のチャレンジが成功しない |
+| Rails `request.host` / `request.url` | `X-Forwarded-Host` を実効ホストに使うことがある。信頼済みプロキシのときだけ、とは仮定しない | raw Host と転送ヘッダは別 | session | raw Host と Cookie／Origin に使うホストが一致しなければ拒否。IP の `TRUSTED_PROXY_IP` とは別の検査 | P1 | `Host` と `X-Forwarded-Host` が別の許可済みホストなら拒否 |
+| `on_authentication_success` の `remember_me` | ログイン成功のたびに remember Cookie を書く | `remember_user_token` | session | 追加入口では書かず、remember からの復元も拒否する。レガシー入口は今のまま | P4 | 追加入口に remember Cookie が出ず、既存の remember でもログインしない |
+| `session[:attempt_user_id]` と `session[:webauthn_challenge]` | 未認証の 2FA は Cookie Store。追加入口のチャレンジ正本は Redis。Cookie には nonce だけ | 正規ホストは文字列チャレンジ | session | スコープは Origin、用途、ユーザー、試行または activation。別入口のチャレンジは消さない。正規ホストの文字列チャレンジは維持 | P4 | 古い Cookie の再送は失敗する。別入口の進行中チャレンジは残る |
 | `CacheConcern#enforce_cache_control!` | Vary に Cookie 等があり、そのヘッダが付いているときだけ no-store | 応答ごと | session | edge は Set-Cookie、認証付き HTML、初期状態、認証 API、認証付きリダイレクトを保存しない | P6 | Cookie 付きリクエストに公開キャッシュを返さない |
 | 連合の content negotiation | 拒否は Actor、inbox、WebFinger、NodeInfo、host-meta の route と action。JSON 一般ではない | リクエスト Host | federation-transport | REST、manifest、WebUI JSON は 406 にしない。表は設計文書 | P4 | 正規ホストの Actor JSON と `/api` が今どおり |
 | `Api::BaseController#current_user` | `current_resource_owner \|\| super`。`:null_session` は Cookie fallback を止めない | Cookie セッションまたは Bearer | session | Bearer が無効または別 Origin の束縛なら 401。Cookie へ落ちない。主体が食い違うときも 401。公開 GET はユーザーを足さない | P4 | 追加入口のトークンを正規ホストへ持っていくと 401。ゲートを閉じたあとも revoke 済みで 401 |

@@ -41,7 +41,7 @@ WebUI は正規 URL をデータとして保持する。画面遷移と、Fedibi
 2. **登録できるホスト。** 既存の WebAuthn RP ID と一致するホストか、そのサブドメインだけを許可する。別の registrable domain と、RP ID の兄弟名は起動時に拒否する。RP ID を親ドメインへ広げない。この初期範囲は既存キーとの互換を優先する。
 3. **`ALTERNATE_DOMAINS` との重複。** 同じホストが両方に入っていたら起動時に拒否する。ゲートの開閉は `ALTERNATE_DOMAINS` の WebFinger を変えない。
 4. **Streaming。** 厳密モードは追加入口だけである。正規ホスト、`LOCAL_DOMAIN`、`ALTERNATE_DOMAINS` は、公開後も今の `STREAMING_API_BASE_URL`（専用ホストを含む）のままにする。未設定時は挙動を変えない。追加入口のブラウザだけが同一 Origin の `wss`／`ws` を使う。`/api/v1/instance` の広告値は変えない。
-5. **メディアと静的ファイル。** 一律のストレージ例外にはしない。インスタンス入口（`LOCAL_DOMAIN`、`WEB_DOMAIN`、他の `WEB_UI_DOMAINS`）への自動アクセスは 0 にする。専用ストレージ／CDN を例外にする案と、入口の固定パスで配信する案は「アセットとメディア」で分けて書く。推奨は、計算したホストがインスタンス入口なら同一 Origin、それ以外の専用ホストだけ例外。
+5. **メディアと静的ファイル。** 一律のストレージ例外にはしない。`LOCAL_DOMAIN`、`WEB_DOMAIN`、`ALTERNATE_DOMAINS`、他の `WEB_UI_DOMAINS` への自動アクセスは 0 にする。専用ストレージ／CDN を例外にする案と、入口の固定パスで配信する案は「アセットとメディア」で分ける。M2 の採否は P3 の前に決める。
 6. **外部認証。** 初期範囲では、SAML、CAS、`OAUTH_REDIRECT_AT_SIGN_IN` のいずれかが必須のサーバでは追加入口を公開しない。パスワード、OTP、WebAuthn で入れるサーバを先行する。IdP 対応は別設計である。必須でないサーバでも、追加入口から正規 callback へ黙って遷移しない。
 7. **Cookie。** 正規ホストと `ALTERNATE_DOMAINS` の Cookie 名は変えない。新しい UI 入口だけ `__Host-` 名を使う。旧形式の署名付き `_session_id` を新しい入口では受けない。比較は「セッション」。
 8. **入口の選択 UI。** P1 から P5 では作らない。ユーザーは入口の URL を開く。
@@ -61,7 +61,7 @@ P1 のパーサは次を満たす。比較は許可リストとの完全一致�
 - WebAuthn の接尾辞条件を満たさないホストは拒否する（提案 2）。
 - 不正な値が一つでもあれば、リスト全体を無効にし、ゲートは開かない。一部だけ採用しない。
 
-`config.hosts` へ入れる文字列は、ブラウザが送る Host ヘッダと一致する正規化後のホスト名である。入口判定は raw Host だけでは終わらない。Rails の `request.host`、`request.url`、`redirect_to` は、信頼済みプロキシ経由のとき `X-Forwarded-Host` と `X-Forwarded-Proto` を実効 Origin に使う。設計は「転送ヘッダ」。
+`config.hosts` へ入れる文字列は、ブラウザが送る Host ヘッダと一致する正規化後のホスト名である。入口判定は raw Host だけでは終わらない。Rails の `request.host` は、設定次第で `X-Forwarded-Host` を実効ホストに使うことがある。信頼済みプロキシのときだけそうなる、とは書かない。アプリは raw `Host` と、Cookie と Origin に使うホストが一致しなければ拒否する。詳細は「転送ヘッダ」。
 
 ## リクエスト境界
 
@@ -116,7 +116,8 @@ axios（`app/javascript/mastodon/api.js`）は `baseURL` を持たず、相対�
 
 ブラウザの XHR と EventSource は、リダイレクトを追う前に `Location` を渡せない。axios の `maxRedirects` もブラウザの XHR では効かない。追跡後の `responseURL` 検査は、別入口への通信が起きたあとである。厳密モードの保証は、応答を出す側にある。
 
-- 追加入口の API、Streaming、メディアは、別 Origin の `Location`、`Refresh`、meta refresh を出さない。返すなら同一入口の相対パスだけにする。Rails の Streaming 301 は、追加入口では出さない。
+- 追加入口の API、Streaming、Cookie 認証の自動通信は、別 Origin の `Location`、`Refresh`、meta refresh を出さない。返すなら同一入口の相対パスだけにする。Rails の Streaming 301 は、追加入口では出さない。
+- M2 は、公開前に承認した専用ストレージホストへの配信だけが例外である。インスタンス入口（`LOCAL_DOMAIN`、`WEB_DOMAIN`、`ALTERNATE_DOMAINS`、他の `WEB_UI_DOMAINS`）への自動通信は 0 のままにする。署名付き URL のホストは書き換えない。
 - こちらが `fetch` を呼ぶ箇所（Service Worker の通知 API を含む）は `redirect: 'error'` にする。`redirect: 'manual'` の opaque redirect は成功として読まない。
 - WebSocket はページが `https` なら `wss`、`http` なら `ws` だけを、同一ホストで開く。ダウングレードした URL はコンストラクタを呼ばない。クエリの `access_token` と `Sec-WebSocket-Protocol` は、その判定のあとでだけ付ける。試験は、不一致のときにハンドシェイクも EventSource も発生しないことである。
 - CSP の `connect-src` は、追加入口の文書では `:self` と、インスタンス入口ではない M2 ホストだけにする。CSP は二段目であり、これだけで 0 件を保証したことにはしない。
@@ -160,7 +161,7 @@ Streaming のモードは次のとおりである。未設定と公開前は、�
 
 ## アセットとメディア
 
-REST と ActivityPub の保存値には入口ホストを書かない。ブラウザが自動で読む URL と、302 の `Location` は次の二つの提案で分類する。インスタンス入口とは `LOCAL_DOMAIN`、`WEB_DOMAIN`、および他の `WEB_UI_DOMAINS` のホストである。
+REST と ActivityPub の保存値には入口ホストを書かない。ブラウザが自動で読む URL と、302 の `Location` は次の二つの提案で分類する。自動通信を禁止するインスタンス入口は `LOCAL_DOMAIN`、`WEB_DOMAIN`、`ALTERNATE_DOMAINS`、および他の `WEB_UI_DOMAINS` である。M2 の採否は P3 を始める前に決める。P3 より前には専用 CDN を公開条件にしない。
 
 **提案 M1（推奨の第一段）。** 計算した配信ホストがインスタンス入口なら、現在の入口の固定パスで配信する。対象パスは既存の `/packs`、`/emoji`、`/system`、`/media_proxy`、`/headers`、アバターとヘッダのアプリ配下である。`MediaProxyController#show` は `RoutingHelper#full_asset_url` を `Location` にする。ローカルディスクではこれが `root_url`（WEB_DOMAIN）の絶対 URL になる。ブラウザの `src` を投影しても、302 が正規ホストへ戻す。公開後は、この `Location` も現在の入口の同一 Origin にする。認可、許可 variant、サイズ、キャッシュ、Range の扱いは維持する。Range はアプリが処理せず、最終の配信先に依存する。
 
@@ -226,7 +227,7 @@ CORS は `/api/*` を `origins '*'`、`credentials: false` のまま維持する
 | B. 全ホストを `__Host-` に改名する | 既存 Cookie を読めず、一斉にログアウトする | ブラウザが Domain 付き `__Host-` を拒否する | 同じ | 旧 Cookie へ戻すと再びログアウトし得る |
 | C. 推奨。新しい UI 入口だけ `__Host-`。正規ホストと `ALTERNATE_DOMAINS` は旧名のまま | 正規ホストのログインは継続する | `__Host-` は Domain を付けられず、他 Host の旧名 Cookie は読まない | 旧名の tossing は残る。重複した同名 Cookie は全ホストで拒否する | 公開を閉じると新しい入口の Cookie は使われなくなる。正規ホストの Cookie はそのまま |
 
-推奨は C である。三つの Cookie は同じ中身ではない。
+推奨は C である。Cookie の役割は次の三行で違う。追加入口が読むのは上の二つだけで、remember は出さない。
 
 | Cookie | 中身 | 新しい入口の名前 | レガシー入口の名前 |
 | --- | --- | --- | --- |
@@ -234,21 +235,28 @@ CORS は `/api/*` を `origins '*'`、`credentials: false` のまま維持する
 | activation | 署名付きの session id。発行 Origin の正本はサーバ行 | `__Host-session_id` | `_session_id` |
 | remember | Devise の remember。初期範囲の新しい入口では発行しない | 出さない | `remember_user_token` |
 
-グローバルな `config.session_store` の key は `_mastodon_session` のまま、リクエストの途中で代入しない。実装候補は、セッションミドルウェアが読む前に、そのリクエストの `env['rack.session.options'][:key]` だけを入口用の名前へ差し替えることである。暗号目的（Cookie Store の暗号化と、activation の署名）は名前ごとに分ける。
+グローバルな `config.session_store` と、全リクエストが共有する CookieStore の `@key` は書き換えない。基点は actionpack 6.1.7.10 である。`CookieStore#get_cookie` と `#set_cookie` は `cookie_jar(req)[@key]` を直接使う。`env['rack.session.options'][:key]` だけを差し替えても、この `@key` の旧名を読み書きし続ける。
 
-初期範囲の新しい入口では remember を無効にする。`on_authentication_success` は、厳密モードのリクエストでは `remember_me` を呼ばない。期限切れや remember だけの Cookie ではログインを確立しない。レガシー入口の remember は今の期限（1 年）と失効のままにする。
+P4 で検証する候補は次のどちらかである。どちらも、プロセス全体の設定をリクエスト中に代入しない。
+
+- セッションミドルウェアより前に入口を確定し、未許可 Host を拒否したうえで、検証済みの入口コンテキストに対応する固定の CookieStore インスタンスへ dispatch する middleware。
+- 読み取り、書き込み、削除、renew をすべてリクエストスコープにした Store。
+
+P4 の受け入れは、Host と Origin の確定がセッションミドルウェアより前であること、Cookie 名と暗号目的が分かれていること、Secure、HttpOnly、Path=/ であること、入口 A と B の並行セッションが混ざらないこと、追加入口が旧名を読まないことである。
+
+初期範囲の新しい入口では remember を無効にする。`on_authentication_success` は remember を書かない。Devise の remember 戦略が既存の remember Cookie からユーザーを復元することも拒否する。レガシー入口の remember は今の期限（1 年）、発行、復元、失効のままにする。
 
 状態は次の順だけ進む。
 
 1. 未認証の GET。Cookie Store は CSRF のためにあってもよい。activation は無い。API の認証なし GET は公開のままにし、Cookie からユーザーを足さない。
 2. パスワード成功かつ 2FA が要る。`attempt_user_id` を Cookie Store に置く。activation はまだ作らない。
-3. パスワード、または OTP／WebAuthn／リカバリーコードの成功。`SessionActivation` とトークンを作り、activation Cookie を書く。
-4. 以後の復元は、activation Cookie からサーバ行を引く。ユーザーが一致しない行は捨てる。
+3. そのログイン試行でパスワードの検証が済み、必要な第二要素があるときはその成功も揃ってから、`SessionActivation` とトークンを発行する。2FA が必要なら、パスワードだけでは発行しない。OTP、WebAuthn、リカバリーコードのどれか一つが成功したあとに発行する。失敗した試行では発行しない。成功時はセッションを更新し、2FA 中の状態を消費する。
+4. 以後の復元は、activation Cookie からサーバ行を引く。ユーザーが一致しない行は捨てる。Warden の `after_set_user`、`after_fetch`、`before_logout`、`current_session`、`Api::Web`、Push は同じ主体を見る。
 5. ログアウトはその行とトークンだけを破棄し、Streaming の既存の token kill でその接続を切る。パスワードリセットは今どおり全行を破棄する。
 
 レガシー入口（正規ホストと `ALTERNATE_DOMAINS`）は今の名前と、文字列の `_session_id` を受け続ける。`auth_id` fallback もレガシー入口だけに残し、解決した activation のユーザーが、そのリクエストで認証されたユーザーと一致するときだけ使う。新しい入口へはこの fallback をコピーしない。
 
-同一リクエストに同じ Cookie 名が複数あるときは、どちらの入口でもそのリクエストを拒否する。どれが host-only でどれが `Domain=親` かをサーバは区別できないためである。
+同一リクエストに同じ Cookie 名が複数あるときは、どちらの入口でもそのリクエストを拒否する。レガシー入口は旧名を残すので、同名の重複が無い単独の `Domain=親` Cookie までは防げない。この残存リスクは隠さない。全域の `__Host-` 移行は別件である。公開条件は、追加入口、CDN、その他親ドメインに Cookie を書けるホストを運営者が信頼して管理することである。
 
 正規ホストの旧名を後から `__Host-` へ移す作業は、この公開とは別の変更にする。そのときも、既存の host-only Cookie を読む期間を置き、一斉失効を公開の前提にしない。
 
@@ -256,10 +264,10 @@ CORS は `/api/*` を `origins '*'`、`credentials: false` のまま維持する
 
 ログイン確立、リクエストごとの復元、`current_session`、初期状態、Push、ログアウトは同じ解決関数を使う。
 
-1. 転送ヘッダの検査を通過した実効 Origin を取る。
-2. 新しい UI 入口では `__Host-` の三つだけを読む。署名を検証し、`host` が実効ホストと一致し、`user_id` が認証済みユーザーと一致し、そのユーザーの `SessionActivation` が存在し、紐づくトークンが失効していないことを確認する。一つでも欠ければ未認証にする。別ユーザーの activation は読み込まない。
-3. レガシー入口では旧名を読む。文字列の session id は、その activation のユーザーが認証済みユーザーと一致するときだけ採用する。
-4. 新しい入口では remember Cookie を発行せず、remember だけではセッションを作らない。レガシー入口の remember は今のまま読む。
+1. 転送ヘッダの検査を通過した実効 Origin を取る。セッションミドルウェアより前に行う。
+2. 新しい UI 入口が読むのは二つである。`__Host-mastodon_session` は暗号化された Cookie Store で、CSRF、flash、未認証の 2FA、nonce 識別子を持つ。`__Host-session_id` は activation の id である。発行 Origin とユーザーの正本はサーバ行であり、Cookie の中の host や user_id ではない。その行のユーザーが認証済みユーザーと一致し、トークンが失効していなければ採用する。旧名は読まない。remember からの復元もしない。
+3. レガシー入口では旧名を読む。文字列の session id は、その activation のユーザーが認証済みユーザーと一致するときだけ採用する。remember の復元はレガシー入口だけが行う。
+4. 新しい入口では remember を書かず、Devise の remember 戦略からの復元も拒否する。レガシー入口は発行と復元を今のまま行う。
 5. ログアウトは、この関数が解決した activation だけを破棄する。破棄はそのトークンも消す（`dependent: :destroy`）。他入口の activation は残る。Cookie 削除はその入口の名前だけである。
 6. パスワードリセットは、今どおり全セッションと全トークンを無効にする。
 7. 未認証の 2FA 状態（`session[:attempt_user_id]`、`attempt_user_updated_at`、`webauthn_challenge`）は、その入口のセッション Cookie にだけ置く。新しい入口では `__Host-mastodon_session` である。
@@ -279,7 +287,14 @@ Node は今、`oauth_access_tokens` だけを見る（`streaming/index.js`）。
 | Push の fallback | `Web::PushSubscription#find_or_create_access_token`。`access_token_id` が空のとき、superapp で scope に `push` を含むトークンを作り、activation には紐づけない | 行が無いので未束縛 | レガシー経路だけ。追加入口の購読はこの fallback を使わず、その activation のトークンだけを使う |
 | 通常の OAuth | セッション行を持たないアプリのトークン | 行が無い | 今の API と専用 Streaming。追加入口では拒否 |
 
-公開を閉じる、入口を消す、旧コードへ戻すときは、`issued_origin` が NULL でないトークンを先に revoke し、その token id の Streaming 接続を kill する。旧コードは列を見ないので、残ったトークンを通常の Bearer として受けてしまう。revoke のあとで列を戻す。
+公開を閉じる順序は次である。先に revoke するだけでは、失効のあいだに新しいトークンが残る。
+
+1. 対象入口の新規ログイン、activation の発行、新規の WS／SSE を止める。edge を閉じ、アプリ側の発行も止める。処理中のリクエストを流し切る。
+2. 対象の `issued_origin` を持つ activation とトークンを失効し、その Push を外す。NULL のレガシー行と、対象外の入口は失効しない。入口を一つ消すときはその Origin だけである。全体を閉じる、または旧コードへ戻すときは、追加入口の `issued_origin` をすべて対象にする。
+3. 既存の WS／SSE が切れ、同じトークンの再接続が拒否されることを確認する。Node の再認証も同じ境界である。
+4. そのあとで旧コードへ戻す。通常の閉鎖とアプリの rollback では列を消さない。nullable 列は残す。schema から列を戻すのは、束縛トークンの失効を確認したあとの別操作である。
+
+activation の削除でトークンが未束縛へ昇格しないようにする。発行と失効は同じ成否にし、孤立したトークンと refresh を P4 で確認する。ゲートが閉じていても、束縛トークンを別 Host では受けない。
 
 `Api::BaseController#current_user` は `current_resource_owner || super` であり、`:null_session` は Cookie 認証の停止を保証しない。厳密モードと、束縛トークンを提示したリクエストでは次で失敗させる。
 
@@ -292,7 +307,7 @@ Node は今、`oauth_access_tokens` だけを見る（`streaming/index.js`）。
 
 ### CSRF
 
-Cookie を認証に使う書込は、POST、PUT、PATCH、DELETE のすべてで、`Origin` が実効 Origin と完全一致することを要求する。`Origin` が無いときは `Referer` の Origin を見る。どちらも無ければ拒否する。対象はログイン、ログアウト、設定、`Api::Web`（`protect_from_forgery with: :exception`）、その他セッション Cookie で状態が変わる経路である。
+Cookie を認証に使う書込への追加の Origin 検査は、厳密モードに適用する。POST、PUT、PATCH、DELETE で、`Origin` が実効 Origin と完全一致することを要求する。`Origin` が無いときは `Referer` の Origin を見る。どちらも無ければ拒否する。対象は追加入口のログイン、ログアウト、設定、`Api::Web`、その他セッション Cookie で状態が変わる経路である。レガシー入口と既存の IdP callback は、今の CSRF の回帰条件であり、この追加検査で挙動を変えない。
 
 対象にしないもの:
 
@@ -336,17 +351,19 @@ gem 3.5.1 の挙動は、タグ `v3.5.1` の `authenticator_response.rb` で確�
 - `name` は `Mastodon`、`credential_options_timeout` は 120_000、アルゴリズムは gem の既定（ES256、PS256、RS256）、attestation と cross-origin の検証フラグは今の既定のままコピーする。グローバル設定オブジェクトは書き換えない。
 - 入口の Origin が RP ID の接尾辞条件を満たさなければ、セレモニーを開始しない。
 
-セッションは `:cookie_store` なので、Cookie 内のレコードを消しても、古い暗号化 Cookie の再送でチャレンジが戻る。追加入口の一度限りは Redis を正本にする。Cookie Store には nonce だけを置く。
+セッションは `:cookie_store` なので、Cookie 内のレコードを消しても、古い暗号化 Cookie の再送でチャレンジが戻る。追加入口の一度限りは Redis を正本にする。Cookie Store には nonce だけを置く。正規ホストの単一使用には波及させない。
 
-- キーは用途、ユーザー、nonce。値は Origin、試行またはセッションの識別子、challenge 本体。TTL は 120 秒。
-- 発行は、同じユーザーと用途の前のキーを消してから新しいキーを作る。
-- 検証は compare-and-delete で一度だけ成功する。並行の二つ目、再送、期限切れは失敗する。
-- Redis が使えないときはセレモニーを開始せず、検証も失敗させる。
-- ログイン試行の破棄とログアウトは、そのユーザーの未消費キーを消す。
+スコープは、検証済み Origin、用途、`user_id`、ログイン試行 ID または `SessionActivation` の ID である。nonce はそのスコープの最新世代の識別子である。別の入口や別のブラウザのチャレンジは消さない。
+
+- 同じスコープの置換は原子的に行う。Redis の Lua か同等の手段は P4 で選ぶ。
+- 検証はそのスコープの compare-and-delete で一度だけ成功する。古い Cookie の再送と同時の二つ目は失敗する。別スコープは干渉しない。
+- TTL は 120 秒とする。
+- Redis が使えないときは、その追加入口のセレモニーを開始せず、検証も失敗させる。
+- ログイン試行の破棄とログアウトは、そのスコープの未消費キーだけを消す。
 
 正規ホストの既存セレモニーは、`session[:webauthn_challenge]` の文字列のままにする。この互換を Redis へ移さない。新しい入口は文字列チャレンジを受けない。
 
-同じクレデンシャルへの並行検証で `sign_count` が戻らないように、P4 は `verify` のあと `sign_count` が前進するときだけ更新する比較を検討する。認証全体の刷新には広げない。
+同じクレデンシャルへの並行検証で `sign_count` が戻らないように、P4 は条件付き更新またはロックと、`sign_count` が 0 の認証器を検証項目にする。認証全体の刷新には広げない。
 
 検証項目は、Origin 不一致、既存キー、入口で作った新しいキー、OTP、リカバリーコード、二つの入口に同じユーザー、二つの入口に別のユーザー、options の並行発行である。
 
@@ -417,10 +434,10 @@ P1 から P5 のコードを本番にマージしても、入口は開かない�
 | DNS と CDN | 検証が終わるまで新しい名前を向けない | 選んだ入口へだけ向ける |
 | edge | server_name、上流、Streaming、静的ファイル、`/ns` を新しい名前で受けない | Host と転送ヘッダの上書き、キャッシュキー、認証応答の非キャッシュ |
 | Rails | 本番では `config.hosts` に足さない。届いた不正 Host は拒否 | セッション解決、CSRF、WebAuthn、連合の拒否、302 の入口維持 |
-| Node Streaming | 新しい名前を受けない | `issued_origin` が NULL でないトークンは発行 Origin だけ。公開を閉じるときは先に revoke して接続を切る |
+| Node Streaming | 新しい名前を受けない | `issued_origin` が NULL でないトークンは発行 Origin だけ。閉鎖は発行停止、対象 Origin の失効、切断確認の順 |
 | ブラウザ | 公開前は入口が無い | 自動通信の同一 Origin ガード |
 
-ゲートを閉じる、入口を消す、旧コードへ戻すときは、`issued_origin` が NULL でないトークンを revoke し、Streaming を切ってから列を戻す。正規ホストの Cookie と `ALTERNATE_DOMAINS` の WebFinger は維持する。再開は同じ公開手順を最初から行う。公開フラグだけを戻しても、edge が開いたままであれば静的経路は残る。edge とアプリを同じ手順で閉じる。外部認証が必須のサーバは、初期範囲ではこの公開をしない。
+ゲートを閉じる、入口を消す、旧コードへ戻すときは、「トークンの正本」の順序に従う。発行を止めてから対象 Origin だけを失効し、接続が切れたことを確認してからコードを戻す。列は残す。正規ホストの Cookie と `ALTERNATE_DOMAINS` の WebFinger は維持する。再開は同じ公開手順を最初から行う。公開フラグだけを戻しても、edge が開いたままであれば静的経路は残る。edge とアプリを同じ手順で閉じる。外部認証が必須のサーバは、初期範囲ではこの公開をしない。親ドメインに Cookie を書けるホストを運営者が信頼管理することも、公開条件に含める。
 
 ## 実装の順序
 
@@ -430,8 +447,8 @@ P1 から P5 のコードを本番にマージしても、入口は開かない�
 | --- | --- | --- |
 | P1 基盤 | 正規化、拒否規則、転送ヘッダの一致検査、リクエストローカルな判定。`config.hosts` は変えない | 閉 |
 | P2 API / Streaming / 遷移 | 送出前ガード、公開後モードの同一 Origin Streaming、内部リンクの `href`、Link の拒否。serializer の正規 URL は不変。ゲート閉鎖時の `STREAMING_API_BASE_URL` は回帰 | 閉。テストは Host を直接渡す |
-| P3 アセット / メディア | M1 の 302 と `src`、M2 の専用ホスト、入口 HTML の CSP。CSP が全通信を止めるとは扱わない | 閉 |
-| P4 認証 / セッション / 連合 | `__Host-` は新しい入口だけ、解決関数、同一 Origin の CSRF、リクエストスコープの RelyingParty、連合の判定表 | 閉。テスト環境のフラグだけで有効 |
+| P3 アセット / メディア | M1 の 302 と `src`、承認済みなら M2、入口 HTML の CSP。M2 の採否は P3 の前。CSP が全通信を止めるとは扱わない | 閉 |
+| P4 認証 / セッション / 連合 | 別 CookieStore かリクエストスコープ Store の証明、解決関数、厳密モードの CSRF、Redis チャレンジ、RelyingParty、連合の判定表 | 閉。テスト環境のフラグだけで有効 |
 | P5 PWA / Push | manifest、SW、通知画像の投影 | 閉 |
 | P6 検証環境 | 上のすべてと edge を検証環境だけで開く | 本番は閉 |
 | 本番公開 | P6 のあと、運営者が edge とアプリを同時に開く | 明示したときだけ |
