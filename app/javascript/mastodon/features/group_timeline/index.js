@@ -6,8 +6,8 @@ import ImmutablePropTypes from 'react-immutable-proptypes';
 import classNames from 'classnames';
 import StatusListContainer from '../ui/containers/status_list_container';
 import Column from '../../components/column';
-import { EmojiMutedPlain, withEmojiMuteTextIndex } from '../../components/emoji_muted_html';
-import { emojiMutedPlainText } from 'mastodon/features/emoji/emoji_mute_text';
+import EmojiMuteColumnLandmark from '../../components/emoji_mute_column_landmark';
+import { EmojiMutedPlain } from '../../components/emoji_muted_html';
 import ColumnHeader from '../../components/column_header';
 import Icon from '../../components/icon';
 import { fetchAccount } from '../../actions/accounts';
@@ -53,89 +53,6 @@ const messages = defineMessages({
 const groupComposerId = (id, columnId) => (
   columnId ? `portable:group-column:${columnId}` : `portable:group-route:${id}`
 );
-
-// Updates the mounted region label in place. Subscribing the timeline itself
-// would rebuild status rows, scroll state, and the split panes.
-class GroupColumnLandmark extends React.Component {
-
-  static propTypes = {
-    column: PropTypes.func.isRequired,
-    holdLabel: PropTypes.func.isRequired,
-    plain: PropTypes.string.isRequired,
-    html: PropTypes.string,
-    project: PropTypes.bool,
-    emptyLabel: PropTypes.string,
-    emojiMuteTextIndex: PropTypes.object,
-  };
-
-  regionLabel(projected) {
-    if (!this.props.project || typeof projected !== 'string' || projected.trim() !== '') {
-      return projected;
-    }
-
-    const fallback = this.props.emptyLabel;
-
-    return typeof fallback === 'string' && fallback.trim() !== '' ? fallback : projected;
-  }
-
-  componentDidMount() {
-    this.apply();
-  }
-
-  componentDidUpdate() {
-    this.apply();
-  }
-
-  componentWillUnmount() {
-    this.props.holdLabel(undefined, null);
-    this.write(undefined);
-  }
-
-  source() {
-    if (!this.props.project) {
-      return null;
-    }
-
-    const source = {
-      plain: this.props.plain,
-      html: typeof this.props.html === 'string' ? this.props.html : '',
-    };
-    const fallback = this.props.emptyLabel;
-
-    if (typeof fallback === 'string' && fallback.trim() !== '') {
-      source.emptyLabel = fallback;
-      source.fallbackWhenBlank = true;
-    }
-
-    return source;
-  }
-
-  write(label) {
-    const column = this.props.column();
-
-    if (column && typeof column.setLandmarkLabel === 'function') {
-      column.setLandmarkLabel(label, label === undefined ? null : this.source());
-    }
-  }
-
-  apply() {
-    const { plain, html, project, emojiMuteTextIndex } = this.props;
-    // The visible heading already has this string. The column instance ref is
-    // attached after this child's mount, so keep the label until bindColumn.
-    const projected = project ? emojiMutedPlainText(plain, html || '', emojiMuteTextIndex) : plain;
-    const label = this.regionLabel(projected);
-
-    this.props.holdLabel(label, this.source());
-    this.write(label);
-  }
-
-  render() {
-    return null;
-  }
-
-}
-
-const SubscribedGroupColumnLandmark = withEmojiMuteTextIndex(GroupColumnLandmark);
 
 const groupDetailCollapsedSettingPath = (groupId) => ['group', 'detailCollapsed', String(groupId)];
 
@@ -593,7 +510,7 @@ class GroupTimeline extends React.PureComponent {
 
     return (
       <Column bindToDocument={!multiColumn} ref={this.bindColumn} label={plainTitle} columnWidth={columnWidth} dropComposerId={portableComposer ? composerId : null}>
-        <SubscribedGroupColumnLandmark column={this.groupColumn} holdLabel={this.holdLandmark} plain={plainTitle} html={displayNameHtml} project={named} emptyLabel={intl.formatMessage(messages.title)} />
+        <EmojiMuteColumnLandmark column={this.groupColumn} holdLabel={this.holdLandmark} plain={plainTitle} html={displayNameHtml} project={named} emptyLabel={intl.formatMessage(messages.title)} />
         <ColumnHeader
           columnId={columnId}
           layoutScope='group'

@@ -27,18 +27,54 @@ const TYPE_ICON = {
   account: 'user',
 };
 
-const lookupRecord = (collection, id) => {
+const recordFor = (collection, id) => {
   if (!collection || !collection.get || id === undefined || id === null || id === '') {
-    return '';
+    return null;
   }
 
   const record = collection.get(String(id));
 
   if (!record || !record.get || record === false) {
-    return '';
+    return null;
   }
 
-  return record.get('title') || record.get('display_name') || record.get('acct') || record.get('username') || '';
+  return record;
+};
+
+const plainFromRecord = (record) => (
+  record ? (record.get('title') || record.get('display_name') || record.get('acct') || record.get('username') || '') : ''
+);
+
+// HTML belongs only to the display_name field that was actually chosen.
+// A saved title, list title, acct, or username stays plain text.
+const accountDisplayChoice = (record) => {
+  if (!record) {
+    return null;
+  }
+
+  if (record.get('title')) {
+    return { text: record.get('title'), html: '', origin: 'account-plain' };
+  }
+
+  const displayName = record.get('display_name');
+
+  if (displayName) {
+    const html = record.get('display_name_html');
+
+    return {
+      text: displayName,
+      html: typeof html === 'string' ? html : '',
+      origin: 'account-display-name',
+    };
+  }
+
+  const plain = record.get('acct') || record.get('username') || '';
+
+  if (plain) {
+    return { text: plain, html: '', origin: 'account-plain' };
+  }
+
+  return null;
 };
 
 const hasNarrowingParams = (source) => {
@@ -176,30 +212,42 @@ const conditionsFor = (source, formatMessage) => {
   return lines;
 };
 
-const displayName = (source, formatMessage, lists, accounts) => {
+const displayLabel = (source, formatMessage, lists, accounts) => {
   const typeMessage = TYPE_MESSAGE[source.type];
   const typeLabel = typeMessage ? formatMessage(typeMessage) : source.type;
 
   if (source.title) {
-    return sourceIdentityLabel(source) || typeLabel;
+    return { text: sourceIdentityLabel(source) || typeLabel, html: '', origin: 'source-title' };
   }
 
   if (source.type === 'list') {
-    return lookupRecord(lists, source.id) || source.id || typeLabel;
+    const text = plainFromRecord(recordFor(lists, source.id));
+
+    return { text: text || source.id || typeLabel, html: '', origin: text ? 'list-record' : 'fallback' };
   }
 
   if (source.type === 'account') {
-    return lookupRecord(accounts, source.id) || source.id || typeLabel;
+    const chosen = accountDisplayChoice(recordFor(accounts, source.id));
+
+    if (chosen) {
+      return chosen;
+    }
+
+    return { text: source.id || typeLabel, html: '', origin: 'fallback' };
   }
 
   const identity = sourceIdentityLabel(source);
 
   if (!identity || identity === source.type) {
-    return typeLabel;
+    return { text: typeLabel, html: '', origin: 'type' };
   }
 
-  return identity;
+  return { text: identity, html: '', origin: 'identity' };
 };
+
+const displayName = (source, formatMessage, lists, accounts) => (
+  displayLabel(source, formatMessage, lists, accounts).text
+);
 
 export const describeMixSource = (input, { formatMessage, lists, accounts } = {}) => {
   const normalized = normalizeSource(input);
@@ -209,17 +257,20 @@ export const describeMixSource = (input, { formatMessage, lists, accounts } = {}
   }
 
   const source = normalized.source;
-  const label = displayName(source, formatMessage, lists, accounts);
+  const chosen = displayLabel(source, formatMessage, lists, accounts);
   const chipMessage = source.type === 'domain' ? messages.server : TYPE_MESSAGE[source.type];
   const typeLabel = chipMessage ? formatMessage(chipMessage) : source.type;
+  const labelHtml = chosen.origin === 'account-display-name' ? chosen.html : '';
 
   return {
     key: sourceKey(source),
     type: source.type,
     icon: TYPE_ICON[source.type] || 'asterisk',
-    label,
+    label: chosen.text,
+    labelHtml,
+    labelOrigin: chosen.origin,
     typeLabel,
-    showChip: label !== typeLabel,
+    showChip: chosen.text !== typeLabel,
   };
 };
 

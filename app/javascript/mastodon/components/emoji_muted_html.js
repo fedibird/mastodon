@@ -2,7 +2,7 @@ import React from 'react';
 import PropTypes from 'prop-types';
 import { ReactReduxContext } from 'react-redux';
 import { emojiMutedPlainLabel, emojiMutedPlainText, emojiMuteTextIndexFromState, replaceEmojiInDisplayHtml, replaceUnicodeEmojiInPreviewHtml, UNVERIFIED_EMOJI_PLACEHOLDER } from 'mastodon/features/emoji/emoji_mute_text';
-import { bindEmojiMuteHtmlSources, forgetEmojiMuteTextSource, rememberEmojiMuteDisplayName, rememberEmojiMuteTextSource } from 'mastodon/features/emoji/emoji_mute_sources';
+import { bindEmojiMuteHtmlSources, forgetEmojiMuteAttributeSource, forgetEmojiMuteTextSource, rememberEmojiMuteAttributeSource, rememberEmojiMuteDisplayAttribute, rememberEmojiMuteDisplayName, rememberEmojiMuteTextSource } from 'mastodon/features/emoji/emoji_mute_sources';
 
 // One Redux subscription per mounted display node. The shared account and
 // status records keep the emojify HTML. A rules change re-renders only these
@@ -256,20 +256,73 @@ class EmojiMutedPlainInner extends React.PureComponent {
     className: PropTypes.string,
     tag: PropTypes.string,
     format: PropTypes.func,
+    emptyLabel: PropTypes.string,
     emojiMuteTextIndex: PropTypes.object,
   };
 
   componentDidMount() {
     this.bindDisplaySource();
+    this.bindButtonName();
   }
 
   componentDidUpdate() {
     this.bindDisplaySource();
+    this.bindButtonName();
+  }
+
+  componentWillUnmount() {
+    this.releaseButtonName();
   }
 
   setNode = node => {
     this.node = node;
   };
+
+  titleButton() {
+    const emptyLabel = this.props.emptyLabel;
+
+    if (typeof emptyLabel !== 'string' || emptyLabel.trim() === '' || !this.node || !this.node.closest) {
+      return null;
+    }
+
+    return this.node.closest('button');
+  }
+
+  bindButtonName() {
+    const button = this.titleButton();
+
+    if (!button) {
+      return;
+    }
+
+    const projected = this.node.textContent || '';
+    const name = projected.trim() === '' ? this.props.emptyLabel : projected;
+
+    if (button.getAttribute('aria-label') !== name) {
+      button.setAttribute('aria-label', name);
+    }
+
+    const plain = typeof this.props.plain === 'string' ? this.props.plain : '';
+    const html = typeof this.props.html === 'string' ? this.props.html : '';
+
+    if (html !== '') {
+      rememberEmojiMuteDisplayAttribute(button, 'aria-label', plain, html, this.props.emptyLabel, true);
+      return;
+    }
+
+    rememberEmojiMuteAttributeSource(button, 'aria-label', plain, 'plain', this.props.emptyLabel, true);
+  }
+
+  releaseButtonName() {
+    const button = this.titleButton();
+
+    if (!button) {
+      return;
+    }
+
+    button.removeAttribute('aria-label');
+    forgetEmojiMuteAttributeSource(button, 'aria-label');
+  }
 
   bindDisplaySource() {
     if (!this.node) {
