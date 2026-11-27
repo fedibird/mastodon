@@ -1,4 +1,4 @@
-import { compareAndDelete, compareAndPut, createIndexedDbDraftBackend, createMemoryDraftBackend, openComposerDraftDatabase } from '../storage';
+import { compareAndDelete, compareAndPut, createIndexedDbDraftBackend, createIndexedDbSyncLedger, createMemoryDraftBackend, ensureComposerDraftStores, openComposerDraftDatabase, syncCursorRecord, transitionSyncCursor } from '../storage';
 
 function fakeDatabase () {
   const rows = new Map();
@@ -250,6 +250,115 @@ describe('composer draft storage', () => {
     }));
   });
 
+  it('round-trips conflict, tombstone, and send intent through the IndexedDB codec', async () => {
+    const rows = new Map();
+    const db = {
+      transaction () {
+        const tx = {};
+        const store = {
+          get (key) {
+            const request = {};
+
+            queueMicrotask(() => {
+              request.result = rows.get(JSON.stringify(key));
+
+              if (request.onsuccess) {
+                request.onsuccess();
+              }
+            });
+
+            return request;
+          },
+          put (record) {
+            rows.set(JSON.stringify([record.account_id, record.client_uuid]), record);
+            const request = {};
+
+            queueMicrotask(() => {
+              if (request.onsuccess) {
+                request.onsuccess();
+              }
+
+              if (tx.oncomplete) {
+                tx.oncomplete();
+              }
+            });
+
+            return request;
+          },
+          index () {
+            return {
+              getAll () {
+                const request = {};
+
+                queueMicrotask(() => {
+                  request.result = Array.from(rows.values());
+
+                  if (request.onsuccess) {
+                    request.onsuccess();
+                  }
+                });
+
+                return request;
+              },
+            };
+          },
+        };
+
+        tx.objectStore = () => store;
+
+        return tx;
+      },
+    };
+    const ledger = createIndexedDbSyncLedger({ openDatabase: () => Promise.resolve(db) });
+    const cursor = syncCursorRecord({
+      account_id: '42',
+      client_uuid: '11111111-1111-4111-8111-111111111111',
+      server_draft_id: '15',
+      server_revision: 5,
+      acked_hash: 'hash-a',
+      acked_generation: 2,
+      sync_generation: 8,
+      conflict: true,
+      conflict_revision: 6,
+      delete_state: 'blocked',
+      probe_hash: 'hash-probe',
+      tombstone: true,
+      intent_kind: 'patch',
+      intent_hash: 'hash-a',
+      intent_base_revision: 5,
+      intent_expected_revision: 6,
+      cursor_version: 1,
+    });
+
+    await ledger.write(cursor);
+
+    expect(await ledger.read('42', cursor.client_uuid)).toEqual(cursor);
+    expect((await ledger.list('42'))[0].sync_generation).toBe(8);
+    expect((await ledger.list('42'))[0].delete_state).toBe('blocked');
+    expect((await ledger.list('42'))[0].intent_expected_revision).toBe(6);
+  });
+
+  it('adds the sync store when an older draft database is opened', () => {
+    const created = [];
+    const names = new Set(['drafts']);
+    const db = {
+      objectStoreNames: {
+        contains: name => names.has(name),
+      },
+      createObjectStore (name) {
+        names.add(name);
+        created.push(name);
+
+        return { createIndex () {} };
+      },
+    };
+
+    ensureComposerDraftStores(db);
+    ensureComposerDraftStores(db);
+
+    expect(created).toEqual(['sync']);
+  });
+
   it('reports an unavailable database without throwing to the caller of open', async () => {
     await expect(openComposerDraftDatabase(null)).rejects.toMatchObject({ reason: 'unavailable' });
     await expect(openComposerDraftDatabase({
@@ -257,5 +366,78 @@ describe('composer draft storage', () => {
         throw new Error('private mode');
       },
     })).rejects.toThrow('private mode');
+  });
+
+  it('keeps a discard on the revision it names and refuses a finish with no operation', () => {
+    const current = syncCursorRecord({
+      account_id: '42',
+      client_uuid: 'draft-1',
+      server_draft_id: '15',
+      server_revision: 4,
+      acked_hash: 'hash-a',
+      cursor_version: 2,
+    });
+    const stale = transitionSyncCursor(current, {
+      transition: 'discard',
+      cursor_version: 1,
+      delete_revision: 4,
+      delete_draft_id: '15',
+      tombstone: true,
+    });
+    const pinned = transitionSyncCursor(current, {
+      transition: 'discard',
+      cursor_version: 2,
+      delete_revision: 4,
+      delete_draft_id: '15',
+      tombstone: true,
+    });
+    const missing = transitionSyncCursor(null, {
+      transition: 'finish',
+      operation_id: 'op',
+      operation_owner: 'page',
+      server_revision: 1,
+    });
+
+    expect(stale.record.delete_state).not.toBe('pending');
+    expect(stale.record.server_revision).toBe(4);
+    expect(pinned.accepted).toBe(true);
+    expect(pinned.record.delete_state).toBe('pending');
+    expect(pinned.record.delete_revision).toBe(4);
+    expect(missing.accepted).toBe(false);
+    expect(missing.reason).toBe('missing_operation');
+  });
+
+  it('updates a saved base only when it is still the base this page sent', async () => {
+    const backend = createMemoryDraftBackend();
+    const previous = { recorded: true, revision: 5, draft_id: '15', hash: 'hash-old' };
+    const next = { recorded: true, revision: 6, draft_id: '15', hash: 'hash-new' };
+
+    await backend.writeDraft({
+      schema_version: 1,
+      account_id: '42',
+      client_draft_uuid: 'draft-1',
+      content_hash: 'hash-edited',
+      sync_base: previous,
+      input: { text: 'edited' },
+    }, { baseRevision: 0, stillCurrent: () => true, isDiscarded: () => false });
+
+    expect((await backend.noteSyncBase('42', 'draft-1', previous, next, 'hash-other')).status).toBe('kept');
+    expect((await backend.readDraft('42', 'draft-1')).sync_base.revision).toBe(5);
+    expect((await backend.noteSyncBase('42', 'draft-1', previous, next, 'hash-edited')).status).toBe('saved');
+    expect((await backend.readDraft('42', 'draft-1')).sync_base).toEqual(next);
+    expect((await backend.readDraft('42', 'draft-1')).input.text).toBe('edited');
+
+    await backend.writeDraft({
+      schema_version: 1,
+      account_id: '42',
+      client_draft_uuid: 'draft-p0',
+      content_hash: 'hash-p0',
+      input: { text: 'p0' },
+    }, { baseRevision: 0, stillCurrent: () => true, isDiscarded: () => false });
+
+    expect((await backend.noteSyncBase('42', 'draft-p0', previous, next, 'hash-other')).status).toBe('kept');
+    expect((await backend.readDraft('42', 'draft-p0')).sync_base).toBeUndefined();
+    expect((await backend.noteSyncBase('42', 'draft-p0', previous, next, 'hash-p0')).status).toBe('saved');
+    expect((await backend.readDraft('42', 'draft-p0')).sync_base).toEqual(next);
   });
 });

@@ -22,6 +22,27 @@ RSpec.describe InitialStateSerializer do
     Rails.cache.delete(UserPreferences::CacheKey.for_revision(key, user, revision))
   end
 
+  it 'keeps server draft sync off unless the page says this session is admitted' do
+    user = Fabricate(:user)
+
+    expect(serialize(nil)[:meta]).not_to have_key(:post_draft_sync)
+    expect(serialize(user.account)[:meta][:post_draft_sync]).to eq(enabled: false, reason: 'disabled')
+
+    admitted = JSON.parse(
+      ActiveModelSerializers::SerializableResource.new(
+        InitialStatePresenter.new(
+          current_account: user.account,
+          post_draft_sync: PostDrafts::WebSession::Result.new(enabled: true, reason: nil)
+        ),
+        serializer: described_class
+      ).to_json,
+      symbolize_names: true
+    )
+
+    expect(admitted[:meta][:post_draft_sync]).to eq(enabled: true, reason: nil)
+    expect(admitted[:meta]).not_to have_key(:post_draft_sync_testers)
+  end
+
   it 'exposes separately saved image crop preferences in WebUI meta' do
     user = Fabricate(:user)
 

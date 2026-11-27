@@ -4,6 +4,7 @@ import { REDRAFT } from '../../actions/statuses';
 import composer, { initialState } from '../../reducers/composer';
 import { createComposerDraftSession } from '../session';
 import { createMemoryDraftBackend } from '../storage';
+import { createMemorySyncLedger, createPostDraftSync } from '../sync';
 
 function harness () {
   const backend = createMemoryDraftBackend();
@@ -1537,5 +1538,204 @@ describe('composer draft session', () => {
     });
 
     expect(await reloaded.refreshOffers('42')).toEqual([]);
+  });
+
+  it('tells server sync about a local save, an explicit discard, and not a publish delete', async () => {
+    const events = [];
+    const serverSync = {
+      bindAccount () {},
+      resume () {},
+      snapshot () {
+        return { drafts: {} };
+      },
+      observeLocal (input) {
+        events.push(['observe', input.clientUuid, input.contentHash]);
+      },
+      noteDiscard (input) {
+        events.push(['discard', input.clientUuid]);
+      },
+      notePublish (input) {
+        events.push(['publish', input.clientUuid]);
+      },
+    };
+    const backend = createMemoryDraftBackend();
+    const session = createComposerDraftSession({
+      backend,
+      serverSync,
+      debounceMs: 300,
+      now: () => '2026-11-26T00:00:00.000Z',
+      createId: () => 'draft-1',
+      schedule: (fn) => fn,
+      cancel: () => undefined,
+    });
+    const typed = composerWith('hello', { idempotencyKey: 'token-a' });
+
+    session.sync({
+      accountId: '42',
+      action: { type: 'COMPOSE_CHANGE' },
+      composers: [{ composerId: 'primary', state: typed }],
+    });
+    await session.flush();
+    session.sync({
+      accountId: '42',
+      action: { type: COMPOSE_SUBMIT_REQUEST, submitId: 'submit-1' },
+      composers: [{ composerId: 'primary', state: typed.set('is_submitting', true) }],
+    });
+    session.sync({
+      accountId: '42',
+      action: {
+        type: COMPOSE_SUBMIT_SUCCESS,
+        submission: submissionSnapshot(typed, 'hello', 'submit-1'),
+      },
+      composers: [{ composerId: 'primary', state: composerWith('', { idempotencyKey: 'token-a' }) }],
+    });
+    await session.flush();
+
+    expect(events.some(event => event[0] === 'observe')).toBe(true);
+    expect(events.some(event => event[0] === 'publish')).toBe(true);
+    expect(events.some(event => event[0] === 'discard')).toBe(false);
+
+    const again = composerWith('again', { idempotencyKey: 'token-b', instanceId: 'composer-2' });
+
+    session.sync({
+      accountId: '42',
+      action: { type: 'COMPOSE_CHANGE' },
+      composers: [{ composerId: 'primary', state: again }],
+    });
+    await session.flush();
+    events.length = 0;
+    session.sync({
+      accountId: '42',
+      action: { type: COMPOSE_RESET },
+      composers: [{ composerId: 'primary', state: composerWith('', { idempotencyKey: 'token-b', instanceId: 'composer-2' }) }],
+    });
+    await session.flush();
+
+    expect(events.some(event => event[0] === 'discard')).toBe(true);
+    expect(events.some(event => event[0] === 'publish')).toBe(false);
+  });
+
+  it('continues the same composer from the acknowledgement and holds a restored snapshot with another base', async () => {
+    const calls = [];
+    const backend = createMemoryDraftBackend();
+    let session;
+    const sync = createPostDraftSync({
+      ledger: createMemorySyncLedger(),
+      ownerId: 'tab-session',
+      serverDebounceMs: 0,
+      schedule: (fn) => {
+        fn();
+        return 1;
+      },
+      cancel: () => undefined,
+      online: () => true,
+      subscribeOnline: () => () => undefined,
+      onAcknowledged: (detail) => session.noteAcknowledged(detail),
+      request: (spec) => {
+        calls.push(spec);
+
+        return Promise.resolve({
+          status: spec.method === 'post' ? 201 : 200,
+          body: {
+            draft_id: '15',
+            revision: spec.method === 'post' ? 1 : calls.filter(call => call.method === 'patch').length + 1,
+            payload: spec.body.payload,
+          },
+        });
+      },
+    });
+
+    session = createComposerDraftSession({
+      backend,
+      serverSync: sync,
+      debounceMs: 0,
+      now: () => '2026-11-26T00:00:00.000Z',
+      createId: () => 'draft-1',
+      schedule: (fn) => fn,
+      cancel: () => undefined,
+    });
+
+    const change = (text, extra) => session.sync({
+      accountId: '42',
+      action: { type: 'COMPOSE_CHANGE' },
+      composers: [{ composerId: 'primary', state: composerWith(text, { idempotencyKey: 'token-a', ...(extra || {}) }) }],
+    });
+    const settled = async () => {
+      const started = Date.now();
+
+      while (sync.snapshot().protection !== 'ready') {
+        if (Date.now() - started > 1000) {
+          throw new Error('sync did not become ready');
+        }
+
+        await new Promise((resolve) => {
+          setTimeout(resolve, 5);
+        });
+      }
+
+      await sync.settle();
+    };
+
+    change('hello');
+    await session.flush();
+    await settled();
+
+    expect(calls.map(call => call.method)).toEqual(['post']);
+
+    change('hello more');
+    await session.flush();
+    await sync.settle();
+
+    expect(calls.map(call => call.method)).toEqual(['post', 'patch']);
+    expect(calls[1].body.expected_revision).toBe(1);
+
+    const stored = await backend.readDraft('42', 'draft-1');
+
+    expect(stored.sync_base).toMatchObject({
+      recorded: true,
+      revision: 2,
+      draft_id: '15',
+    });
+
+    session.sync({
+      accountId: '42',
+      action: {
+        type: 'COMPOSER_DRAFT_RESTORE',
+        snapshot: {
+          ...stored,
+          content_hash: 'hash-not-the-ack',
+          sync_base: { recorded: false },
+          input: { ...stored.input, text: 'unrelated' },
+        },
+        idempotencyKey: 'token-a',
+        baseRevision: stored.revision,
+      },
+      composers: [{ composerId: 'primary', state: composerWith('unrelated', { idempotencyKey: 'token-a' }) }],
+    });
+    change('restored edit');
+    await session.flush();
+    await sync.settle();
+
+    expect(calls).toHaveLength(2);
+    expect(sync.snapshot().drafts['draft-1'].status).not.toBe('synced');
+
+    session.sync({
+      accountId: '42',
+      action: {
+        type: 'COMPOSER_DRAFT_RESTORE',
+        snapshot: {
+          ...stored,
+          sync_base: { recorded: true, revision: 1, draft_id: '15', hash: 'hash-before-ack' },
+        },
+        idempotencyKey: 'token-a',
+        baseRevision: stored.revision,
+      },
+      composers: [{ composerId: 'primary', state: composerWith('restored edit', { idempotencyKey: 'token-a' }) }],
+    });
+    change('previous base edit');
+    await session.flush();
+    await sync.settle();
+
+    expect(calls).toHaveLength(2);
   });
 });

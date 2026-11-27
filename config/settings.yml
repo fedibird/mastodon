@@ -230,6 +230,18 @@ defaults: &defaults
   # A saved change applies on the next full page load and does not unload a
   # module that has already been fetched.
   emoji_picker_lazy_load_standard: false
+  # WebUI server sync for unpublished composer drafts. Off admits nobody.
+  # On admits administrators and the user ids listed below. An empty list
+  # still admits administrators only. Ordinary users and external OAuth
+  # tokens are not granted read:post_drafts or write:post_drafts. Existing
+  # browser sessions gain those scopes on the next full page load, and only
+  # for that WebUI session. Other sessions and other applications stay as
+  # they are. A signed-out browser, or a session whose token cannot be
+  # upgraded, keeps local recovery off this path until the next sign-in.
+  #   Setting.post_draft_sync = true
+  #   Setting.post_draft_sync_testers = "17,42"
+  post_draft_sync: false
+  post_draft_sync_testers: ''
   reject_pattern: ''
   reject_blurhash: ''
   max_frequently_used_emojis: 16

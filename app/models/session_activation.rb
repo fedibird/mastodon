@@ -77,9 +77,18 @@ class SessionActivation < ApplicationRecord
     {
       application_id: Doorkeeper::Application.find_by(superapp: true)&.id,
       resource_owner_id: user_id,
-      scopes: 'read write follow',
+      scopes: web_session_scopes,
       expires_in: Doorkeeper.configuration.access_token_expires_in,
       use_refresh_token: Doorkeeper.configuration.refresh_token_enabled?,
     }
+  end
+
+  # Admitted browsers start with the draft scopes. Everyone else keeps the
+  # historical web grant. This does not rewrite tokens that already exist.
+  def web_session_scopes
+    base = %w(read write follow)
+    return base.join(' ') unless PostDrafts::Feature.permitted?(user)
+
+    PostDrafts::WebSession.scope_list(base).join(' ')
   end
 end

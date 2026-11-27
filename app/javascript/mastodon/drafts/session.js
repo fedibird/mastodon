@@ -17,7 +17,7 @@ import { REDRAFT } from '../actions/statuses';
 import { composerDraftInProgress } from '../posting_context/surface';
 import { PRIMARY_COMPOSER_ID } from '../utils/composer';
 import uuid from '../uuid';
-import { isQuotaError } from './storage';
+import { isQuotaError, sameSyncBase, unrecordedSyncBase } from './storage';
 import {
   draftCaptureBlock,
   restoreComposerDraft,
@@ -78,6 +78,8 @@ export function createComposerDraftSession ({
   debounceMs = 300,
   schedule = (fn, ms) => setTimeout(fn, ms),
   cancel = (id) => clearTimeout(id),
+  serverSync = null,
+  syncSessionId = null,
 } = {}) {
   const surfaces = new Map();
   const claimed = new Map();
@@ -91,10 +93,17 @@ export function createComposerDraftSession ({
   const listeners = new Set();
   let offers = [];
   let unavailable = false;
+  let serverAccount;
+  let serverAccountSet = false;
 
   const notify = () => {
     listeners.forEach((listener) => listener());
   };
+  const pageSessionId = syncSessionId || 'draft-sync';
+
+  if (serverSync && typeof serverSync.subscribe === 'function') {
+    serverSync.subscribe(() => notify());
+  }
 
   const setPersistence = (composerId, status, reason, mediaIncomplete) => {
     const previous = persistence.get(composerId);
@@ -147,6 +156,7 @@ export function createComposerDraftSession ({
 
     surface.clientDraftUuid = null;
     surface.baseRevision = 0;
+    surface.restoredBase = null;
     surface.lastHash = null;
     surface.persistedHash = null;
     surface.scheduledHash = null;
@@ -196,6 +206,7 @@ export function createComposerDraftSession ({
           ...queued.snapshot,
           client_draft_uuid: nextUuid,
         };
+        delete snapshot.sync_base;
       } else if (surface.stateRef) {
         snapshot = snapshotComposerDraft(surface.stateRef, {
           accountId,
@@ -208,6 +219,7 @@ export function createComposerDraftSession ({
       claimed.delete(clientDraftUuid);
       surface.clientDraftUuid = nextUuid;
       surface.baseRevision = 0;
+      surface.restoredBase = { recorded: false };
       surface.lastHash = null;
       surface.persistedHash = null;
       surface.scheduledHash = null;
@@ -231,7 +243,7 @@ export function createComposerDraftSession ({
     });
   }
 
-  function retireDraft (accountId, composerId, clientDraftUuid, expected) {
+  function retireDraft (accountId, composerId, clientDraftUuid, expected, reason) {
     if (!clientDraftUuid) {
       return Promise.resolve();
     }
@@ -265,11 +277,34 @@ export function createComposerDraftSession ({
       }
     }
 
+    const discardExtras = () => {
+      if (reason !== 'discard' || !serverSync || typeof serverSync.tombstoneRow !== 'function') {
+        return undefined;
+      }
+
+      return {
+        tombstone: serverSync.tombstoneRow(accountId, clientDraftUuid),
+        writeTombstone: (row) => serverSync.rememberTombstone(row),
+      };
+    };
     const previous = writeChains.get(composerId) || Promise.resolve();
     const run = previous.then(
-      () => backend.deleteDraft(accountId, clientDraftUuid, expected),
-      () => backend.deleteDraft(accountId, clientDraftUuid, expected),
-    ).then(() => {
+      () => backend.deleteDraft(accountId, clientDraftUuid, expected, discardExtras()),
+      () => backend.deleteDraft(accountId, clientDraftUuid, expected, discardExtras()),
+    ).then((decision) => {
+      if (serverSync && decision && decision.status === 'deleted') {
+        const notice = {
+          accountId: String(accountId),
+          clientUuid: String(clientDraftUuid),
+        };
+
+        if (reason === 'publish') {
+          serverSync.notePublish(notice);
+        } else if (reason === 'discard') {
+          serverSync.noteDiscard(notice);
+        }
+      }
+
       refreshOffers(accountId);
     }, () => undefined);
 
@@ -297,7 +332,7 @@ export function createComposerDraftSession ({
       return;
     }
 
-    retireDraft(accountId, surface.composerId, clientDraftUuid, heldDraftExpectation(surface));
+    retireDraft(accountId, surface.composerId, clientDraftUuid, heldDraftExpectation(surface), 'discard');
   }
 
   function writeOptions (composerId, epoch, clientDraftUuid) {
@@ -371,6 +406,18 @@ export function createComposerDraftSession ({
         current.lastHash = snapshot.content_hash;
         setPersistence(composerId, 'saved', null, snapshot.media_incomplete);
       }
+
+      if (serverSync && String(snapshot.account_id) === String(accountId)) {
+        serverSync.observeLocal({
+          accountId: String(accountId),
+          clientUuid: snapshot.client_draft_uuid,
+          localRevision: Number(result.record.revision) || 0,
+          contentHash: snapshot.content_hash,
+          payload: snapshot,
+          editGeneration: epoch,
+          sessionId: pageSessionId,
+        });
+      }
     }
 
     if (result.status === 'saved' || result.status === 'discarded' || result.status === 'conflict') {
@@ -413,6 +460,16 @@ export function createComposerDraftSession ({
     epochs.set(composerId, epoch);
     pending.set(composerId, { accountId, snapshot, epoch });
     setPersistence(composerId, 'saving', null, snapshot.media_incomplete);
+
+    if (serverSync && typeof serverSync.noteDirty === 'function') {
+      serverSync.noteDirty({
+        accountId: String(accountId),
+        clientUuid: snapshot.client_draft_uuid,
+        contentHash: snapshot.content_hash,
+        editGeneration: epoch,
+        sessionId: pageSessionId,
+      });
+    }
 
     const existing = timers.get(composerId);
 
@@ -477,6 +534,22 @@ export function createComposerDraftSession ({
     return offers;
   }
 
+  function recordedRestoredBase (snapshot) {
+    if (snapshot && snapshot.sync_base && snapshot.sync_base.recorded === true) {
+      return snapshot.sync_base;
+    }
+
+    if (serverSync && typeof serverSync.confirmedBase === 'function' && snapshot) {
+      const confirmed = serverSync.confirmedBase(snapshot.client_draft_uuid, snapshot.content_hash);
+
+      if (confirmed && confirmed.recorded === true && String(snapshot.account_id) === String(confirmed.account_id || snapshot.account_id)) {
+        return confirmed;
+      }
+    }
+
+    return { recorded: false };
+  }
+
   function adoptRestored (composerId, state, action) {
     const surface = surfaces.get(composerId);
 
@@ -497,6 +570,7 @@ export function createComposerDraftSession ({
     surface.latched = null;
     surface.clientDraftUuid = clientDraftUuid;
     surface.baseRevision = baseRevision;
+    surface.restoredBase = recordedRestoredBase(snapshot);
     surface.persistedHash = reserved ? null : (snapshot.content_hash || null);
     surface.lastHash = surface.persistedHash;
     surface.scheduledHash = null;
@@ -548,7 +622,18 @@ export function createComposerDraftSession ({
         offers: offers.slice(),
         persistence: byComposer,
         unavailable,
+        sync: serverSync && typeof serverSync.snapshot === 'function' ? serverSync.snapshot() : null,
       };
+    },
+
+    releaseServerSync () {
+      if (!serverSync) {
+        return;
+      }
+
+      serverAccount = null;
+      serverAccountSet = true;
+      serverSync.bindAccount(null);
     },
 
     claim (clientDraftUuid, composerId) {
@@ -580,6 +665,24 @@ export function createComposerDraftSession ({
     },
 
     refreshOffers,
+
+    noteAcknowledged ({ accountId, clientUuid, previous, next, contentHash }) {
+      if (!backend || typeof backend.noteSyncBase !== 'function' || !previous || !next || !contentHash) {
+        return Promise.resolve({ status: 'kept' });
+      }
+
+      surfaces.forEach((surface) => {
+        if (surface.clientDraftUuid !== clientUuid || surface.persistedHash !== contentHash) {
+          return;
+        }
+
+        if (unrecordedSyncBase(surface.restoredBase) || sameSyncBase(surface.restoredBase, previous)) {
+          surface.restoredBase = next;
+        }
+      });
+
+      return backend.noteSyncBase(accountId, clientUuid, previous, next, contentHash);
+    },
 
     flush () {
       const composerIds = [];
@@ -622,6 +725,24 @@ export function createComposerDraftSession ({
     },
 
     sync ({ accountId, action, composers }) {
+      if (serverSync) {
+        const nextAccount = accountId ? String(accountId) : null;
+
+        if (!serverAccountSet || nextAccount !== serverAccount) {
+          serverAccount = nextAccount;
+          serverAccountSet = true;
+          serverSync.bindAccount(nextAccount);
+
+          if (nextAccount && typeof serverSync.resume === 'function') {
+            Promise.resolve(serverSync.resume(() => backend.listDrafts(nextAccount))).catch(() => undefined);
+          }
+        }
+
+        if (!nextAccount) {
+          return;
+        }
+      }
+
       if (!accountId) {
         return;
       }
@@ -835,7 +956,7 @@ export function createComposerDraftSession ({
         }
 
         if (sentUuid) {
-          retireDraft(publishAccountId, composerId, sentUuid, sentExpectation(sent));
+          retireDraft(publishAccountId, composerId, sentUuid, sentExpectation(sent), 'publish');
         }
 
         let current = surfaces.get(composerId);
@@ -1007,9 +1128,17 @@ export function createComposerDraftSession ({
             claimed.set(surface.clientDraftUuid, composerId);
           }
 
+          let syncBase = null;
+
+          if (surface.restoredBase) {
+            syncBase = surface.restoredBase.recorded === true ? surface.restoredBase : { recorded: false };
+          } else if (serverSync && typeof serverSync.localBase === 'function') {
+            syncBase = serverSync.localBase(surface.clientDraftUuid);
+          }
           const storedSnapshot = {
             ...snapshot,
             client_draft_uuid: surface.clientDraftUuid,
+            sync_base: syncBase || snapshot.sync_base || null,
           };
 
           if (storedSnapshot.content_hash === surface.lastHash) {
@@ -1049,7 +1178,7 @@ export function createComposerDraftSession ({
           const uuid = (taken.record && taken.record.uuid) || (!taken.tracked && legacySentUuid(surface, submission));
 
           if (uuid) {
-            retireDraft(accountId, composerId, uuid, sentExpectation(taken.record));
+            retireDraft(accountId, composerId, uuid, sentExpectation(taken.record), 'publish');
           }
 
           surfaces.delete(composerId);
@@ -1079,7 +1208,7 @@ export function createComposerDraftSession ({
           const uuid = taken.record && taken.record.uuid;
 
           if (uuid) {
-            retireDraft(accountId, target, uuid, sentExpectation(taken.record));
+            retireDraft(accountId, target, uuid, sentExpectation(taken.record), 'publish');
           }
         }
       }

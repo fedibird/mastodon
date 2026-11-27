@@ -4,6 +4,7 @@ import { COMPOSER_DRAFT_STATUS } from '../actions/composer';
 const initialState = ImmutableMap({
   offers: ImmutableList(),
   persistence: ImmutableMap(),
+  sync: null,
 });
 
 export default function composerDraftRecovery (state = initialState, action) {
@@ -14,5 +15,6 @@ export default function composerDraftRecovery (state = initialState, action) {
   return ImmutableMap({
     offers: fromJS(action.view.offers || []),
     persistence: fromJS(action.view.persistence || {}),
+    sync: action.view.sync ? fromJS(action.view.sync) : null,
   });
 }

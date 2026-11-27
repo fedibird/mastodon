@@ -4,7 +4,9 @@ import { selectComposer } from '../selectors/composer';
 import { PRIMARY_COMPOSER_ID } from '../utils/composer';
 import { COMPOSER_DRAFT_STATUS } from '../actions/composer';
 import { createComposerDraftSession } from './session';
-import { createIndexedDbDraftBackend } from './storage';
+import { browserPostDraftRequest } from './sync_client';
+import { createPostDraftSync } from './sync';
+import { createIndexedDbDraftBackend, createIndexedDbSyncLedger } from './storage';
 
 let sharedSession = null;
 
@@ -36,14 +38,31 @@ function collectComposers (state) {
 }
 
 export function composerDraftMiddleware (options = {}) {
-  const session = options.session || createComposerDraftSession({
-    backend: options.backend || createIndexedDbDraftBackend(),
-    debounceMs: options.debounceMs,
-    schedule: options.schedule,
-    cancel: options.cancel,
-    now: options.now,
-    createId: options.createId,
-  });
+  let storeRef = null;
+  let session = options.session || null;
+  const backend = options.backend || (session ? null : createIndexedDbDraftBackend());
+  const serverSync = options.serverSync || (options.enableServerSync ? createPostDraftSync({
+    ledger: options.ledger || createIndexedDbSyncLedger(),
+    request: (spec) => browserPostDraftRequest(() => storeRef && storeRef.getState(), spec),
+    schedule: options.serverSchedule,
+    cancel: options.serverCancel,
+    online: options.online,
+    subscribeOnline: options.subscribeOnline,
+    serverDebounceMs: options.serverDebounceMs,
+    onAcknowledged: (detail) => (session && typeof session.noteAcknowledged === 'function' ? session.noteAcknowledged(detail) : undefined),
+  }) : null);
+
+  if (!session) {
+    session = createComposerDraftSession({
+      backend,
+      debounceMs: options.debounceMs,
+      schedule: options.schedule,
+      cancel: options.cancel,
+      now: options.now,
+      createId: options.createId,
+      serverSync,
+    });
+  }
 
   sharedSession = session;
   let lastPublished = '';
@@ -52,6 +71,7 @@ export function composerDraftMiddleware (options = {}) {
   const accountIdFor = () => (options.accountId === undefined ? me : options.accountId);
 
   return store => {
+    storeRef = store;
     const target = options.target === undefined && typeof window !== 'undefined' ? window : options.target;
 
     session.bindLifecycle(target);
@@ -80,6 +100,10 @@ export function composerDraftMiddleware (options = {}) {
       const accountId = accountIdFor();
 
       if (!accountId) {
+        if (session.releaseServerSync) {
+          session.releaseServerSync();
+        }
+
         return result;
       }
 
