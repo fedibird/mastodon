@@ -1,8 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 # Read-only Actor smoke test: never modifies flags, processes or services.
+# Draft patch for PR #760: adds a `person-off` mode so the runbook's Person
+# negative control can run through this script instead of failing on
+# `.type == "Group"`. Group `off` / `on` behaviour is unchanged.
 usage() {
-  echo "Usage: script/group_actor_advertisement_smoke.sh ACTOR_URL off|on" >&2
+  echo "Usage: script/group_actor_advertisement_smoke.sh ACTOR_URL off|on|person-off" >&2
   echo "Optional: OUTPUT_DIR=/tmp/group-off BASELINE_JSON=/tmp/group-off/actor.json" >&2
   exit 2
 }
@@ -10,7 +13,7 @@ usage() {
 actor_url=$1
 expected=$2
 [[ $actor_url == https://*/users/* ]] || usage
-[[ $expected == on || $expected == off ]] || usage
+[[ $expected == on || $expected == off || $expected == person-off ]] || usage
 for command in curl jq; do
   command -v "$command" >/dev/null || { echo "ERROR: missing $command" >&2; exit 2; }
 done
@@ -32,7 +35,8 @@ jq -e --arg expected "$expected" --arg property "$property" --arg profile "$prof
     (if ($c|type)=="array" then $c elif ($c|type)=="object" then [$c] else [] end) |
     any(.[]; type=="object" and
       .fedibirdGroupProtocols == {"@id":$property,"@type":"@id","@container":"@set"});
-  (.type=="Group") and (.id==$url) and has("publicKey") and
+  (if $expected=="person-off" then (.type=="Person") else (.type=="Group") end) and
+  (.id==$url) and has("publicKey") and
   (has("canPost")|not) and (has("viewerCapabilities")|not) and
   (has("roles")|not) and (has("affiliations")|not) and
   (has("groupProtocols")|not) and
