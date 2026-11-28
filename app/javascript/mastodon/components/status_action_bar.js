@@ -6,7 +6,7 @@ import IconButton from './icon_button';
 import DropdownMenuContainer from '../containers/dropdown_menu_container';
 import { defineMessages, injectIntl } from 'react-intl';
 import ImmutablePureComponent from 'react-immutable-pure-component';
-import { me, isStaff, show_bookmark_button, show_quote_button, show_share_button, enableReaction, compactReaction, enableStatusReference, maxReferences, matchVisibilityOfReferences, addReferenceModal, disablePost, disableReactions, emojiPickerDisabled, disableBlock, disableDomainBlock, disableReport, translationBarVisibility } from '../initial_state';
+import { me, isStaff, show_bookmark_button, show_quote_button, show_share_button, enableReaction, compactReaction, enableStatusReference, maxReferences, matchVisibilityOfReferences, addReferenceModal, disablePost, disableReactions, emojiPickerDisabled, disableBlock, disableDomainBlock, disableReport, translationBarVisibility, enableReboost } from '../initial_state';
 import classNames from 'classnames';
 import { openModal } from '../actions/modal';
 import { revealStatusTranslationBar } from '../actions/translation_bar';
@@ -19,6 +19,7 @@ import { translationBarEffectivelyVisible, viewerTranslationPair } from '../util
 import { emojiReactionsForStatus } from '../utils/emoji_reactions';
 
 import ReactionPickerDropdownContainer from '../containers/reaction_picker_dropdown_container';
+import { armReboostClock, reboostMenuItems, reboostOperationId, reboostRemainingSeconds, reboostWaitMinutes } from '../features/reboost/menu';
 
 const messages = defineMessages({
   edit: { id: 'status.edit', defaultMessage: 'Edit' },
@@ -37,6 +38,11 @@ const messages = defineMessages({
   replyAll: { id: 'status.replyAll', defaultMessage: 'Reply to thread' },
   reference: { id: 'status.reference', defaultMessage: 'Reference' },
   reblog: { id: 'status.reblog', defaultMessage: 'Boost' },
+  reboost: { id: 'status.reboost', defaultMessage: 'Reboost' },
+  reboost_menu: { id: 'status.reboost_menu', defaultMessage: 'Boost actions' },
+  reboost_wait: { id: 'status.reboost_wait', defaultMessage: 'Reboost (about {minutes} min left)' },
+  reboost_check: { id: 'status.reboost_check', defaultMessage: 'Check status' },
+  reboost_hint: { id: 'status.reboost_hint', defaultMessage: 'Turn on Group boosts in settings if you do not want to see the same post repeatedly.' },
   reblog_private: { id: 'status.reblog_private', defaultMessage: 'Boost with original visibility' },
   cancel_reblog_private: { id: 'status.cancel_reblog_private', defaultMessage: 'Unboost' },
   cannot_quote: { id: 'status.cannot_quote', defaultMessage: 'This post cannot be quoted' },
@@ -117,6 +123,7 @@ const mapStateToProps = (state, { status, translationStatus }) => {
     translationAssumption: state.getIn(['translation_assumptions', subject.get('id')]),
     translationTarget: state.getIn(['settings', 'translation', 'targetLanguage']),
     languages: state.getIn(['server', 'translationLanguages', 'items']),
+    reboosting: Boolean(state.getIn(['statuses', status.get('id'), 'reboost_operation'])),
   };
 };
 
@@ -199,6 +206,7 @@ class StatusActionBar extends ImmutablePureComponent {
     'translationTarget',
     'languages',
     'compactCardMode',
+    'reboosting',
   ]
 
   handleReplyClick = () => {
@@ -236,6 +244,73 @@ class StatusActionBar extends ImmutablePureComponent {
     } else {
       this._openInteractionDialog('reblog');
     }
+  }
+
+  componentDidMount () {
+    this._reboostTimer = armReboostClock(this.props.status, () => this.forceUpdate());
+  }
+
+  componentDidUpdate () {
+    clearTimeout(this._reboostTimer);
+    this._reboostTimer = armReboostClock(this.props.status, () => this.forceUpdate());
+  }
+
+  componentWillUnmount () {
+    clearTimeout(this._reboostTimer);
+  }
+
+  handleReboost = () => {
+    if (this.props.reboosting || !this.props.onReboost) {
+      return;
+    }
+
+    this.props.onReboost(this.props.status);
+  }
+
+  handleUnreblog = () => {
+    if (this.props.onUnreblog) {
+      this.props.onUnreblog(this.props.status);
+    }
+  }
+
+  handleCheckReboost = () => {
+    if (this.props.onCheckReboost) {
+      this.props.onCheckReboost(this.props.status);
+    }
+  }
+
+  renderBoostButton = ({ intl, status, scrollKey, reblogged, publicStatus, reblogPrivate, expired, externalContent, disableReactions, reblogTitle }) => {
+    const minutes = reboostWaitMinutes(reboostRemainingSeconds(status));
+    const waiting = !reblogged && minutes > 0;
+    const operationId = reboostOperationId(status);
+    const reboostMenu = enableReboost && reblogged && me && !externalContent && !expired && (publicStatus || reblogPrivate);
+    const menu = reboostMenu || Boolean(operationId && me && !externalContent && !expired);
+    let title = reblogTitle;
+
+    if (menu) {
+      title = intl.formatMessage(messages.reboost_menu);
+    } else if (waiting) {
+      title = intl.formatMessage(messages.reboost_wait, { minutes });
+    }
+    const disabled = disableReactions || !publicStatus && !reblogPrivate || expired || waiting;
+
+    if (!menu) {
+      return (
+        <IconButton className={classNames('status__action-bar-button', { reblogPrivate })} disabled={disabled} active={reblogged} pressed={reblogged} title={title} icon='retweet' onClick={this.handleReblogClick} />
+      );
+    }
+
+    return (
+      <DropdownMenuContainer
+        scrollKey={scrollKey}
+        status={status}
+        menuRole='menu'
+        items={reboostMenuItems({ intl, messages, status, onReboost: this.handleReboost, onUnreblog: this.handleUnreblog, onCheck: this.handleCheckReboost, busy: this.props.reboosting, pendingOnly: !reboostMenu })}
+        direction='right'
+      >
+        <IconButton className={classNames('status__action-bar-button', { reblogPrivate })} disabled={disableReactions || expired} active={reblogged} pressed={reblogged} title={title} icon='retweet' />
+      </DropdownMenuContainer>
+    );
   }
 
   handleReferenceClick = (e) => {
@@ -696,7 +771,7 @@ class StatusActionBar extends ImmutablePureComponent {
       <div className='status__action-bar'>
         <IconButton className='status__action-bar-button' disabled={disablePost || expired || externalContent} title={replyTitle} icon={status.get('in_reply_to_account_id') === status.getIn(['account', 'id']) ? 'reply' : replyIcon} onClick={this.handleReplyClick} counter={status.get('replies_count')} obfuscateCount />
         {enableStatusReference && me && <IconButton className={classNames('status__action-bar-button link-icon', { referenced, 'context-referenced': contextReferenced })} animate disabled={disablePost || referenceDisabled} active={referenced} pressed={referenced} title={intl.formatMessage(messages.reference)} icon='link' onClick={this.handleReferenceClick} />}
-        <IconButton className={classNames('status__action-bar-button', { reblogPrivate })} disabled={disableReactions || !publicStatus && !reblogPrivate || expired}  active={reblogged} pressed={reblogged} title={reblogTitle} icon='retweet' onClick={this.handleReblogClick} />
+        {this.renderBoostButton({ intl, status, scrollKey, reblogged, publicStatus, reblogPrivate, expired, externalContent, disableReactions, reblogTitle })}
         <IconButton className='status__action-bar-button star-icon' animate disabled={disableReactions || !favourited && expired} active={favourited} pressed={favourited} title={intl.formatMessage(messages.favourite)} icon='star' onClick={this.handleFavouriteClick} />
         {show_quote_button && <IconButton className='status__action-bar-button' disabled={disablePost || anonymousAccess || !publicStatus || expired} title={!publicStatus ? intl.formatMessage(messages.cannot_quote) : intl.formatMessage(messages.quote)} icon='quote-right' onClick={this.handleQuoteClick} />}
         {shareButton}

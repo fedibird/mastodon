@@ -1117,7 +1117,7 @@ entries:
   - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/preferences/appearance/show.html.haml:56
   - app/serializers/initial_state_serializer.rb:123
-  - app/javascript/mastodon/initial_state.js:89
+  - app/javascript/mastodon/initial_state.js:90
   audit_status: verified
   notes: 'Recommendation only: read_policy and write_policy are not an approved API
     contract. Decorator group string. Getter is delegated to ScopedSettings with prefix
@@ -1594,7 +1594,7 @@ entries:
   - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/preferences/safety/show.html.haml:50
   - app/serializers/initial_state_serializer.rb:133
-  - app/javascript/mastodon/initial_state.js:101
+  - app/javascript/mastodon/initial_state.js:102
   audit_status: verified
   notes: 'Recommendation only: read_policy and write_policy are not an approved API
     contract. Decorator group boolean. Getter is delegated to ScopedSettings with
@@ -1645,7 +1645,7 @@ entries:
   - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/custom_emojis/settings/show.html.haml:66
   - app/serializers/initial_state_serializer.rb:160
-  - app/javascript/mastodon/initial_state.js:133
+  - app/javascript/mastodon/initial_state.js:134
   audit_status: verified
   notes: 'Recommendation only: read_policy and write_policy are not an approved API
     contract. Decorator group boolean. Getter is delegated to ScopedSettings with
@@ -1696,7 +1696,7 @@ entries:
   - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/preferences/safety/show.html.haml:38
   - app/serializers/initial_state_serializer.rb:129
-  - app/javascript/mastodon/initial_state.js:98
+  - app/javascript/mastodon/initial_state.js:99
   audit_status: verified
   notes: 'Recommendation only: read_policy and write_policy are not an approved API
     contract. Decorator group boolean. Getter is delegated to ScopedSettings with
@@ -1748,7 +1748,7 @@ entries:
   - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/preferences/safety/show.html.haml:47
   - app/serializers/initial_state_serializer.rb:132
-  - app/javascript/mastodon/initial_state.js:100
+  - app/javascript/mastodon/initial_state.js:101
   audit_status: verified
   notes: 'Recommendation only: read_policy and write_policy are not an approved API
     contract. Decorator group boolean. Getter is delegated to ScopedSettings with
@@ -1799,7 +1799,7 @@ entries:
   - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/preferences/safety/show.html.haml:41
   - app/serializers/initial_state_serializer.rb:130
-  - app/javascript/mastodon/initial_state.js:99
+  - app/javascript/mastodon/initial_state.js:100
   audit_status: verified
   notes: 'Recommendation only: read_policy and write_policy are not an approved API
     contract. Decorator group boolean. Getter is delegated to ScopedSettings with
@@ -1851,7 +1851,7 @@ entries:
   - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/preferences/safety/show.html.haml:32
   - app/serializers/initial_state_serializer.rb:127
-  - app/javascript/mastodon/initial_state.js:96
+  - app/javascript/mastodon/initial_state.js:97
   audit_status: verified
   notes: 'Recommendation only: read_policy and write_policy are not an approved API
     contract. Decorator group boolean. Getter is delegated to ScopedSettings with
@@ -1957,7 +1957,7 @@ entries:
   - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/preferences/safety/show.html.haml:53
   - app/serializers/initial_state_serializer.rb:124
-  - app/javascript/mastodon/initial_state.js:93
+  - app/javascript/mastodon/initial_state.js:94
   audit_status: verified
   notes: 'Recommendation only: read_policy and write_policy are not an approved API
     contract. Decorator group boolean. Getter is delegated to ScopedSettings with
@@ -2058,7 +2058,7 @@ entries:
   - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/preferences/safety/show.html.haml:15
   - app/serializers/initial_state_serializer.rb:125
-  - app/javascript/mastodon/initial_state.js:94
+  - app/javascript/mastodon/initial_state.js:95
   audit_status: verified
   notes: 'Recommendation only: read_policy and write_policy are not an approved API
     contract. Decorator group boolean. Getter is delegated to ScopedSettings with
@@ -2109,7 +2109,7 @@ entries:
   - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/preferences/other/show.html.haml:146
   - app/serializers/initial_state_serializer.rb:134
-  - app/javascript/mastodon/initial_state.js:102
+  - app/javascript/mastodon/initial_state.js:103
   audit_status: verified
   notes: 'Recommendation only: read_policy and write_policy are not an approved API
     contract. Decorator group boolean. Getter is delegated to ScopedSettings with
@@ -2160,7 +2160,7 @@ entries:
   - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/preferences/safety/show.html.haml:44
   - app/serializers/initial_state_serializer.rb:131
-  - app/javascript/mastodon/initial_state.js:103
+  - app/javascript/mastodon/initial_state.js:104
   audit_status: verified
   notes: 'Recommendation only: read_policy and write_policy are not an approved API
     contract. Decorator group boolean. Getter is delegated to ScopedSettings with
@@ -2262,7 +2262,7 @@ entries:
   - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/preferences/safety/show.html.haml:35
   - app/serializers/initial_state_serializer.rb:128
-  - app/javascript/mastodon/initial_state.js:97
+  - app/javascript/mastodon/initial_state.js:98
   audit_status: verified
   notes: 'Recommendation only: read_policy and write_policy are not an approved API
     contract. Decorator group boolean. Getter is delegated to ScopedSettings with
@@ -2374,7 +2374,7 @@ entries:
   - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/custom_emojis/settings/show.html.haml:79
   - app/serializers/initial_state_serializer.rb:165
-  - app/javascript/mastodon/initial_state.js:140
+  - app/javascript/mastodon/initial_state.js:141
   audit_status: verified
   notes: 'Recommendation only: read_policy and write_policy are not an approved API
     contract. Decorator group boolean. Getter is delegated to ScopedSettings with
@@ -2429,7 +2429,7 @@ entries:
   - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/custom_emojis/settings/show.html.haml:85
   - app/serializers/initial_state_serializer.rb:166
-  - app/javascript/mastodon/initial_state.js:141
+  - app/javascript/mastodon/initial_state.js:142
   audit_status: verified
   notes: 'Recommendation only: read_policy and write_policy are not an approved API
     contract. Decorator group boolean. Getter is delegated to ScopedSettings with
@@ -2572,7 +2572,7 @@ entries:
   - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/custom_emojis/settings/show.html.haml:78
   - app/serializers/initial_state_serializer.rb:164
-  - app/javascript/mastodon/initial_state.js:139
+  - app/javascript/mastodon/initial_state.js:140
   audit_status: verified
   notes: 'Recommendation only: read_policy and write_policy are not an approved API
     contract. Decorator group boolean. Getter is delegated to ScopedSettings with
@@ -2637,7 +2637,7 @@ entries:
   - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/custom_emojis/settings/show.html.haml:67
   - app/serializers/initial_state_serializer.rb:162
-  - app/javascript/mastodon/initial_state.js:136
+  - app/javascript/mastodon/initial_state.js:137
   audit_status: verified
   notes: 'Recommendation only: read_policy and write_policy are not an approved API
     contract. Decorator group boolean. Getter is delegated to ScopedSettings with
@@ -2701,7 +2701,7 @@ entries:
   - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/custom_emojis/settings/show.html.haml:68
   - app/serializers/initial_state_serializer.rb:163
-  - app/javascript/mastodon/initial_state.js:137
+  - app/javascript/mastodon/initial_state.js:138
   audit_status: verified
   notes: 'Recommendation only: read_policy and write_policy are not an approved API
     contract. Decorator group boolean. Getter is delegated to ScopedSettings with
@@ -2766,7 +2766,7 @@ entries:
   - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/custom_emojis/settings/show.html.haml:75
   - app/serializers/initial_state_serializer.rb:173
-  - app/javascript/mastodon/initial_state.js:144
+  - app/javascript/mastodon/initial_state.js:145
   audit_status: verified
   notes: 'Recommendation only: read_policy and write_policy are not an approved API
     contract. Decorator group boolean. Getter is delegated to ScopedSettings with
@@ -2832,7 +2832,7 @@ entries:
   - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/custom_emojis/settings/show.html.haml:72
   - app/serializers/initial_state_serializer.rb:161
-  - app/javascript/mastodon/initial_state.js:135
+  - app/javascript/mastodon/initial_state.js:136
   audit_status: verified
   notes: 'Recommendation only: read_policy and write_policy are not an approved API
     contract. Decorator group boolean. Getter is delegated to ScopedSettings with
@@ -2939,7 +2939,7 @@ entries:
   - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/preferences/safety/show.html.haml:29
   - app/serializers/initial_state_serializer.rb:126
-  - app/javascript/mastodon/initial_state.js:95
+  - app/javascript/mastodon/initial_state.js:96
   audit_status: verified
   notes: 'Recommendation only: read_policy and write_policy are not an approved API
     contract. Decorator group string. Getter is delegated to ScopedSettings with prefix
@@ -3226,7 +3226,7 @@ entries:
   - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/preferences/appearance/show.html.haml:53
   - app/serializers/initial_state_serializer.rb:105
-  - app/javascript/mastodon/initial_state.js:87
+  - app/javascript/mastodon/initial_state.js:88
   audit_status: verified
   notes: 'Recommendation only: read_policy and write_policy are not an approved API
     contract. Decorator group boolean. Getter is delegated to ScopedSettings with
@@ -3521,6 +3521,7 @@ entries:
     Explicit true or false wins.
   read_sources:
   - InitialState meta via setting_*
+  - static JS import enableReboost (2 importers)
   - Rails preferences form getter
   write_sources:
   - rails preferences update via LegacyWriter (other)
@@ -3537,6 +3538,7 @@ entries:
     before saving anything
   apply_hint: reinitialize
   client_reference:
+  - static_import
   - redux_meta_hydrated_unread
   - dynamic_update_possible_if_selectors_replace_static_imports
   configured_vs_effective: distinct
@@ -3549,13 +3551,16 @@ entries:
   - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/preferences/other/show.html.haml:98
   - app/serializers/initial_state_serializer.rb:94
+  - app/javascript/mastodon/initial_state.js:81
   - app/lib/reboost_preferences.rb:1
   - app/models/user.rb:353
   audit_status: verified
   notes: 'Recommendation only: read_policy and write_policy are not an approved API
     contract. Decorator group string. Getter is an override on User and is not the
-    raw stored value. Changing the stored value does not by itself update the open
-    WebUI.'
+    raw stored value. JavaScript captures enableReboost at module evaluation. 2 import
+    sites. Redux meta also receives the value on hydrate, but scanned selectors do
+    not read it from state.meta. Changing the stored value does not by itself update
+    the open WebUI.'
 - key: user.enable_status_polling
   category: other
   owner: user
@@ -3600,7 +3605,7 @@ entries:
   - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/preferences/other/show.html.haml:189
   - app/serializers/initial_state_serializer.rb:158
-  - app/javascript/mastodon/initial_state.js:131
+  - app/javascript/mastodon/initial_state.js:132
   audit_status: verified
   notes: 'Recommendation only: read_policy and write_policy are not an approved API
     contract. Decorator group boolean. Getter is delegated to ScopedSettings with
@@ -3653,7 +3658,7 @@ entries:
   - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/preferences/other/show.html.haml:193
   - app/serializers/initial_state_serializer.rb:159
-  - app/javascript/mastodon/initial_state.js:132
+  - app/javascript/mastodon/initial_state.js:133
   audit_status: verified
   notes: 'Recommendation only: read_policy and write_policy are not an approved API
     contract. Decorator group boolean. Getter is delegated to ScopedSettings with
@@ -3704,7 +3709,7 @@ entries:
   - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/preferences/other/show.html.haml:134
   - app/serializers/initial_state_serializer.rb:99
-  - app/javascript/mastodon/initial_state.js:84
+  - app/javascript/mastodon/initial_state.js:85
   audit_status: verified
   notes: 'Recommendation only: read_policy and write_policy are not an approved API
     contract. Decorator group boolean. Getter is delegated to ScopedSettings with
@@ -3757,7 +3762,7 @@ entries:
   - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/custom_emojis/settings/show.html.haml:35
   - app/serializers/initial_state_serializer.rb:118
-  - app/javascript/mastodon/initial_state.js:91
+  - app/javascript/mastodon/initial_state.js:92
   - app/helpers/accounts_helper.rb:129
   audit_status: verified
   notes: 'Recommendation only: read_policy and write_policy are not an approved API
@@ -3811,7 +3816,7 @@ entries:
   - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/custom_emojis/settings/show.html.haml:51
   - app/serializers/initial_state_serializer.rb:119
-  - app/javascript/mastodon/initial_state.js:92
+  - app/javascript/mastodon/initial_state.js:93
   - app/helpers/accounts_helper.rb:129
   audit_status: verified
   notes: 'Recommendation only: read_policy and write_policy are not an approved API
@@ -4158,7 +4163,7 @@ entries:
   - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/preferences/other/show.html.haml:198
   - app/serializers/initial_state_serializer.rb:120
-  - app/javascript/mastodon/initial_state.js:111
+  - app/javascript/mastodon/initial_state.js:112
   audit_status: verified
   notes: 'Recommendation only: read_policy and write_policy are not an approved API
     contract. Decorator group boolean. Getter is delegated to ScopedSettings with
@@ -4211,7 +4216,7 @@ entries:
   - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/preferences/other/show.html.haml:149
   - app/serializers/initial_state_serializer.rb:135
-  - app/javascript/mastodon/initial_state.js:104
+  - app/javascript/mastodon/initial_state.js:105
   audit_status: verified
   notes: 'Recommendation only: read_policy and write_policy are not an approved API
     contract. Decorator group boolean. Getter is delegated to ScopedSettings with
@@ -4308,7 +4313,7 @@ entries:
   - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/preferences/other/show.html.haml:28
   - app/serializers/initial_state_serializer.rb:149
-  - app/javascript/mastodon/initial_state.js:122
+  - app/javascript/mastodon/initial_state.js:123
   audit_status: verified
   notes: 'Recommendation only: read_policy and write_policy are not an approved API
     contract. Decorator group boolean. Getter is delegated to ScopedSettings with
@@ -4361,7 +4366,7 @@ entries:
   - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/preferences/other/show.html.haml:37
   - app/serializers/initial_state_serializer.rb:146
-  - app/javascript/mastodon/initial_state.js:119
+  - app/javascript/mastodon/initial_state.js:120
   audit_status: verified
   notes: 'Recommendation only: read_policy and write_policy are not an approved API
     contract. Decorator group boolean. Getter is delegated to ScopedSettings with
@@ -4457,7 +4462,7 @@ entries:
   - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/preferences/other/show.html.haml:25
   - app/serializers/initial_state_serializer.rb:148
-  - app/javascript/mastodon/initial_state.js:121
+  - app/javascript/mastodon/initial_state.js:122
   audit_status: verified
   notes: 'Recommendation only: read_policy and write_policy are not an approved API
     contract. Decorator group boolean. Getter is delegated to ScopedSettings with
@@ -4510,7 +4515,7 @@ entries:
   - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/preferences/other/show.html.haml:34
   - app/serializers/initial_state_serializer.rb:145
-  - app/javascript/mastodon/initial_state.js:118
+  - app/javascript/mastodon/initial_state.js:119
   audit_status: verified
   notes: 'Recommendation only: read_policy and write_policy are not an approved API
     contract. Decorator group boolean. Getter is delegated to ScopedSettings with
@@ -4562,7 +4567,7 @@ entries:
   - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/preferences/other/show.html.haml:173
   - app/serializers/initial_state_serializer.rb:151
-  - app/javascript/mastodon/initial_state.js:124
+  - app/javascript/mastodon/initial_state.js:125
   audit_status: verified
   notes: 'Recommendation only: read_policy and write_policy are not an approved API
     contract. Decorator group boolean. Getter is delegated to ScopedSettings with
@@ -4614,7 +4619,7 @@ entries:
   - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/preferences/appearance/show.html.haml:140
   - app/serializers/initial_state_serializer.rb:139
-  - app/javascript/mastodon/initial_state.js:108
+  - app/javascript/mastodon/initial_state.js:109
   audit_status: verified
   notes: 'Recommendation only: read_policy and write_policy are not an approved API
     contract. Decorator group boolean. Getter is delegated to ScopedSettings with
@@ -4667,7 +4672,7 @@ entries:
   - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/custom_emojis/settings/show.html.haml:48
   - app/serializers/initial_state_serializer.rb:153
-  - app/javascript/mastodon/initial_state.js:126
+  - app/javascript/mastodon/initial_state.js:127
   audit_status: verified
   notes: 'Recommendation only: read_policy and write_policy are not an approved API
     contract. Decorator group boolean. Getter is delegated to ScopedSettings with
@@ -4720,7 +4725,7 @@ entries:
   - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/preferences/other/show.html.haml:176
   - app/serializers/initial_state_serializer.rb:154
-  - app/javascript/mastodon/initial_state.js:127
+  - app/javascript/mastodon/initial_state.js:128
   audit_status: verified
   notes: 'Recommendation only: read_policy and write_policy are not an approved API
     contract. Decorator group boolean. Getter is delegated to ScopedSettings with
@@ -4773,7 +4778,7 @@ entries:
   - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/preferences/other/show.html.haml:179
   - app/serializers/initial_state_serializer.rb:155
-  - app/javascript/mastodon/initial_state.js:128
+  - app/javascript/mastodon/initial_state.js:129
   audit_status: verified
   notes: 'Recommendation only: read_policy and write_policy are not an approved API
     contract. Decorator group boolean. Getter is delegated to ScopedSettings with
@@ -4826,7 +4831,7 @@ entries:
   - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/preferences/other/show.html.haml:182
   - app/serializers/initial_state_serializer.rb:156
-  - app/javascript/mastodon/initial_state.js:129
+  - app/javascript/mastodon/initial_state.js:130
   audit_status: verified
   notes: 'Recommendation only: read_policy and write_policy are not an approved API
     contract. Decorator group boolean. Getter is delegated to ScopedSettings with
@@ -4923,7 +4928,7 @@ entries:
   - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/preferences/other/show.html.haml:155
   - app/serializers/initial_state_serializer.rb:137
-  - app/javascript/mastodon/initial_state.js:106
+  - app/javascript/mastodon/initial_state.js:107
   audit_status: verified
   notes: 'Recommendation only: read_policy and write_policy are not an approved API
     contract. Decorator group boolean. Getter is delegated to ScopedSettings with
@@ -4975,7 +4980,7 @@ entries:
   - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/preferences/other/show.html.haml:152
   - app/serializers/initial_state_serializer.rb:136
-  - app/javascript/mastodon/initial_state.js:105
+  - app/javascript/mastodon/initial_state.js:106
   audit_status: verified
   notes: 'Recommendation only: read_policy and write_policy are not an approved API
     contract. Decorator group boolean. Getter is delegated to ScopedSettings with
@@ -5027,7 +5032,7 @@ entries:
   - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/preferences/appearance/show.html.haml:143
   - app/serializers/initial_state_serializer.rb:140
-  - app/javascript/mastodon/initial_state.js:109
+  - app/javascript/mastodon/initial_state.js:110
   audit_status: verified
   notes: 'Recommendation only: read_policy and write_policy are not an approved API
     contract. Decorator group boolean. Getter is delegated to ScopedSettings with
@@ -5079,7 +5084,7 @@ entries:
   - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/preferences/other/show.html.haml:158
   - app/serializers/initial_state_serializer.rb:138
-  - app/javascript/mastodon/initial_state.js:107
+  - app/javascript/mastodon/initial_state.js:108
   audit_status: verified
   notes: 'Recommendation only: read_policy and write_policy are not an approved API
     contract. Decorator group boolean. Getter is delegated to ScopedSettings with
@@ -5131,7 +5136,7 @@ entries:
   - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/custom_emojis/settings/show.html.haml:45
   - app/serializers/initial_state_serializer.rb:152
-  - app/javascript/mastodon/initial_state.js:125
+  - app/javascript/mastodon/initial_state.js:126
   audit_status: verified
   notes: 'Recommendation only: read_policy and write_policy are not an approved API
     contract. Decorator group boolean. Getter is delegated to ScopedSettings with
@@ -5183,7 +5188,7 @@ entries:
   - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/preferences/other/show.html.haml:185
   - app/serializers/initial_state_serializer.rb:157
-  - app/javascript/mastodon/initial_state.js:130
+  - app/javascript/mastodon/initial_state.js:131
   audit_status: verified
   notes: 'Recommendation only: read_policy and write_policy are not an approved API
     contract. Decorator group boolean. Getter is delegated to ScopedSettings with
@@ -5280,7 +5285,7 @@ entries:
   - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/preferences/other/show.html.haml:60
   - app/serializers/initial_state_serializer.rb:147
-  - app/javascript/mastodon/initial_state.js:120
+  - app/javascript/mastodon/initial_state.js:121
   audit_status: verified
   notes: 'Recommendation only: read_policy and write_policy are not an approved API
     contract. Decorator group boolean. Getter is delegated to ScopedSettings with
@@ -5333,7 +5338,7 @@ entries:
   - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/preferences/other/show.html.haml:31
   - app/serializers/initial_state_serializer.rb:150
-  - app/javascript/mastodon/initial_state.js:123
+  - app/javascript/mastodon/initial_state.js:124
   audit_status: verified
   notes: 'Recommendation only: read_policy and write_policy are not an approved API
     contract. Decorator group boolean. Getter is delegated to ScopedSettings with
@@ -5385,7 +5390,7 @@ entries:
   - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/preferences/appearance/show.html.haml:146
   - app/serializers/initial_state_serializer.rb:141
-  - app/javascript/mastodon/initial_state.js:110
+  - app/javascript/mastodon/initial_state.js:111
   audit_status: verified
   notes: 'Recommendation only: read_policy and write_policy are not an approved API
     contract. Decorator group boolean. Getter is delegated to ScopedSettings with
@@ -5499,7 +5504,7 @@ entries:
   - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/preferences/other/show.html.haml:137
   - app/serializers/initial_state_serializer.rb:100
-  - app/javascript/mastodon/initial_state.js:86
+  - app/javascript/mastodon/initial_state.js:87
   audit_status: verified
   notes: 'Recommendation only: read_policy and write_policy are not an approved API
     contract. Decorator group boolean. Getter is delegated to ScopedSettings with
@@ -5551,7 +5556,7 @@ entries:
   - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/custom_emojis/settings/show.html.haml:88
   - app/serializers/initial_state_serializer.rb:174
-  - app/javascript/mastodon/initial_state.js:148
+  - app/javascript/mastodon/initial_state.js:149
   audit_status: verified
   notes: 'Recommendation only: read_policy and write_policy are not an approved API
     contract. Decorator group string. Getter is delegated to ScopedSettings with prefix
@@ -5860,7 +5865,7 @@ entries:
   - app/models/user.rb:166
   - app/controllers/settings/preferences_controller.rb:47
   - app/serializers/initial_state_serializer.rb:117
-  - app/javascript/mastodon/initial_state.js:90
+  - app/javascript/mastodon/initial_state.js:91
   - app/helpers/accounts_helper.rb:129
   audit_status: verified
   notes: 'Recommendation only: read_policy and write_policy are not an approved API
@@ -6258,7 +6263,7 @@ entries:
   - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/preferences/appearance/show.html.haml:43
   - app/serializers/initial_state_serializer.rb:95
-  - app/javascript/mastodon/initial_state.js:81
+  - app/javascript/mastodon/initial_state.js:82
   audit_status: verified
   notes: 'Recommendation only: read_policy and write_policy are not an approved API
     contract. Decorator group boolean. Getter is delegated to ScopedSettings with
@@ -6517,7 +6522,7 @@ entries:
   - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/preferences/other/show.html.haml:143
   - app/serializers/initial_state_serializer.rb:122
-  - app/javascript/mastodon/initial_state.js:88
+  - app/javascript/mastodon/initial_state.js:89
   audit_status: verified
   notes: 'Recommendation only: read_policy and write_policy are not an approved API
     contract. Decorator group boolean. Getter is delegated to ScopedSettings with
@@ -7526,7 +7531,7 @@ entries:
   - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/preferences/other/show.html.haml:167
   - app/serializers/initial_state_serializer.rb:143
-  - app/javascript/mastodon/initial_state.js:116
+  - app/javascript/mastodon/initial_state.js:117
   audit_status: verified
   notes: 'Recommendation only: read_policy and write_policy are not an approved API
     contract. Decorator group boolean. Getter is delegated to ScopedSettings with
@@ -7578,7 +7583,7 @@ entries:
   - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/preferences/other/show.html.haml:170
   - app/serializers/initial_state_serializer.rb:144
-  - app/javascript/mastodon/initial_state.js:117
+  - app/javascript/mastodon/initial_state.js:118
   audit_status: verified
   notes: 'Recommendation only: read_policy and write_policy are not an approved API
     contract. Decorator group boolean. Getter is delegated to ScopedSettings with
@@ -7630,7 +7635,7 @@ entries:
   - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/preferences/other/show.html.haml:164
   - app/serializers/initial_state_serializer.rb:142
-  - app/javascript/mastodon/initial_state.js:115
+  - app/javascript/mastodon/initial_state.js:116
   audit_status: verified
   notes: 'Recommendation only: read_policy and write_policy are not an approved API
     contract. Decorator group boolean. Getter is delegated to ScopedSettings with

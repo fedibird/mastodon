@@ -12,6 +12,8 @@ import {
 } from '../actions/compose';
 import {
   reblog,
+  reboost,
+  checkReboostOperation,
   favourite,
   bookmark,
   unreblog,
@@ -148,6 +150,18 @@ const mapDispatchToProps = (dispatch, { intl, contextType }) => ({
     } else {
       dispatch(reblog(status, privacy));
     }
+  },
+
+  onReboost (status) {
+    return dispatch(reboost(status));
+  },
+
+  onCheckReboost (status) {
+    return dispatch(checkReboostOperation(status));
+  },
+
+  onUnreblog (status) {
+    dispatch(unreblog(status));
   },
 
   onReblog (status, e) {

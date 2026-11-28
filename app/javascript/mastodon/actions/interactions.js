@@ -2,9 +2,14 @@ import api, { getLinks } from '../api';
 import { importFetchedAccounts, importFetchedStatus, importFetchedStatuses } from './importer';
 import { fetchRelationshipsSuccess, fetchRelationships, fetchRelationshipsFromStatuses } from './accounts';
 import { me } from '../initial_state';
+import { showAlert, showAlertForError } from './alerts';
 import { reactionNameHidden } from '../features/emoji/emoji_mute_projection';
 import { currentEmojiMutes, emojiReactionEventsAccepted } from '../features/emoji/emoji_mute_store';
 import { emojiReactionsForStatus, emojiReactionAccountIds } from '../utils/emoji_reactions';
+import { followReboostOperation } from '../features/reboost/follow_operation';
+import uuid from '../uuid';
+
+export const REBOOST_OPERATION = 'REBOOST_OPERATION';
 
 export const REBLOG_REQUEST = 'REBLOG_REQUEST';
 export const REBLOG_SUCCESS = 'REBLOG_SUCCESS';
@@ -90,31 +95,474 @@ export const EMOJI_REACTION_UPDATE = 'EMOJI_REACTION_UPDATE';
 
 export function reblog(status, visibility) {
   return function (dispatch, getState) {
+    const statusId = status.get('id');
+    if (reboostUnreblogInFlight(statusId)) {
+      return Promise.resolve();
+    }
+
+    const token = watchReboost(statusId, null);
     dispatch(reblogRequest(status));
 
-    api(getState).post(`/api/v1/statuses/${status.get('id')}/reblog`, { visibility }).then(function (response) {
+    return api(getState).post(`/api/v1/statuses/${statusId}/reblog`, { visibility }).then(function (response) {
+      if (!reboostWatchOwned(statusId, token)) {
+        rememberSuspendedResult(statusId, token, { kind: 'post', response });
+        return null;
+      }
+
+      if (response.status === 202) {
+        return acceptReboostResponse(dispatch, getState, status, response);
+      }
+
       // The reblog API method returns a new status wrapped around the original. In this case we are only
       // interested in how the original is modified, hence passing it skipping the wrapper
       dispatch(importFetchedStatus(response.data.reblog));
       dispatch(reblogSuccess(status));
+      commitReboostWatch(statusId, token);
+      return null;
     }).catch(function (error) {
+      if (!reboostWatchOwned(statusId, token)) {
+        rememberSuspendedResult(statusId, token, { kind: 'error', error, source: 'reblog' });
+        return null;
+      }
+
       dispatch(reblogFail(status, error));
+      commitReboostWatch(statusId, token);
+      return null;
     });
   };
 };
+
+export function setReboostOperation(statusId, operation) {
+  return {
+    type: REBOOST_OPERATION,
+    statusId,
+    operation,
+  };
+}
+
+const reboostMessages = {
+  pendingTitle: { id: 'reboost.pending_title', defaultMessage: 'Reboost pending' },
+  pending: { id: 'reboost.pending', defaultMessage: 'The previous boost is still being removed. This reboost will continue shortly.' },
+  waitTitle: { id: 'reboost.wait_title', defaultMessage: 'Please wait' },
+  wait: { id: 'reboost.wait', defaultMessage: 'Wait {seconds} seconds before boosting this post again.' },
+  failedTitle: { id: 'reboost.failed_title', defaultMessage: 'Reboost failed' },
+  failed: { id: 'reboost.failed', defaultMessage: 'The previous boost could not be replaced.' },
+  cancelledTitle: { id: 'reboost.cancelled_title', defaultMessage: 'Reboost cancelled' },
+  cancelled: { id: 'reboost.cancelled', defaultMessage: 'The reboost did not finish.' },
+  stillPendingTitle: { id: 'reboost.still_pending_title', defaultMessage: 'Reboost still running' },
+  stillPending: { id: 'reboost.still_pending', defaultMessage: 'It is still running. Refresh in a moment to see the result.' },
+};
+
+const reboostIdempotencyKeys = new Map();
+
+function idempotencyKeyFor(statusId) {
+  const existing = reboostIdempotencyKeys.get(statusId);
+
+  if (existing) {
+    return existing;
+  }
+
+  const key = uuid();
+  reboostIdempotencyKeys.set(statusId, key);
+  return key;
+}
+
+export function reboost(status) {
+  return (dispatch, getState) => {
+    const statusId = status.get('id');
+
+    if (reboostUnreblogInFlight(statusId) || getState().getIn(['statuses', statusId, 'reboost_operation'])) {
+      return Promise.resolve();
+    }
+
+    const token = watchReboost(statusId, null);
+    dispatch(setReboostOperation(statusId, { state: 'pending' }));
+
+    const idempotencyKey = idempotencyKeyFor(statusId);
+
+    return api(getState).post(`/api/v1/statuses/${statusId}/reblog`, { reboost: true }, {
+      headers: { 'Idempotency-Key': idempotencyKey },
+    }).then((response) => {
+      if (!reboostWatchOwned(statusId, token)) {
+        rememberSuspendedResult(statusId, token, { kind: 'post', response });
+        return null;
+      }
+
+      return settlePostedReboost(dispatch, getState, status, response);
+    }).catch((error) => {
+      if (!reboostWatchOwned(statusId, token)) {
+        rememberSuspendedResult(statusId, token, { kind: 'error', error });
+        return null;
+      }
+
+      return failPostedReboost(dispatch, status, error);
+    });
+  };
+}
+
+function settlePostedReboost(dispatch, getState, status, response) {
+  if (response.status === 202) {
+    return acceptReboostResponse(dispatch, getState, status, response);
+  }
+
+  const statusId = status.get('id');
+  reboostIdempotencyKeys.delete(statusId);
+  dispatch(importFetchedStatus(response.data));
+  if (response.data.reblog) {
+    dispatch(importFetchedStatus(response.data.reblog));
+  }
+  dispatch(reblogSuccess(status));
+  dispatch(setReboostOperation(statusId, null));
+  return null;
+}
+
+function failPostedReboost(dispatch, status, error) {
+  const statusId = status.get('id');
+  if (error?.response) {
+    reboostIdempotencyKeys.delete(statusId);
+  }
+
+  dispatch(setReboostOperation(statusId, null));
+
+  if (error?.response?.status === 429) {
+    dispatch(showAlert(
+      reboostMessages.waitTitle,
+      reboostMessages.wait,
+      { seconds: error.response.data?.retry_after },
+    ));
+    return null;
+  }
+
+  dispatch(showAlertForError(error));
+  return null;
+}
+
+const reboostWatch = new Map();
+let reboostWatchSerial = 0;
+
+function reboostUnreblogInFlight(statusId) {
+  const current = reboostWatch.get(String(statusId));
+  return !!(current && current.unreblogging);
+}
+
+function watchReboost(statusId, operationId) {
+  const current = reboostWatch.get(String(statusId));
+  if (current && current.unreblogging) {
+    return current.suspended ? current.suspended.token : current.token;
+  }
+
+  if (current && !current.committed && watchOperationCompatible(current.operationId, operationId)) {
+    if (operationId !== null && operationId !== undefined) {
+      current.operationId = operationId;
+    }
+    return current.token;
+  }
+
+  const token = ++reboostWatchSerial;
+  reboostWatch.set(String(statusId), {
+    token,
+    operationId: operationId === null || operationId === undefined ? null : operationId,
+    committed: false,
+  });
+  return token;
+}
+
+function watchOperationCompatible(currentId, operationId) {
+  if (currentId === null || currentId === undefined) {
+    return true;
+  }
+
+  if (operationId === null || operationId === undefined) {
+    return false;
+  }
+
+  return String(currentId) === String(operationId);
+}
+
+function reboostWatchOpen(statusId, token) {
+  const current = reboostWatch.get(String(statusId));
+  return !!(current && current.token === token && !current.committed);
+}
+
+function commitReboostWatch(statusId, token) {
+  const current = reboostWatch.get(String(statusId));
+  if (!current || current.token !== token || current.committed) {
+    return false;
+  }
+
+  current.committed = true;
+  return true;
+}
+
+function reboostWatchOwned(statusId, token) {
+  const current = reboostWatch.get(String(statusId));
+  return !!(current && current.token === token);
+}
+
+function bumpReboostWatch(statusId, token) {
+  const current = reboostWatch.get(String(statusId));
+  if (current && current.token === token) {
+    current.token = ++reboostWatchSerial;
+    current.committed = true;
+  }
+}
+
+function suspendReboostWatch(statusId) {
+  const current = reboostWatch.get(String(statusId));
+  if (current && current.unreblogging) {
+    return null;
+  }
+
+  const entry = current || { token: ++reboostWatchSerial, operationId: null, committed: false };
+  const suspended = { token: entry.token, operationId: entry.operationId, committed: entry.committed, discarded: null };
+  entry.suspended = suspended;
+  entry.unreblogging = true;
+  entry.token = ++reboostWatchSerial;
+  entry.committed = true;
+  reboostWatch.set(String(statusId), entry);
+  return suspended;
+}
+
+function finishUnreblogWatch(statusId) {
+  const current = reboostWatch.get(String(statusId));
+  if (!current) {
+    return;
+  }
+
+  current.token = ++reboostWatchSerial;
+  current.committed = true;
+  current.unreblogging = false;
+  current.suspended = null;
+}
+
+function rememberSuspendedResult(statusId, token, discarded) {
+  const current = reboostWatch.get(String(statusId));
+  if (!current?.suspended || current.suspended.token !== token) {
+    return;
+  }
+
+  current.suspended.discarded = discarded;
+}
+
+function restoreReboostWatch(statusId, suspended) {
+  if (!suspended) {
+    return;
+  }
+
+  const current = reboostWatch.get(String(statusId));
+  if (!current || String(current.operationId) !== String(suspended.operationId)) {
+    return;
+  }
+
+  current.token = suspended.token;
+  current.committed = false;
+  current.unreblogging = false;
+  current.suspended = null;
+}
+
+function trackedOperationMatches(getState, statusId, operationId) {
+  const trackedId = getState().getIn(['statuses', statusId, 'reboost_operation', 'id']);
+  return !trackedId || String(trackedId) === String(operationId);
+}
+
+function acceptReboostResponse(dispatch, getState, status, response) {
+  const operationId = response.data?.operation_id;
+
+  dispatch(setReboostOperation(status.get('id'), { id: operationId, state: response.data?.state || 'pending' }));
+  dispatch(showAlert(reboostMessages.pendingTitle, reboostMessages.pending));
+  return settleReboost(dispatch, getState, status, operationId);
+}
+
+export function checkReboostOperation(status) {
+  return (dispatch, getState) => {
+    const statusId = status.get('id');
+    if (reboostUnreblogInFlight(statusId)) {
+      return Promise.resolve();
+    }
+
+    const operationId = getState().getIn(['statuses', statusId, 'reboost_operation', 'id']);
+
+    if (!operationId) {
+      return Promise.resolve();
+    }
+
+    const token = watchReboost(statusId, operationId);
+
+    return api(getState).get(`/api/v1/statuses/${statusId}/reboost_operation`, {
+      params: { operation_id: operationId },
+    }).then((response) => applyReboostResult(dispatch, getState, status, operationId, response.data, token)).catch(() => {
+      if (!reboostWatchOpen(statusId, token)) {
+        return null;
+      }
+
+      dispatch(showAlert(reboostMessages.stillPendingTitle, reboostMessages.stillPending));
+      dispatch(setReboostOperation(statusId, { id: operationId, state: 'pending' }));
+      return null;
+    });
+  };
+}
+
+function settleReboost(dispatch, getState, status, operationId) {
+  const statusId = status.get('id');
+  const token = watchReboost(statusId, operationId);
+
+  return followReboostOperation({
+    get: (url, config) => api(getState).get(url, config),
+    statusId,
+    operationId,
+    onUpdate: (operation) => {
+      if (!reboostWatchOpen(statusId, token) || (operation?.id && String(operation.id) !== String(operationId))) {
+        return;
+      }
+
+      dispatch(setReboostOperation(statusId, { id: operation.id, state: operation.state }));
+    },
+  }).then((operation) => applyReboostResult(dispatch, getState, status, operationId, operation, token)).catch(() => {
+    if (!reboostWatchOpen(statusId, token)) {
+      return null;
+    }
+
+    dispatch(showAlert(reboostMessages.stillPendingTitle, reboostMessages.stillPending));
+    dispatch(setReboostOperation(statusId, { id: operationId, state: 'pending' }));
+    return null;
+  });
+}
+
+function releaseReboostWatch(dispatch, getState, status, operationId, token) {
+  const statusId = status.get('id');
+  if (!reboostWatchOwned(statusId, token) || !trackedOperationMatches(getState, statusId, operationId)) {
+    return null;
+  }
+
+  reboostIdempotencyKeys.delete(statusId);
+  dispatch(setReboostOperation(statusId, null));
+  bumpReboostWatch(statusId, token);
+  return null;
+}
+
+function applyReboostResult(dispatch, getState, status, operationId, operation, token) {
+  const statusId = status.get('id');
+  const trackedId = getState().getIn(['statuses', statusId, 'reboost_operation', 'id']);
+
+  if ((trackedId && String(trackedId) !== String(operationId)) || (operation?.id && String(operation.id) !== String(operationId))) {
+    return null;
+  }
+
+  if (!reboostWatchOwned(statusId, token)) {
+    rememberSuspendedResult(statusId, token, { kind: 'operation', operation });
+    return null;
+  }
+
+  if (!operation || operation.state === 'pending' || operation.state === 'federating') {
+    if (!reboostWatchOpen(statusId, token)) {
+      return null;
+    }
+
+    dispatch(showAlert(reboostMessages.stillPendingTitle, reboostMessages.stillPending));
+    dispatch(setReboostOperation(statusId, { id: operationId, state: operation?.state || 'pending' }));
+    return null;
+  }
+
+  if (!commitReboostWatch(statusId, token)) {
+    return null;
+  }
+
+  if (operation.state === 'completed' && operation.new_status_id) {
+    return api(getState).get(`/api/v1/statuses/${operation.new_status_id}`).then((response) => {
+      if (!reboostWatchOwned(statusId, token) || !trackedOperationMatches(getState, statusId, operationId)) {
+        if (!reboostWatchOwned(statusId, token)) {
+          rememberSuspendedResult(statusId, token, { kind: 'status', data: response.data });
+        }
+        return null;
+      }
+
+      dispatch(importFetchedStatus(response.data));
+      dispatch(reblogSuccess(status));
+      return releaseReboostWatch(dispatch, getState, status, operationId, token);
+    }).catch((error) => {
+      if (!reboostWatchOwned(statusId, token) || !trackedOperationMatches(getState, statusId, operationId)) {
+        return null;
+      }
+
+      dispatch(showAlertForError(error));
+      return releaseReboostWatch(dispatch, getState, status, operationId, token);
+    });
+  }
+
+  dispatch(showAlert(
+    operation.state === 'cancelled' ? reboostMessages.cancelledTitle : reboostMessages.failedTitle,
+    operation.state === 'cancelled' ? reboostMessages.cancelled : reboostMessages.failed,
+  ));
+
+  return api(getState).get(`/api/v1/statuses/${statusId}`).then((response) => {
+    if (reboostWatchOwned(statusId, token) && trackedOperationMatches(getState, statusId, operationId)) {
+      dispatch(importFetchedStatus(response.data));
+    }
+    return null;
+  }).catch((error) => {
+    if (reboostWatchOwned(statusId, token) && trackedOperationMatches(getState, statusId, operationId)) {
+      dispatch(showAlertForError(error));
+    }
+    return null;
+  }).then(() => releaseReboostWatch(dispatch, getState, status, operationId, token));
+}
 
 export function unreblog(status) {
   return (dispatch, getState) => {
+    const statusId = status.get('id');
+    if (reboostUnreblogInFlight(statusId)) {
+      return Promise.resolve();
+    }
+
+    const suspended = suspendReboostWatch(statusId);
     dispatch(unreblogRequest(status));
 
-    api(getState).post(`/api/v1/statuses/${status.get('id')}/unreblog`).then(response => {
+    return api(getState).post(`/api/v1/statuses/${statusId}/unreblog`).then(response => {
       dispatch(importFetchedStatus(response.data));
       dispatch(unreblogSuccess(status));
+      reboostIdempotencyKeys.delete(statusId);
+      dispatch(setReboostOperation(statusId, null));
+      finishUnreblogWatch(statusId);
+      return null;
     }).catch(error => {
+      const discarded = suspended?.discarded;
+      restoreReboostWatch(statusId, suspended);
       dispatch(unreblogFail(status, error));
+      return replayDiscardedReboost(dispatch, getState, status, discarded, suspended?.token);
     });
   };
 };
+
+function replayDiscardedReboost(dispatch, getState, status, discarded, token) {
+  if (!discarded || !reboostWatchOwned(status.get('id'), token)) {
+    return null;
+  }
+
+  if (discarded.kind === 'post') {
+    return settlePostedReboost(dispatch, getState, status, discarded.response);
+  }
+
+  if (discarded.kind === 'error') {
+    if (discarded.source === 'reblog') {
+      dispatch(reblogFail(status, discarded.error));
+      commitReboostWatch(status.get('id'), token);
+      return null;
+    }
+
+    return failPostedReboost(dispatch, status, discarded.error);
+  }
+
+  if (discarded.kind === 'operation') {
+    return applyReboostResult(dispatch, getState, status, discarded.operation?.id, discarded.operation, token);
+  }
+
+  dispatch(importFetchedStatus(discarded.data));
+  dispatch(reblogSuccess(status));
+  reboostIdempotencyKeys.delete(status.get('id'));
+  dispatch(setReboostOperation(status.get('id'), null));
+  bumpReboostWatch(status.get('id'), token);
+  return null;
+}
 
 export function reblogRequest(status) {
   return {
