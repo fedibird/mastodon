@@ -127,6 +127,25 @@ describe('mix list', () => {
     expect(screen.getByRole('link', { name: /Wide/ }).getAttribute('href')).toBe('/timelines/mixes/mix-8');
   });
 
+  it('gives punctuation and underscores different description ids and leaves a uuid unchanged', () => {
+    const { container } = renderList({
+      mixes: fromJS([
+        { id: 'mix.1', title: 'Dot', version: 1, sources: [{ type: 'home', params: {} }] },
+        { id: 'mix_1', title: 'Score', version: 1, sources: [{ type: 'home', params: {} }] },
+        { id: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee', title: 'Uuid', version: 1, sources: [{ type: 'home', params: {} }] },
+      ]),
+    });
+    const dot = container.querySelector('a[href="/timelines/mixes/mix.1"]');
+    const score = container.querySelector('a[href="/timelines/mixes/mix_1"]');
+    const uuid = container.querySelector('a[href="/timelines/mixes/aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"]');
+
+    expect(dot.getAttribute('aria-describedby')).toBe('mix-list-sources-mix_2e_1');
+    expect(score.getAttribute('aria-describedby')).toBe('mix-list-sources-mix_5f_1');
+    expect(uuid.getAttribute('aria-describedby')).toBe('mix-list-sources-aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee');
+    expect(document.getElementById(dot.getAttribute('aria-describedby')).textContent).toContain('Home');
+    expect(document.getElementById(score.getAttribute('aria-describedby')).textContent).toContain('Home');
+  });
+
   it('shows the empty list and the create button for any signed-in viewer', () => {
     renderList({
       mixes: fromJS([]),

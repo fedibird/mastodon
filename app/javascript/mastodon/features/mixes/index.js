@@ -21,7 +21,13 @@ const mapStateToProps = state => ({
 });
 
 // The description id is a control key. It is not the projected title or a source label.
-const mixSourcesDescriptionId = (id) => `mix-list-sources-${String(id).replace(/[^A-Za-z0-9_-]/g, '_')}`;
+// Letters, digits, and hyphens stay as written. Every other code unit, including
+// "_", becomes its own hex form so mix.1 and mix_1 do not share an element id.
+const mixSourcesDescriptionId = (id) => {
+  const token = String(id).replace(/[^A-Za-z0-9-]/g, (character) => `_${character.codePointAt(0).toString(16)}_`);
+
+  return `mix-list-sources-${token}`;
+};
 
 const sourceRows = (mix, formatMessage, lists, accounts) => {
   const sources = mix && mix.get ? mix.get('sources') : null;
