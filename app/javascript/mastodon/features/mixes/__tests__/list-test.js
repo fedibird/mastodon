@@ -69,8 +69,12 @@ describe('mix list', () => {
     const settings = screen.getByRole('link', { name: 'Mix settings' });
 
     expect(labelsIn(container)).toEqual(['Home', 'mstdn.jp', '#fedibird', 'Friends', 'Newsroom', 'Ada']);
+    const sources = container.querySelector('.mix-list__sources');
+
     expect(open.getAttribute('href')).toBe('/timelines/mixes/mix-1');
-    expect(open.contains(container.querySelector('.mix-list__sources'))).toBe(true);
+    expect(open.getAttribute('aria-describedby')).toBe('mix-list-sources-mix-1');
+    expect(sources.getAttribute('id')).toBe('mix-list-sources-mix-1');
+    expect(open.contains(sources)).toBe(true);
     expect(open.contains(settings)).toBe(false);
     expect(settings.getAttribute('href')).toBe('/mixes/mix-1/edit');
     expect(settings.getAttribute('title')).toBe('Mix settings');

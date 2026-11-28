@@ -20,6 +20,9 @@ const mapStateToProps = state => ({
   columnWidth: defaultColumnWidth,
 });
 
+// The description id is a control key. It is not the projected title or a source label.
+const mixSourcesDescriptionId = (id) => `mix-list-sources-${String(id).replace(/[^A-Za-z0-9_-]/g, '_')}`;
+
 const sourceRows = (mix, formatMessage, lists, accounts) => {
   const sources = mix && mix.get ? mix.get('sources') : null;
 
@@ -62,10 +65,14 @@ class MixListItem extends React.PureComponent {
     const named = typeof storedTitle === 'string' && storedTitle !== '';
     const settingsLabel = intl.formatMessage(messages.settings);
     const rows = sourceRows(mix, (message, values) => intl.formatMessage(message, values), lists, accounts);
+    const mixId = mix.get('id');
+    const sourcesId = named && rows.length > 0 && mixId !== undefined && mixId !== null && String(mixId) !== ''
+      ? mixSourcesDescriptionId(mixId)
+      : undefined;
 
     return (
       <li className='mix-list__item'>
-        <Link className='mix-list__link' to={`/timelines/mixes/${mix.get('id')}`}>
+        <Link className='mix-list__link' to={`/timelines/mixes/${mixId}`} aria-describedby={sourcesId}>
           <Icon id='random' fixedWidth className='column-link__icon' />
           <span className='mix-list__text'>
             <span className='mix-list__title'>
@@ -74,7 +81,7 @@ class MixListItem extends React.PureComponent {
               ) : fallback}
             </span>
             {rows.length > 0 && (
-              <span className='mix-list__sources'>
+              <span className='mix-list__sources' id={sourcesId}>
                 {rows.map(row => {
                   const accountName = row.labelOrigin === 'account-display-name';
                   const project = accountName || row.showChip;

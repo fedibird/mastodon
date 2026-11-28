@@ -9,7 +9,7 @@ import { applyMiddleware, createStore } from 'redux';
 import { combineReducers } from 'redux-immutable';
 import thunk from 'redux-thunk';
 
-import { EMOJI_MUTES_APPLY, EMOJI_MUTES_REVISION } from 'mastodon/actions/emoji_mutes';
+import { EMOJI_MUTES_APPLY, EMOJI_MUTES_ENABLE, EMOJI_MUTES_IGNORE, EMOJI_MUTES_REVISION } from 'mastodon/actions/emoji_mutes';
 import { createUnverifiedEmojiGuard } from 'mastodon/features/emoji/emoji_mute_live_dom';
 import { resetEmojiMuteTextForTests } from 'mastodon/features/emoji/emoji_mute_text';
 import emojiMutes from 'mastodon/reducers/emoji_mutes';
@@ -39,6 +39,10 @@ const localImg = (id, shortcode = 'blob') => (
   `<img draggable="false" class="emojione custom-emoji" alt=":${shortcode}:" title="${shortcode}" src="https://cdn.example/${id}.svg" data-shortcode="${shortcode}" data-domain="" data-emoji-id="${id}">`
 );
 
+const remoteImg = (domain, shortcode = 'blob') => (
+  `<img draggable="false" class="emojione custom-emoji" alt=":${shortcode}:" title="${shortcode}" src="https://cdn.example/${domain}/${shortcode}.svg" data-shortcode="${shortcode}" data-domain="${domain}">`
+);
+
 const rule = (emoji, replacement) => ({
   id: `rule-${replacement}`,
   emoji,
@@ -53,13 +57,41 @@ const rule = (emoji, replacement) => ({
 
 const intl = { formatMessage: message => message.defaultMessage || message.id };
 
-const renderList = (store, props) => render(
+const renderList = (store, props, container) => render(
   <Provider store={store}>
     <MemoryRouter>
       <MixList intl={intl} mixes={fromJS([])} {...props} />
     </MemoryRouter>
   </Provider>,
+  container ? { container } : undefined,
 );
+
+const mountGuarded = (store, props) => {
+  const guard = createUnverifiedEmojiGuard();
+  const during = { title: '', name: '', description: '' };
+
+  store.subscribe(() => guard(store.getState()));
+  store.subscribe(() => {
+    const link = document.querySelector('.mix-list__link');
+    const describedBy = link ? link.getAttribute('aria-describedby') : '';
+    const description = describedBy ? document.getElementById(describedBy) : null;
+
+    during.title = link?.querySelector('.mix-list__title')?.textContent || '';
+    during.name = link?.getAttribute('aria-label') || '';
+    during.description = description?.textContent || '';
+  });
+
+  const privacy = document.createElement('div');
+  const mount = document.createElement('div');
+
+  privacy.className = 'emoji-mutes-privacy-portal';
+  privacy.appendChild(mount);
+  document.body.appendChild(privacy);
+
+  const view = renderList(store, props, mount);
+
+  return { during, container: view.container };
+};
 
 const buildStore = () => createStore(
   combineReducers({ emojiMutes }),
@@ -75,152 +107,147 @@ describe('mix list emoji mute', () => {
     document.body.innerHTML = '';
   });
 
-  it('projects a mix title and an account display name, and leaves a saved title literal', () => {
+  const identityMix = () => ({
+    mixes: fromJS([{
+      id: 'mix-1',
+      title: `Desk ${THUMB}`,
+      version: 1,
+      sources: [
+        { type: 'home', params: {} },
+        { type: 'group', id: '8', title: 'News :blob:', params: {} },
+        { type: 'account', id: '9', params: {} },
+        { type: 'account', id: '10', title: 'Saved Ada', params: {} },
+      ],
+    }]),
+    lists: fromJS({}),
+    accounts: fromJS({
+      9: {
+        id: '9',
+        display_name: `Ada ${THUMB}`,
+        display_name_html: `Ada ${unicodeImg(THUMB)} ${localImg('10')} ${remoteImg('a.test')} ${remoteImg('b.test')}`,
+        acct: 'ada@example.com',
+      },
+      10: {
+        id: '10',
+        title: 'Saved Ada',
+        display_name: `Other ${THUMB}`,
+        display_name_html: `Other ${unicodeImg(THUMB)} ${localImg('10')}`,
+        acct: 'other@example.com',
+      },
+    }),
+  });
+
+  it('keeps projected source names in the link description', () => {
     const store = buildStore();
-    const title = `Desk ${THUMB}`;
-    const { container } = renderList(store, {
+    const described = 'Ada 😺 [local] [remote-a] :blob:';
+    const { during, container } = mountGuarded(store, identityMix());
+    const applied = [
+      rule({ kind: 'unicode', native: THUMB }, CAT),
+      rule({ kind: 'unicode', native: CAT }, '[cat]'),
+      rule({ kind: 'custom', scope: 'local', custom_emoji_id: '10', shortcode: 'blob' }, '[local]'),
+      rule({ kind: 'custom', scope: 'remote', domain: 'a.test', shortcode: 'blob' }, '[remote-a]'),
+    ];
+
+    act(() => {
+      store.dispatch({ type: EMOJI_MUTES_APPLY, revision: '2', availability: 'enabled', mutes: applied });
+    });
+
+    const open = screen.getByRole('link', { name: `Desk ${CAT}` });
+    const sources = document.getElementById('mix-list-sources-mix-1');
+    const labels = Array.from(container.querySelectorAll('.mix-list__source-label')).map(node => node.textContent);
+
+    expect(open.getAttribute('href')).toBe('/timelines/mixes/mix-1');
+    expect(open.getAttribute('aria-label')).toBe(`Desk ${CAT}`);
+    expect(open.getAttribute('aria-describedby')).toBe('mix-list-sources-mix-1');
+    expect(open.getAttribute('aria-describedby')).not.toContain(THUMB);
+    expect(open.getAttribute('aria-describedby')).not.toContain(CAT);
+    expect(sources.textContent).toContain('Home');
+    expect(sources.textContent).toContain('News :blob:');
+    expect(sources.textContent).toContain(described);
+    expect(sources.textContent).toContain('Saved Ada');
+    expect(sources.textContent.indexOf('Home')).toBeLessThan(sources.textContent.indexOf('News :blob:'));
+    expect(sources.textContent.indexOf('News :blob:')).toBeLessThan(sources.textContent.indexOf(described));
+    expect(sources.textContent.indexOf(described)).toBeLessThan(sources.textContent.indexOf('Saved Ada'));
+    expect(labels).toEqual(['Home', 'News :blob:', described, 'Saved Ada']);
+    expect(sources.innerHTML).not.toContain(THUMB);
+    expect(sources.innerHTML).not.toContain('[cat]');
+    expect(sources.innerHTML).not.toContain('data-emoji-id');
+    expect(screen.getByRole('link', { name: 'Mix settings' }).getAttribute('href')).toBe('/mixes/mix-1/edit');
+    expect(screen.getByRole('link', { name: 'Mix settings' }).hasAttribute('aria-describedby')).toBe(false);
+
+    act(() => {
+      store.dispatch({ type: EMOJI_MUTES_REVISION, revision: '3' });
+      expect(during.title).toBe(`Desk ${PLACEHOLDER}`);
+      expect(during.name).toBe(`Desk ${PLACEHOLDER}`);
+      expect(during.description).toContain(`Ada ${PLACEHOLDER}`);
+      expect(during.description).toContain('News :blob:');
+      expect(during.description).toContain('Saved Ada');
+      expect(during.title).not.toContain(THUMB);
+      expect(during.description).not.toContain(THUMB);
+      store.dispatch({ type: EMOJI_MUTES_APPLY, revision: '3', availability: 'enabled', mutes: applied });
+      expect(during.title).toBe(`Desk ${CAT}`);
+      expect(during.name).toBe(`Desk ${CAT}`);
+      expect(during.description).toContain(described);
+      expect(during.description).not.toContain('[cat]');
+      expect(during.description).toContain('News :blob:');
+    });
+
+    act(() => {
+      store.dispatch({ type: EMOJI_MUTES_IGNORE });
+    });
+
+    expect(container.querySelector('.mix-list__title').textContent).toBe(`Desk ${THUMB}`);
+    expect(container.querySelector('.mix-list__link').getAttribute('aria-label')).toBe(`Desk ${THUMB}`);
+    expect(document.getElementById('mix-list-sources-mix-1').textContent).toContain(`Ada ${THUMB}`);
+    expect(document.getElementById('mix-list-sources-mix-1').textContent).toContain('News :blob:');
+    expect(document.getElementById('mix-list-sources-mix-1').textContent).toContain('Saved Ada');
+  });
+
+  it('uses the mix column name when the stored title projects to nothing and still describes the sources', () => {
+    const store = buildStore();
+    const { during, container } = mountGuarded(store, {
       mixes: fromJS([{
         id: 'mix-1',
-        title,
+        title: THUMB,
         version: 1,
         sources: [
-          { type: 'home', params: {} },
-          { type: 'group', id: '8', title: 'News :blob:', params: {} },
+          { type: 'group', id: '8', title: 'Newsroom', params: {} },
           { type: 'account', id: '9', params: {} },
-          { type: 'account', id: '10', title: 'Saved Ada', params: {} },
         ],
       }]),
-      lists: fromJS({}),
       accounts: fromJS({
         9: {
           id: '9',
           display_name: `Ada ${THUMB}`,
-          display_name_html: `Ada ${unicodeImg(THUMB)} ${localImg('10')}`,
+          display_name_html: `Ada ${unicodeImg(THUMB)}`,
           acct: 'ada@example.com',
-        },
-        10: {
-          id: '10',
-          title: 'Saved Ada',
-          display_name: `Other ${THUMB}`,
-          display_name_html: `Other ${unicodeImg(THUMB)}`,
-          acct: 'other@example.com',
         },
       }),
     });
+    const blank = [rule({ kind: 'unicode', native: THUMB }, '')];
 
     act(() => {
-      store.dispatch({
-        type: EMOJI_MUTES_APPLY,
-        revision: '2',
-        availability: 'enabled',
-        mutes: [
-          rule({ kind: 'unicode', native: THUMB }, '[ok]'),
-          rule({ kind: 'custom', scope: 'local', custom_emoji_id: '10', shortcode: 'blob' }, '[local]'),
-        ],
-      });
+      store.dispatch({ type: EMOJI_MUTES_ENABLE });
+      expect(during.name).toContain(PLACEHOLDER);
+      expect(during.name).not.toContain(THUMB);
+      expect(during.description).toContain('Newsroom');
+      expect(during.description).toContain(PLACEHOLDER);
+      expect(during.description).not.toContain(THUMB);
+      store.dispatch({ type: EMOJI_MUTES_APPLY, revision: '2', availability: 'enabled', mutes: blank });
+      expect(during.name).toBe('Mix');
+      expect(during.title).toBe('');
+      expect(during.description).toContain('Newsroom');
+      expect(during.description).toContain('Ada');
+      expect(during.description).not.toContain(THUMB);
     });
 
-    const open = screen.getByRole('link', { name: 'Desk [ok]' });
-    const labels = Array.from(container.querySelectorAll('.mix-list__source-label')).map(node => node.textContent);
+    const open = container.querySelector('.mix-list__link');
 
+    expect(open.getAttribute('aria-label')).toBe('Mix');
+    expect(open.getAttribute('aria-describedby')).toBe('mix-list-sources-mix-1');
     expect(open.getAttribute('href')).toBe('/timelines/mixes/mix-1');
-    expect(container.querySelector('.mix-list__title').textContent).toBe('Desk [ok]');
-    expect(labels).toEqual(['Home', 'News :blob:', 'Ada [ok] [local]', 'Saved Ada']);
-    expect(container.querySelector('.mix-list__sources').innerHTML).not.toContain(THUMB);
-    expect(container.querySelector('.mix-list__sources').innerHTML).not.toContain('data-emoji-id');
-    expect(screen.getByRole('link', { name: 'Mix settings' }).getAttribute('href')).toBe('/mixes/mix-1/edit');
-  });
-
-  it('names a blank mix and does not project a replacement emoji again', () => {
-    const store = buildStore();
-    const guard = createUnverifiedEmojiGuard();
-    const during = { title: '', name: '' };
-    const { container } = renderList(store, {
-      mixes: fromJS([{
-        id: 'mix-1',
-        title: `Name ${THUMB}`,
-        version: 1,
-        sources: [{ type: 'home', params: {} }],
-      }]),
-    });
-    const privacy = document.createElement('div');
-
-    privacy.className = 'emoji-mutes-privacy-portal';
-    privacy.appendChild(container);
-    document.body.appendChild(privacy);
-    store.subscribe(() => guard(store.getState()));
-    store.subscribe(() => {
-      const link = document.querySelector('.mix-list__link');
-
-      during.title = link?.querySelector('.mix-list__title')?.textContent || '';
-      during.name = link?.getAttribute('aria-label') || '';
-    });
-
-    act(() => {
-      store.dispatch({
-        type: EMOJI_MUTES_APPLY,
-        revision: '2',
-        availability: 'enabled',
-        mutes: [
-          rule({ kind: 'unicode', native: THUMB }, CAT),
-          rule({ kind: 'unicode', native: CAT }, '[cat]'),
-        ],
-      });
-    });
-
-    expect(container.querySelector('.mix-list__title').textContent).toBe(`Name ${CAT}`);
-    expect(container.querySelector('.mix-list__link').getAttribute('aria-label')).toBe(`Name ${CAT}`);
-
-    act(() => {
-      store.dispatch({ type: EMOJI_MUTES_REVISION, revision: '3' });
-      expect(during.title).toBe(`Name ${PLACEHOLDER}`);
-      expect(during.name).toBe(`Name ${PLACEHOLDER}`);
-      expect(during.title).not.toContain(THUMB);
-      store.dispatch({
-        type: EMOJI_MUTES_APPLY,
-        revision: '3',
-        availability: 'enabled',
-        mutes: [
-          rule({ kind: 'unicode', native: THUMB }, CAT),
-          rule({ kind: 'unicode', native: CAT }, '[cat]'),
-        ],
-      });
-      expect(during.title).toBe(`Name ${CAT}`);
-      expect(during.name).not.toContain('[cat]');
-    });
-
-    act(() => {
-      store.dispatch({
-        type: EMOJI_MUTES_APPLY,
-        revision: '4',
-        availability: 'enabled',
-        mutes: [rule({ kind: 'unicode', native: THUMB }, '   ')],
-      });
-    });
-
-    expect(container.querySelector('.mix-list__title').textContent).toBe('Name    ');
-    expect(container.querySelector('.mix-list__link').getAttribute('aria-label')).toBe('Name    ');
-    expect(container.querySelector('.mix-list__link').innerHTML).not.toContain(THUMB);
-  });
-
-  it('uses the mix column name when the stored title projects to nothing', () => {
-    const store = buildStore();
-    const { container } = renderList(store, {
-      mixes: fromJS([{ id: 'mix-1', title: THUMB, version: 1, sources: [] }]),
-    });
-
-    act(() => {
-      store.dispatch({
-        type: EMOJI_MUTES_APPLY,
-        revision: '2',
-        availability: 'enabled',
-        mutes: [rule({ kind: 'unicode', native: THUMB }, '')],
-      });
-    });
-
     expect(container.querySelector('.mix-list__title').textContent).toBe('');
-    expect(container.querySelector('.mix-list__link').getAttribute('aria-label')).toBe('Mix');
-    expect(container.querySelector('.mix-list__link').getAttribute('href')).toBe('/timelines/mixes/mix-1');
-    expect(container.querySelector('.mix-list__link').innerHTML).not.toContain(THUMB);
+    expect(document.getElementById('mix-list-sources-mix-1').textContent).toContain('Newsroom');
+    expect(open.innerHTML).not.toContain(THUMB);
   });
 });

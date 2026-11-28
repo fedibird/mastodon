@@ -210,7 +210,7 @@ describe('favourite list tabs', () => {
     const raw = `Name ${THUMB}`;
     const store = buildStore({ z: favourite('z', raw) });
     const guard = createUnverifiedEmojiGuard();
-    const during = { title: '', name: '', preview: '', previewName: '' };
+    const during = { title: '', short: '', label: '', name: '', preview: '', previewName: '' };
     const favouriteLists = store.getState().get('lists').toList();
     const link = getSwipeableLinks(favouriteLists).find(item => item.props.to === '/timelines/list/z');
 
@@ -220,6 +220,8 @@ describe('favourite list tabs', () => {
       const button = document.querySelector('h1 button');
 
       during.title = node?.querySelector('.tabs-bar__link__full-label')?.textContent || '';
+      during.short = node?.querySelector('.tabs-bar__link__short-label')?.textContent || '';
+      during.label = node?.getAttribute('aria-label') || '';
       during.name = node?.getAttribute('data-preview-title') || '';
       during.preview = button?.textContent || '';
       during.previewName = button?.getAttribute('aria-label') || '';
@@ -251,10 +253,13 @@ describe('favourite list tabs', () => {
     act(() => {
       store.dispatch({ type: EMOJI_MUTES_REVISION, revision: '3' });
       expect(during.title).toBe(`Name ${PLACEHOLDER}`);
+      expect(during.short).toBe(`Name ${PLACEHOLDER}`);
+      expect(during.label).toBe(`Name ${PLACEHOLDER}`);
       expect(during.name).toBe(`Name ${PLACEHOLDER}`);
       expect(during.preview).toBe(`Name ${PLACEHOLDER}`);
       expect(during.previewName).toBe(`Name ${PLACEHOLDER}`);
       expect(during.title).not.toContain(THUMB);
+      expect(during.short).not.toContain(THUMB);
       expect(during.name).not.toContain(THUMB);
       store.dispatch({
         type: EMOJI_MUTES_APPLY,
@@ -266,8 +271,11 @@ describe('favourite list tabs', () => {
         ],
       });
       expect(during.title).toBe(`Name ${CAT}`);
+      expect(during.short).toBe(`Name ${CAT}`);
+      expect(during.label).toBe(`Name ${CAT}`);
       expect(during.name).toBe(`Name ${CAT}`);
       expect(during.preview).toBe(`Name ${CAT}`);
+      expect(during.previewName).toBe(`Name ${CAT}`);
       expect(during.name).not.toContain('[cat]');
     });
 
@@ -279,13 +287,18 @@ describe('favourite list tabs', () => {
     });
 
     expect(label(tab(container, 'z'), 'full')).toBe(raw);
+    expect(label(tab(container, 'z'), 'short')).toBe(raw);
+    expect(tab(container, 'z').getAttribute('aria-label')).toBe(raw);
     expect(tab(container, 'z').getAttribute('data-preview-title')).toBe(raw);
+    expect(previewButton(container).textContent).toBe(raw);
+    expect(previewButton(container).getAttribute('aria-label')).toBe(raw);
 
     act(() => {
       store.dispatch({ type: EMOJI_MUTES_DISABLE });
     });
 
     expect(label(tab(container, 'z'), 'short')).toBe(raw);
+    expect(tab(container, 'z').getAttribute('data-preview-title')).toBe(raw);
 
     act(() => {
       store.dispatch({ type: 'LISTS_SET', lists: ImmutableMap({ z: favourite('z', `Next ${THUMB}`) }) });
@@ -296,6 +309,9 @@ describe('favourite list tabs', () => {
     });
 
     expect(label(tab(container, 'z'), 'full')).toBe(`Next ${THUMB}`);
+    expect(label(tab(container, 'z'), 'short')).toBe(`Next ${THUMB}`);
+    expect(tab(container, 'z').getAttribute('aria-label')).toBe(`Next ${THUMB}`);
+    expect(tab(container, 'z').getAttribute('data-preview-title')).toBe(`Next ${THUMB}`);
     expect(tab(container, 'z').getAttribute('data-preview-title-id')).toBe('list/z');
   });
 });

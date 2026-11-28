@@ -9,7 +9,7 @@ import { applyMiddleware, createStore } from 'redux';
 import { combineReducers } from 'redux-immutable';
 import thunk from 'redux-thunk';
 
-import { EMOJI_MUTES_APPLY, EMOJI_MUTES_DISABLE, EMOJI_MUTES_REVISION } from 'mastodon/actions/emoji_mutes';
+import { EMOJI_MUTES_APPLY, EMOJI_MUTES_DISABLE, EMOJI_MUTES_ENABLE } from 'mastodon/actions/emoji_mutes';
 import { createUnverifiedEmojiGuard } from 'mastodon/features/emoji/emoji_mute_live_dom';
 import { resetEmojiMuteTextForTests } from 'mastodon/features/emoji/emoji_mute_text';
 import emojiMutes from 'mastodon/reducers/emoji_mutes';
@@ -84,6 +84,7 @@ import Lists from '../index';
 import ListPanel from '../../ui/components/list_panel';
 
 const THUMB = '👍';
+const PLACEHOLDER = '\u25FB';
 
 const rule = (emoji, replacement, effects = {}) => ({
   id: `rule-${replacement}`,
@@ -210,38 +211,47 @@ describe('list names in navigation', () => {
   it('projects the list adder name and leaves add and remove labels alone', () => {
     const raw = `Crew ${THUMB}`;
     const store = buildStore({ 7: record('7', raw) });
-    const { container } = renderInRouter(store, <ListAdderRow listId='7' account={fromJS({ id: '9' })} />);
-
-    apply(store, [rule({ kind: 'unicode', native: THUMB }, '[ok]')]);
-
-    expect(container.querySelector('.list__display-name').textContent).toContain('Crew [ok]');
-    expect(container.querySelector('.list__display-name').innerHTML).not.toContain(THUMB);
-    expect(container.querySelector('button[title="Add to list"]')).not.toBeNull();
-    expect(store.getState().getIn(['lists', '7', 'title'])).toBe(raw);
-
     const guard = createUnverifiedEmojiGuard();
     const during = { text: '' };
     const privacy = document.createElement('div');
+    const mount = document.createElement('div');
 
-    privacy.className = 'emoji-mutes-privacy-portal';
-    privacy.appendChild(container);
-    document.body.appendChild(privacy);
     store.subscribe(() => guard(store.getState()));
     store.subscribe(() => {
       during.text = document.querySelector('.list__display-name')?.textContent || '';
     });
+    privacy.className = 'emoji-mutes-privacy-portal';
+    privacy.appendChild(mount);
+    document.body.appendChild(privacy);
+
+    const { container } = render(
+      <Provider store={store}>
+        <MemoryRouter>
+          <ListAdderRow listId='7' account={fromJS({ id: '9' })} />
+        </MemoryRouter>
+      </Provider>,
+      { container: mount },
+    );
+
+    expect(container.querySelector('.list__display-name').textContent).toContain(raw);
 
     act(() => {
-      store.dispatch({ type: EMOJI_MUTES_REVISION, revision: '3' });
+      store.dispatch({ type: EMOJI_MUTES_ENABLE });
+      expect(during.text).toContain(PLACEHOLDER);
       expect(during.text).not.toContain(THUMB);
       store.dispatch({
         type: EMOJI_MUTES_APPLY,
-        revision: '3',
+        revision: '2',
         availability: 'enabled',
         mutes: [rule({ kind: 'unicode', native: THUMB }, '[ok]')],
       });
-      expect(during.text).toBe('Crew [ok]');
+      expect(during.text).toContain('Crew [ok]');
+      expect(during.text).not.toContain(THUMB);
     });
+
+    expect(container.querySelector('.list__display-name').innerHTML).not.toContain(THUMB);
+    expect(container.querySelector('button[title="Add to list"]')).not.toBeNull();
+    expect(store.getState().getIn(['lists', '7', 'title'])).toBe(raw);
 
     act(() => {
       store.dispatch({ type: EMOJI_MUTES_DISABLE });
