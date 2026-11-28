@@ -2,6 +2,8 @@
 
 状態: P0。設計、監査表、検証手順だけ。アプリ、設定、依存関係、DB migration、デプロイは変えない。この設計がレビューで承認されるまで P1 以降の実装に進まない。
 
+P1 の実装契約は [`docs/web_ui_domains_p1.md`](web_ui_domains_p1.md)。正規化とリクエスト単位の Host/Origin 判定だけを足し、公開ゲートは開かない。この P0 文書の採用判断は変えない。
+
 親の要件は [#863](https://github.com/fedibird/mastodon/issues/863)。この段階の成果物は [#866](https://github.com/fedibird/mastodon/issues/866)。監査の行は `docs/web_ui_domains_p0_audit.md`。
 
 基点コミット: `54bd41378f`（`fedibird`。[#865](https://github.com/fedibird/mastodon/pull/865) マージ済み、webauthn 3.5.1）。`WEB_UI_DOMAINS` という識別子はこの基点に無い。
