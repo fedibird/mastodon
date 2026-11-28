@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 # Read-only Actor smoke test: never modifies flags, processes or services.
-# Draft patch for PR #760: adds a `person-off` mode so the runbook's Person
-# negative control can run through this script instead of failing on
-# `.type == "Group"`. Group `off` / `on` behaviour is unchanged.
+# `person-off` mode: the runbook's Person negative control. A Person Actor
+# is never advertised, so `off` (which requires type Group) cannot validate
+# it; `person-off` checks type Person with the same OFF absence guarantees.
+# Group `off` / `on` behaviour is unchanged.
 usage() {
   echo "Usage: script/group_actor_advertisement_smoke.sh ACTOR_URL off|on|person-off" >&2
   echo "Optional: OUTPUT_DIR=/tmp/group-off BASELINE_JSON=/tmp/group-off/actor.json" >&2
@@ -35,6 +36,10 @@ jq -e --arg expected "$expected" --arg property "$property" --arg profile "$prof
     (if ($c|type)=="array" then $c elif ($c|type)=="object" then [$c] else [] end) |
     any(.[]; type=="object" and
       .fedibirdGroupProtocols == {"@id":$property,"@type":"@id","@container":"@set"});
+  def has_protocol_context_key:
+    (."@context") as $c |
+    (if ($c|type)=="array" then $c elif ($c|type)=="object" then [$c] else [] end) |
+    any(.[]; type=="object" and has("fedibirdGroupProtocols"));
   (if $expected=="person-off" then (.type=="Person") else (.type=="Group") end) and
   (.id==$url) and has("publicKey") and
   (has("canPost")|not) and (has("viewerCapabilities")|not) and
@@ -42,7 +47,7 @@ jq -e --arg expected "$expected" --arg property "$property" --arg profile "$prof
   (has("groupProtocols")|not) and
   (if $expected=="on"
     then .fedibirdGroupProtocols==[$profile] and has_protocol_context
-    else (has("fedibirdGroupProtocols")|not) and (has_protocol_context|not)
+    else (has("fedibirdGroupProtocols")|not) and (has_protocol_context_key|not)
    end)
 ' "$actor" >/dev/null || {
   echo "FAIL: mismatched $expected Actor shape; inspect $actor" >&2

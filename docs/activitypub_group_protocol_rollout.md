@@ -28,7 +28,7 @@ These environment values are read by web processes. Use the ordinary staging ser
 
 ## Read-only smoke test
 
-The script only fetches an **unsigned** ActivityPub Actor GET; it never changes flags or restarts anything. It requires curl and jq, expects the canonical /users/:username HTTPS URL, and checks 200, `application/activity+json`, Actor type/id/publicKey, absence of viewer/role grants, and exact presence/absence of the new JSON-LD property and context. It writes headers and actor.json to OUTPUT_DIR.
+The script only fetches an **unsigned** ActivityPub Actor GET; it never changes flags or restarts anything. It requires curl and jq, expects the canonical /users/:username HTTPS URL, and checks 200, `application/activity+json`, Actor type/id/publicKey, absence of viewer/role grants, and exact presence/absence of the new JSON-LD property and context. For the OFF modes, any `fedibirdGroupProtocols` key left in `@context` — complete, partial, string, or null — fails, not just the exact definition. It writes headers and actor.json to OUTPUT_DIR.
 
     ACTOR_URL=https://staging.example/users/testgroup
     OUTPUT_DIR=/tmp/group-off bash script/group_actor_advertisement_smoke.sh "$ACTOR_URL" off
@@ -37,6 +37,15 @@ After choosing the target Account ID and enabling on staging:
 
     BASELINE_JSON=/tmp/group-off/actor.json OUTPUT_DIR=/tmp/group-on \
       bash script/group_actor_advertisement_smoke.sh "$ACTOR_URL" on
+
+While only the target Group is ON, verify the negative controls as well:
+an unrelated Group must stay OFF, and a Person must stay OFF
+(`person-off` checks type Person with the same OFF absence guarantees):
+
+    ACTOR_URL=https://staging.example/users/othergroup
+    OUTPUT_DIR=/tmp/group-other-off bash script/group_actor_advertisement_smoke.sh "$ACTOR_URL" off
+    ACTOR_URL=https://staging.example/users/someperson
+    OUTPUT_DIR=/tmp/person-off bash script/group_actor_advertisement_smoke.sh "$ACTOR_URL" person-off
 
 The optional baseline diff removes **only** the new property and its context entry before comparing all other Actor fields. If any other field differs, investigate profile edits or other changes rather than silently ignoring the diff. Repeat OFF verification after allowlist removal and after disabling the flag.
 
