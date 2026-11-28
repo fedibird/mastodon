@@ -68,11 +68,11 @@ class MixListItem extends React.PureComponent {
     const { mix, intl, lists, accounts } = this.props;
     const storedTitle = mix.get('title');
     const fallback = intl.formatMessage(messages.heading);
-    const named = typeof storedTitle === 'string' && storedTitle !== '';
+    const plainTitle = typeof storedTitle === 'string' ? storedTitle : '';
     const settingsLabel = intl.formatMessage(messages.settings);
     const rows = sourceRows(mix, (message, values) => intl.formatMessage(message, values), lists, accounts);
     const mixId = mix.get('id');
-    const sourcesId = named && rows.length > 0 && mixId !== undefined && mixId !== null && String(mixId) !== ''
+    const sourcesId = rows.length > 0 && mixId !== undefined && mixId !== null && String(mixId) !== ''
       ? mixSourcesDescriptionId(mixId)
       : undefined;
 
@@ -82,9 +82,7 @@ class MixListItem extends React.PureComponent {
           <Icon id='random' fixedWidth className='column-link__icon' />
           <span className='mix-list__text'>
             <span className='mix-list__title'>
-              {named ? (
-                <EmojiMutedPlain tag='span' plain={storedTitle} html='' emptyLabel={fallback} />
-              ) : fallback}
+              <EmojiMutedPlain tag='span' plain={plainTitle} html='' emptyLabel={fallback} />
             </span>
             {rows.length > 0 && (
               <span className='mix-list__sources' id={sourcesId}>

@@ -146,6 +146,27 @@ describe('mix list', () => {
     expect(document.getElementById(score.getAttribute('aria-describedby')).textContent).toContain('Home');
   });
 
+  it('names an empty title Mix and keeps the source list as the description', () => {
+    const { container } = renderList({
+      mixes: fromJS([{
+        id: 'mix-empty',
+        title: '',
+        version: 1,
+        sources: [{ type: 'group', id: '8', title: 'Newsroom', params: {} }],
+      }]),
+    });
+    const open = container.querySelector('a.mix-list__link');
+    const sources = document.getElementById('mix-list-sources-mix-empty');
+
+    expect(open.getAttribute('href')).toBe('/timelines/mixes/mix-empty');
+    expect(container.querySelector('.mix-list__title').textContent).toBe('');
+    expect(open.getAttribute('aria-label')).toBe('Mix');
+    expect(open.getAttribute('aria-describedby')).toBe('mix-list-sources-mix-empty');
+    expect(sources.textContent).toContain('Newsroom');
+    expect(open.contains(sources)).toBe(true);
+    expect(container.querySelector('a.mix-list__settings').getAttribute('aria-label')).toBe('Mix settings');
+  });
+
   it('shows the empty list and the create button for any signed-in viewer', () => {
     renderList({
       mixes: fromJS([]),
