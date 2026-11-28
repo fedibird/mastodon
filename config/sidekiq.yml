@@ -188,6 +188,10 @@
       every: '5m'
       class: Scheduler::GroupInitialFollowsScheduler
       queue: scheduler
+    reboost_delivery_scheduler:
+      every: '1m'
+      class: Scheduler::ReboostDeliveryScheduler
+      queue: scheduler
     follow_import_dispatch_scheduler:
       every: '<%= (canonical = ENV["FOLLOW_IMPORT_DISPATCH_INTERVAL"].to_i; alias_n = ENV["FOLLOW_IMPORT_DISPATCH_SHADOW_INTERVAL"].to_i; n = canonical.positive? ? canonical : alias_n; n.positive? ? n : 60) %>s'
       class: Scheduler::FollowImportDispatchScheduler

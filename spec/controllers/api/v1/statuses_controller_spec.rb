@@ -25,6 +25,15 @@ RSpec.describe Api::V1::StatusesController, type: :controller do # rubocop:disab
         expect(body_as_json).not_to have_key(:ap_object_type)
       end
 
+      it 'returns the reboost cooldown without a relationship preload' do
+        ReboostCooldown.stamp!(user.account.id, status.id, now: 30.seconds.ago)
+
+        get :show, params: { id: status.id }
+
+        expect(response).to have_http_status(200)
+        expect(body_as_json[:reboost_retry_after]).to be_between(1, Reboost::COOLDOWN_SECONDS)
+      end
+
       it 'returns not found for an unreleased page' do
         page = Fabricate(:status, account: user.account, text: 'page body', post_title: 'Title', ap_object_type: 'page')
 

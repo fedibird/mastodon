@@ -259,6 +259,11 @@ RSpec.describe Status, type: :model do
       Fabricate(:status, account: account, reblog: status)
       expect(subject[status.id]).to be true
     end
+
+    it 'ignores a discarded boost' do
+      Fabricate(:status, account: account, reblog: status).discard
+      expect(subject[status.id]).to be_nil
+    end
   end
 
   describe '.in_chosen_languages' do

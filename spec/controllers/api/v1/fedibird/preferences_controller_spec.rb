@@ -47,6 +47,7 @@ RSpec.describe Api::V1::Fedibird::PreferencesController, type: :controller do
         :'user.show_translation_bar',
         :'user.translation_preferred_mode',
         :'user.new_features_policy',
+        :'user.enable_reboost',
         :'user.content_font_size',
         :'user.info_font_size',
         :'user.reduce_motion',
@@ -307,6 +308,7 @@ RSpec.describe Api::V1::Fedibird::PreferencesController, type: :controller do
         :'user.show_translation_bar',
         :'user.translation_preferred_mode',
         :'user.new_features_policy',
+        :'user.enable_reboost',
         :'user.content_font_size',
         :'user.info_font_size',
         :'user.reduce_motion',
@@ -354,7 +356,7 @@ RSpec.describe Api::V1::Fedibird::PreferencesController, type: :controller do
 
       expect(response).to have_http_status(200)
       expect(stored(user, 'default_sensitive').value).to be false
-      expect(body_as_json[:preferences].keys.size).to eq 17
+      expect(body_as_json[:preferences].keys.size).to eq 18
     end
 
     it 'updates policy and the translation bar together, and policy alone leaves the bar row' do

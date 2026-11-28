@@ -17,9 +17,9 @@ meta:
   purpose: P1-0 audit catalog for a future Settings Service reader and schema. Not
     loaded by production.
   stats:
-    entries: 279
+    entries: 280
     by_disposition:
-      candidate_general: 135
+      candidate_general: 136
       candidate_high_risk: 29
       client: 21
       derived: 3
@@ -30,13 +30,13 @@ meta:
     by_audit_status:
       inferred: 23
       unresolved: 3
-      verified: 253
+      verified: 254
     by_owner:
       account: 16
       client: 21
       excluded: 12
       site: 57
-      user: 173
+      user: 174
     open_questions: 6
     form_inputs:
       appearance:
@@ -52,7 +52,7 @@ meta:
         commented: 0
         conditional: 0
       other:
-        active: 56
+        active: 57
         commented: 1
         conditional: 2
       profile:
@@ -101,12 +101,12 @@ entries:
   configured_vs_effective: effective_is_stored_or_yaml_default
   form_status: active
   source_refs:
-  - config/settings.yml:147
+  - config/settings.yml:150
   - app/lib/user_settings_decorator.rb:44
   - app/models/user.rb:166
   - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/preferences/appearance/show.html.haml:114
-  - app/serializers/initial_state_serializer.rb:101
+  - app/serializers/initial_state_serializer.rb:102
   - app/javascript/mastodon/initial_state.js:29
   audit_status: verified
   notes: 'Recommendation only: read_policy and write_policy are not an approved API
@@ -502,7 +502,7 @@ entries:
   configured_vs_effective: effective_is_stored_or_yaml_default
   form_status: active
   source_refs:
-  - config/settings.yml:152
+  - config/settings.yml:155
   - app/lib/user_settings_decorator.rb:97
   - app/models/user.rb:166
   - app/controllers/settings/preferences_controller.rb:47
@@ -706,8 +706,8 @@ entries:
   configured_vs_effective: type_may_diverge_after_form_save
   form_status: active
   source_refs:
-  - config/settings.yml:90
-  - app/lib/user_settings_decorator.rb:167
+  - config/settings.yml:93
+  - app/lib/user_settings_decorator.rb:168
   - app/models/user.rb:166
   - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/preferences/appearance/show.html.haml:41
@@ -751,8 +751,8 @@ entries:
   configured_vs_effective: type_may_diverge_after_form_save
   form_status: active
   source_refs:
-  - config/settings.yml:91
-  - app/lib/user_settings_decorator.rb:168
+  - config/settings.yml:94
+  - app/lib/user_settings_decorator.rb:169
   - app/models/user.rb:166
   - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/preferences/appearance/show.html.haml:42
@@ -847,12 +847,12 @@ entries:
   configured_vs_effective: effective_is_stored_or_yaml_default
   form_status: active
   source_refs:
-  - config/settings.yml:155
+  - config/settings.yml:158
   - app/lib/user_settings_decorator.rb:100
   - app/models/user.rb:166
   - app/controllers/settings/preferences_controller.rb:47
-  - app/views/settings/preferences/other/show.html.haml:136
-  - app/serializers/initial_state_serializer.rb:120
+  - app/views/settings/preferences/other/show.html.haml:140
+  - app/serializers/initial_state_serializer.rb:121
   audit_status: verified
   notes: 'Recommendation only: read_policy and write_policy are not an approved API
     contract. Decorator group boolean. Getter is delegated to ScopedSettings with
@@ -895,12 +895,12 @@ entries:
   configured_vs_effective: type_may_diverge_after_form_save
   form_status: active
   source_refs:
-  - config/settings.yml:94
-  - app/lib/user_settings_decorator.rb:166
+  - config/settings.yml:97
+  - app/lib/user_settings_decorator.rb:167
   - app/models/user.rb:166
   - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/custom_emojis/settings/show.html.haml:58
-  - app/serializers/initial_state_serializer.rb:110
+  - app/serializers/initial_state_serializer.rb:111
   - app/helpers/accounts_helper.rb:129
   audit_status: verified
   notes: 'Recommendation only: read_policy and write_policy are not an approved API
@@ -950,14 +950,14 @@ entries:
   configured_vs_effective: type_may_diverge_after_form_save
   form_status: active
   source_refs:
-  - config/settings.yml:88
-  - app/lib/user_settings_decorator.rb:164
+  - config/settings.yml:91
+  - app/lib/user_settings_decorator.rb:165
   - app/lib/user_preferences/legacy_writer.rb:21
-  - app/lib/user_settings_decorator.rb:291
+  - app/lib/user_settings_decorator.rb:292
   - app/models/user.rb:166
   - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/preferences/appearance/show.html.haml:39
-  - app/serializers/initial_state_serializer.rb:105
+  - app/serializers/initial_state_serializer.rb:106
   - app/javascript/mastodon/initial_state.js:8
   - app/helpers/accounts_helper.rb:129
   audit_status: verified
@@ -1111,12 +1111,12 @@ entries:
   configured_vs_effective: effective_is_stored_or_yaml_default
   form_status: active
   source_refs:
-  - config/settings.yml:158
-  - app/lib/user_settings_decorator.rb:176
+  - config/settings.yml:161
+  - app/lib/user_settings_decorator.rb:177
   - app/models/user.rb:166
   - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/preferences/appearance/show.html.haml:56
-  - app/serializers/initial_state_serializer.rb:122
+  - app/serializers/initial_state_serializer.rb:123
   - app/javascript/mastodon/initial_state.js:89
   audit_status: verified
   notes: 'Recommendation only: read_policy and write_policy are not an approved API
@@ -1159,12 +1159,12 @@ entries:
   configured_vs_effective: effective_is_stored_or_yaml_default
   form_status: active
   source_refs:
-  - config/settings.yml:160
-  - app/lib/user_settings_decorator.rb:178
+  - config/settings.yml:163
+  - app/lib/user_settings_decorator.rb:179
   - app/models/user.rb:166
   - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/preferences/other/show.html.haml:83
-  - app/serializers/initial_state_serializer.rb:204
+  - app/serializers/initial_state_serializer.rb:205
   audit_status: verified
   notes: 'Recommendation only: read_policy and write_policy are not an approved API
     contract. Decorator group string. Getter is delegated to ScopedSettings with prefix
@@ -1203,12 +1203,12 @@ entries:
   configured_vs_effective: effective_is_stored_or_yaml_default
   form_status: active
   source_refs:
-  - config/settings.yml:159
-  - app/lib/user_settings_decorator.rb:177
+  - config/settings.yml:162
+  - app/lib/user_settings_decorator.rb:178
   - app/models/user.rb:166
   - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/preferences/other/show.html.haml:79
-  - app/serializers/initial_state_serializer.rb:203
+  - app/serializers/initial_state_serializer.rb:204
   audit_status: verified
   notes: 'Recommendation only: read_policy and write_policy are not an approved API
     contract. Decorator group string. Getter is delegated to ScopedSettings with prefix
@@ -1263,7 +1263,7 @@ entries:
   source_refs:
   - app/lib/user_settings_decorator.rb:155
   - app/lib/user_preferences/legacy_writer.rb:21
-  - app/lib/user_settings_decorator.rb:291
+  - app/lib/user_settings_decorator.rb:292
   - app/controllers/api/v1/accounts/credentials_controller.rb:30
   - app/models/user.rb:166
   - app/controllers/settings/preferences_controller.rb:47
@@ -1326,12 +1326,12 @@ entries:
   source_refs:
   - app/lib/user_settings_decorator.rb:154
   - app/lib/user_preferences/legacy_writer.rb:21
-  - app/lib/user_settings_decorator.rb:291
+  - app/lib/user_settings_decorator.rb:292
   - app/controllers/api/v1/accounts/credentials_controller.rb:30
   - app/models/user.rb:334
   - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/preferences/other/show.html.haml:66
-  - app/serializers/initial_state_serializer.rb:199
+  - app/serializers/initial_state_serializer.rb:200
   audit_status: verified
   notes: 'Recommendation only: read_policy and write_policy are not an approved API
     contract. Decorator group string. Getter is an override on User and is not the
@@ -1373,12 +1373,12 @@ entries:
   configured_vs_effective: distinct
   form_status: active
   source_refs:
-  - config/settings.yml:156
-  - app/lib/user_settings_decorator.rb:175
+  - config/settings.yml:159
+  - app/lib/user_settings_decorator.rb:176
   - app/models/user.rb:166
   - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/preferences/other/show.html.haml:88
-  - app/serializers/initial_state_serializer.rb:225
+  - app/serializers/initial_state_serializer.rb:226
   audit_status: verified
   notes: 'Recommendation only: read_policy and write_policy are not an approved API
     contract. Decorator group string. Getter is delegated to ScopedSettings with prefix
@@ -1438,12 +1438,12 @@ entries:
   - config/settings.yml:19
   - app/lib/user_settings_decorator.rb:34
   - app/lib/user_preferences/legacy_writer.rb:21
-  - app/lib/user_settings_decorator.rb:291
+  - app/lib/user_settings_decorator.rb:292
   - app/controllers/api/v1/accounts/credentials_controller.rb:30
   - app/models/user.rb:166
   - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/preferences/other/show.html.haml:72
-  - app/serializers/initial_state_serializer.rb:201
+  - app/serializers/initial_state_serializer.rb:202
   audit_status: verified
   notes: 'Recommendation only: read_policy and write_policy are not an approved API
     contract. Decorator group boolean. Getter is delegated to ScopedSettings with
@@ -1537,12 +1537,12 @@ entries:
   configured_vs_effective: effective_is_stored_or_yaml_default
   form_status: active
   source_refs:
-  - config/settings.yml:149
+  - config/settings.yml:152
   - app/lib/user_settings_decorator.rb:46
   - app/models/user.rb:166
   - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/preferences/appearance/show.html.haml:116
-  - app/serializers/initial_state_serializer.rb:103
+  - app/serializers/initial_state_serializer.rb:104
   - app/javascript/mastodon/initial_state.js:31
   audit_status: verified
   notes: 'Recommendation only: read_policy and write_policy are not an approved API
@@ -1588,12 +1588,12 @@ entries:
   configured_vs_effective: effective_is_stored_or_yaml_default
   form_status: active
   source_refs:
-  - config/settings.yml:172
+  - config/settings.yml:175
   - app/lib/user_settings_decorator.rb:109
   - app/models/user.rb:166
   - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/preferences/safety/show.html.haml:50
-  - app/serializers/initial_state_serializer.rb:132
+  - app/serializers/initial_state_serializer.rb:133
   - app/javascript/mastodon/initial_state.js:101
   audit_status: verified
   notes: 'Recommendation only: read_policy and write_policy are not an approved API
@@ -1639,12 +1639,12 @@ entries:
   configured_vs_effective: effective_is_stored_or_yaml_default
   form_status: active
   source_refs:
-  - config/settings.yml:205
+  - config/settings.yml:208
   - app/lib/user_settings_decorator.rb:140
   - app/models/user.rb:166
   - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/custom_emojis/settings/show.html.haml:66
-  - app/serializers/initial_state_serializer.rb:159
+  - app/serializers/initial_state_serializer.rb:160
   - app/javascript/mastodon/initial_state.js:133
   audit_status: verified
   notes: 'Recommendation only: read_policy and write_policy are not an approved API
@@ -1690,12 +1690,12 @@ entries:
   configured_vs_effective: effective_is_stored_or_yaml_default
   form_status: active
   source_refs:
-  - config/settings.yml:168
+  - config/settings.yml:171
   - app/lib/user_settings_decorator.rb:106
   - app/models/user.rb:166
   - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/preferences/safety/show.html.haml:38
-  - app/serializers/initial_state_serializer.rb:128
+  - app/serializers/initial_state_serializer.rb:129
   - app/javascript/mastodon/initial_state.js:98
   audit_status: verified
   notes: 'Recommendation only: read_policy and write_policy are not an approved API
@@ -1742,12 +1742,12 @@ entries:
   configured_vs_effective: effective_is_stored_or_yaml_default
   form_status: active
   source_refs:
-  - config/settings.yml:171
+  - config/settings.yml:174
   - app/lib/user_settings_decorator.rb:108
   - app/models/user.rb:166
   - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/preferences/safety/show.html.haml:47
-  - app/serializers/initial_state_serializer.rb:131
+  - app/serializers/initial_state_serializer.rb:132
   - app/javascript/mastodon/initial_state.js:100
   audit_status: verified
   notes: 'Recommendation only: read_policy and write_policy are not an approved API
@@ -1793,12 +1793,12 @@ entries:
   configured_vs_effective: effective_is_stored_or_yaml_default
   form_status: active
   source_refs:
-  - config/settings.yml:169
+  - config/settings.yml:172
   - app/lib/user_settings_decorator.rb:107
   - app/models/user.rb:166
   - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/preferences/safety/show.html.haml:41
-  - app/serializers/initial_state_serializer.rb:129
+  - app/serializers/initial_state_serializer.rb:130
   - app/javascript/mastodon/initial_state.js:99
   audit_status: verified
   notes: 'Recommendation only: read_policy and write_policy are not an approved API
@@ -1845,12 +1845,12 @@ entries:
   configured_vs_effective: effective_is_stored_or_yaml_default
   form_status: active
   source_refs:
-  - config/settings.yml:166
+  - config/settings.yml:169
   - app/lib/user_settings_decorator.rb:104
   - app/models/user.rb:166
   - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/preferences/safety/show.html.haml:32
-  - app/serializers/initial_state_serializer.rb:126
+  - app/serializers/initial_state_serializer.rb:127
   - app/javascript/mastodon/initial_state.js:96
   audit_status: verified
   notes: 'Recommendation only: read_policy and write_policy are not an approved API
@@ -1951,12 +1951,12 @@ entries:
   configured_vs_effective: effective_is_stored_or_yaml_default
   form_status: active
   source_refs:
-  - config/settings.yml:161
+  - config/settings.yml:164
   - app/lib/user_settings_decorator.rb:102
   - app/models/user.rb:166
   - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/preferences/safety/show.html.haml:53
-  - app/serializers/initial_state_serializer.rb:123
+  - app/serializers/initial_state_serializer.rb:124
   - app/javascript/mastodon/initial_state.js:93
   audit_status: verified
   notes: 'Recommendation only: read_policy and write_policy are not an approved API
@@ -2052,12 +2052,12 @@ entries:
   configured_vs_effective: effective_is_stored_or_yaml_default
   form_status: active
   source_refs:
-  - config/settings.yml:162
+  - config/settings.yml:165
   - app/lib/user_settings_decorator.rb:103
   - app/models/user.rb:166
   - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/preferences/safety/show.html.haml:15
-  - app/serializers/initial_state_serializer.rb:124
+  - app/serializers/initial_state_serializer.rb:125
   - app/javascript/mastodon/initial_state.js:94
   audit_status: verified
   notes: 'Recommendation only: read_policy and write_policy are not an approved API
@@ -2103,12 +2103,12 @@ entries:
   configured_vs_effective: effective_is_stored_or_yaml_default
   form_status: active
   source_refs:
-  - config/settings.yml:175
+  - config/settings.yml:178
   - app/lib/user_settings_decorator.rb:110
   - app/models/user.rb:166
   - app/controllers/settings/preferences_controller.rb:47
-  - app/views/settings/preferences/other/show.html.haml:142
-  - app/serializers/initial_state_serializer.rb:133
+  - app/views/settings/preferences/other/show.html.haml:146
+  - app/serializers/initial_state_serializer.rb:134
   - app/javascript/mastodon/initial_state.js:102
   audit_status: verified
   notes: 'Recommendation only: read_policy and write_policy are not an approved API
@@ -2154,12 +2154,12 @@ entries:
   configured_vs_effective: effective_is_stored_or_yaml_default
   form_status: active
   source_refs:
-  - config/settings.yml:170
+  - config/settings.yml:173
   - app/lib/user_settings_decorator.rb:111
   - app/models/user.rb:166
   - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/preferences/safety/show.html.haml:44
-  - app/serializers/initial_state_serializer.rb:130
+  - app/serializers/initial_state_serializer.rb:131
   - app/javascript/mastodon/initial_state.js:103
   audit_status: verified
   notes: 'Recommendation only: read_policy and write_policy are not an approved API
@@ -2256,12 +2256,12 @@ entries:
   configured_vs_effective: effective_is_stored_or_yaml_default
   form_status: active
   source_refs:
-  - config/settings.yml:167
+  - config/settings.yml:170
   - app/lib/user_settings_decorator.rb:105
   - app/models/user.rb:166
   - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/preferences/safety/show.html.haml:35
-  - app/serializers/initial_state_serializer.rb:127
+  - app/serializers/initial_state_serializer.rb:128
   - app/javascript/mastodon/initial_state.js:97
   audit_status: verified
   notes: 'Recommendation only: read_policy and write_policy are not an approved API
@@ -2366,14 +2366,14 @@ entries:
   configured_vs_effective: effective_is_stored_or_yaml_default
   form_status: active
   source_refs:
-  - config/settings.yml:218
+  - config/settings.yml:221
   - app/lib/user_settings_decorator.rb:145
   - app/lib/user_preferences/legacy_writer.rb:21
-  - app/lib/user_settings_decorator.rb:291
+  - app/lib/user_settings_decorator.rb:292
   - app/models/user.rb:166
   - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/custom_emojis/settings/show.html.haml:79
-  - app/serializers/initial_state_serializer.rb:164
+  - app/serializers/initial_state_serializer.rb:165
   - app/javascript/mastodon/initial_state.js:140
   audit_status: verified
   notes: 'Recommendation only: read_policy and write_policy are not an approved API
@@ -2423,12 +2423,12 @@ entries:
   configured_vs_effective: effective_is_stored_or_yaml_default
   form_status: active
   source_refs:
-  - config/settings.yml:220
+  - config/settings.yml:223
   - app/lib/user_settings_decorator.rb:146
   - app/models/user.rb:166
   - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/custom_emojis/settings/show.html.haml:85
-  - app/serializers/initial_state_serializer.rb:165
+  - app/serializers/initial_state_serializer.rb:166
   - app/javascript/mastodon/initial_state.js:141
   audit_status: verified
   notes: 'Recommendation only: read_policy and write_policy are not an approved API
@@ -2469,7 +2469,7 @@ entries:
   configured_vs_effective: effective_is_stored_or_yaml_default
   form_status: active
   source_refs:
-  - config/settings.yml:223
+  - config/settings.yml:226
   - app/lib/user_settings_decorator.rb:147
   - app/models/user.rb:166
   - app/controllers/settings/preferences_controller.rb:47
@@ -2510,7 +2510,7 @@ entries:
   configured_vs_effective: effective_is_stored_or_yaml_default
   form_status: active
   source_refs:
-  - config/settings.yml:225
+  - config/settings.yml:228
   - app/lib/user_settings_decorator.rb:148
   - app/models/user.rb:166
   - app/controllers/settings/preferences_controller.rb:47
@@ -2564,14 +2564,14 @@ entries:
   configured_vs_effective: effective_is_stored_or_yaml_default
   form_status: active
   source_refs:
-  - config/settings.yml:214
+  - config/settings.yml:217
   - app/lib/user_settings_decorator.rb:144
   - app/lib/user_preferences/legacy_writer.rb:21
-  - app/lib/user_settings_decorator.rb:291
+  - app/lib/user_settings_decorator.rb:292
   - app/models/user.rb:166
   - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/custom_emojis/settings/show.html.haml:78
-  - app/serializers/initial_state_serializer.rb:163
+  - app/serializers/initial_state_serializer.rb:164
   - app/javascript/mastodon/initial_state.js:139
   audit_status: verified
   notes: 'Recommendation only: read_policy and write_policy are not an approved API
@@ -2629,14 +2629,14 @@ entries:
   configured_vs_effective: effective_is_stored_or_yaml_default
   form_status: active
   source_refs:
-  - config/settings.yml:209
+  - config/settings.yml:212
   - app/lib/user_settings_decorator.rb:142
   - app/lib/user_preferences/legacy_writer.rb:21
-  - app/lib/user_settings_decorator.rb:291
+  - app/lib/user_settings_decorator.rb:292
   - app/models/user.rb:166
   - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/custom_emojis/settings/show.html.haml:67
-  - app/serializers/initial_state_serializer.rb:161
+  - app/serializers/initial_state_serializer.rb:162
   - app/javascript/mastodon/initial_state.js:136
   audit_status: verified
   notes: 'Recommendation only: read_policy and write_policy are not an approved API
@@ -2693,14 +2693,14 @@ entries:
   configured_vs_effective: effective_is_stored_or_yaml_default
   form_status: active
   source_refs:
-  - config/settings.yml:212
+  - config/settings.yml:215
   - app/lib/user_settings_decorator.rb:143
   - app/lib/user_preferences/legacy_writer.rb:21
-  - app/lib/user_settings_decorator.rb:291
+  - app/lib/user_settings_decorator.rb:292
   - app/models/user.rb:166
   - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/custom_emojis/settings/show.html.haml:68
-  - app/serializers/initial_state_serializer.rb:162
+  - app/serializers/initial_state_serializer.rb:163
   - app/javascript/mastodon/initial_state.js:137
   audit_status: verified
   notes: 'Recommendation only: read_policy and write_policy are not an approved API
@@ -2758,14 +2758,14 @@ entries:
   configured_vs_effective: effective_is_stored_or_yaml_default
   form_status: active
   source_refs:
-  - config/settings.yml:232
+  - config/settings.yml:235
   - app/lib/user_settings_decorator.rb:149
   - app/lib/user_preferences/legacy_writer.rb:21
-  - app/lib/user_settings_decorator.rb:291
+  - app/lib/user_settings_decorator.rb:292
   - app/models/user.rb:166
   - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/custom_emojis/settings/show.html.haml:75
-  - app/serializers/initial_state_serializer.rb:172
+  - app/serializers/initial_state_serializer.rb:173
   - app/javascript/mastodon/initial_state.js:144
   audit_status: verified
   notes: 'Recommendation only: read_policy and write_policy are not an approved API
@@ -2824,14 +2824,14 @@ entries:
   configured_vs_effective: effective_is_stored_or_yaml_default
   form_status: conditional
   source_refs:
-  - config/settings.yml:207
+  - config/settings.yml:210
   - app/lib/user_settings_decorator.rb:141
   - app/lib/user_preferences/legacy_writer.rb:21
-  - app/lib/user_settings_decorator.rb:291
+  - app/lib/user_settings_decorator.rb:292
   - app/models/user.rb:166
   - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/custom_emojis/settings/show.html.haml:72
-  - app/serializers/initial_state_serializer.rb:160
+  - app/serializers/initial_state_serializer.rb:161
   - app/javascript/mastodon/initial_state.js:135
   audit_status: verified
   notes: 'Recommendation only: read_policy and write_policy are not an approved API
@@ -2878,12 +2878,12 @@ entries:
   configured_vs_effective: effective_is_stored_or_yaml_default
   form_status: active
   source_refs:
-  - config/settings.yml:227
+  - config/settings.yml:230
   - app/lib/user_settings_decorator.rb:157
   - app/models/user.rb:166
   - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/custom_emojis/settings/show.html.haml:82
-  - app/serializers/initial_state_serializer.rb:171
+  - app/serializers/initial_state_serializer.rb:172
   audit_status: verified
   notes: 'Recommendation only: read_policy and write_policy are not an approved API
     contract. Decorator group string. Getter is delegated to ScopedSettings with prefix
@@ -2933,12 +2933,12 @@ entries:
   configured_vs_effective: effective_is_stored_or_yaml_default
   form_status: active
   source_refs:
-  - config/settings.yml:165
+  - config/settings.yml:168
   - app/lib/user_settings_decorator.rb:156
   - app/models/user.rb:166
   - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/preferences/safety/show.html.haml:29
-  - app/serializers/initial_state_serializer.rb:125
+  - app/serializers/initial_state_serializer.rb:126
   - app/javascript/mastodon/initial_state.js:95
   audit_status: verified
   notes: 'Recommendation only: read_policy and write_policy are not an approved API
@@ -2988,12 +2988,12 @@ entries:
   configured_vs_effective: type_may_diverge_after_form_save
   form_status: active
   source_refs:
-  - config/settings.yml:95
-  - app/lib/user_settings_decorator.rb:169
+  - config/settings.yml:98
+  - app/lib/user_settings_decorator.rb:170
   - app/models/user.rb:166
   - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/custom_emojis/settings/show.html.haml:19
-  - app/serializers/initial_state_serializer.rb:111
+  - app/serializers/initial_state_serializer.rb:112
   - app/helpers/accounts_helper.rb:129
   audit_status: verified
   notes: 'Recommendation only: read_policy and write_policy are not an approved API
@@ -3034,12 +3034,12 @@ entries:
   configured_vs_effective: effective_is_stored_or_yaml_default
   form_status: active
   source_refs:
-  - config/settings.yml:98
-  - app/lib/user_settings_decorator.rb:172
+  - config/settings.yml:101
+  - app/lib/user_settings_decorator.rb:173
   - app/models/user.rb:166
   - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/custom_emojis/settings/show.html.haml:30
-  - app/serializers/initial_state_serializer.rb:114
+  - app/serializers/initial_state_serializer.rb:115
   - app/helpers/accounts_helper.rb:129
   audit_status: verified
   notes: 'Recommendation only: read_policy and write_policy are not an approved API
@@ -3080,12 +3080,12 @@ entries:
   configured_vs_effective: effective_is_stored_or_yaml_default
   form_status: active
   source_refs:
-  - config/settings.yml:97
-  - app/lib/user_settings_decorator.rb:171
+  - config/settings.yml:100
+  - app/lib/user_settings_decorator.rb:172
   - app/models/user.rb:166
   - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/custom_emojis/settings/show.html.haml:28
-  - app/serializers/initial_state_serializer.rb:113
+  - app/serializers/initial_state_serializer.rb:114
   - app/helpers/accounts_helper.rb:129
   audit_status: verified
   notes: 'Recommendation only: read_policy and write_policy are not an approved API
@@ -3126,12 +3126,12 @@ entries:
   configured_vs_effective: effective_is_stored_or_yaml_default
   form_status: active
   source_refs:
-  - config/settings.yml:99
-  - app/lib/user_settings_decorator.rb:173
+  - config/settings.yml:102
+  - app/lib/user_settings_decorator.rb:174
   - app/models/user.rb:166
   - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/custom_emojis/settings/show.html.haml:32
-  - app/serializers/initial_state_serializer.rb:115
+  - app/serializers/initial_state_serializer.rb:116
   - app/helpers/accounts_helper.rb:129
   audit_status: verified
   notes: 'Recommendation only: read_policy and write_policy are not an approved API
@@ -3172,12 +3172,12 @@ entries:
   configured_vs_effective: effective_is_stored_or_yaml_default
   form_status: active
   source_refs:
-  - config/settings.yml:96
-  - app/lib/user_settings_decorator.rb:170
+  - config/settings.yml:99
+  - app/lib/user_settings_decorator.rb:171
   - app/models/user.rb:166
   - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/custom_emojis/settings/show.html.haml:26
-  - app/serializers/initial_state_serializer.rb:112
+  - app/serializers/initial_state_serializer.rb:113
   - app/helpers/accounts_helper.rb:129
   audit_status: verified
   notes: 'Recommendation only: read_policy and write_policy are not an approved API
@@ -3220,12 +3220,12 @@ entries:
   configured_vs_effective: effective_is_stored_or_yaml_default
   form_status: active
   source_refs:
-  - config/settings.yml:153
+  - config/settings.yml:156
   - app/lib/user_settings_decorator.rb:98
   - app/models/user.rb:166
   - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/preferences/appearance/show.html.haml:53
-  - app/serializers/initial_state_serializer.rb:104
+  - app/serializers/initial_state_serializer.rb:105
   - app/javascript/mastodon/initial_state.js:87
   audit_status: verified
   notes: 'Recommendation only: read_policy and write_policy are not an approved API
@@ -3277,7 +3277,7 @@ entries:
   - app/lib/user_settings_decorator.rb:80
   - app/models/user.rb:166
   - app/controllers/settings/preferences_controller.rb:47
-  - app/views/settings/preferences/other/show.html.haml:118
+  - app/views/settings/preferences/other/show.html.haml:122
   - app/serializers/initial_state_serializer.rb:84
   - app/javascript/mastodon/initial_state.js:73
   audit_status: verified
@@ -3330,7 +3330,7 @@ entries:
   - app/lib/user_settings_decorator.rb:81
   - app/models/user.rb:166
   - app/controllers/settings/preferences_controller.rb:47
-  - app/views/settings/preferences/other/show.html.haml:121
+  - app/views/settings/preferences/other/show.html.haml:125
   - app/serializers/initial_state_serializer.rb:85
   - app/javascript/mastodon/initial_state.js:71
   audit_status: verified
@@ -3388,7 +3388,7 @@ entries:
   - app/lib/user_settings_decorator.rb:83
   - app/models/user.rb:166
   - app/controllers/settings/preferences_controller.rb:47
-  - app/views/settings/preferences/other/show.html.haml:115
+  - app/views/settings/preferences/other/show.html.haml:119
   - app/serializers/initial_state_serializer.rb:87
   - app/javascript/mastodon/initial_state.js:74
   audit_status: verified
@@ -3439,7 +3439,7 @@ entries:
   - app/lib/user_settings_decorator.rb:82
   - app/models/user.rb:166
   - app/controllers/settings/preferences_controller.rb:47
-  - app/views/settings/preferences/other/show.html.haml:124
+  - app/views/settings/preferences/other/show.html.haml:128
   - app/serializers/initial_state_serializer.rb:86
   - app/javascript/mastodon/initial_state.js:72
   audit_status: verified
@@ -3502,6 +3502,60 @@ entries:
     sites. Redux meta also receives the value on hydrate, but scanned selectors do
     not read it from state.meta. Changing the stored value does not by itself update
     the open WebUI.'
+- key: user.enable_reboost
+  category: other
+  owner: user
+  disposition: candidate_general
+  storage: settings(thing_type=User,thing_id=users.id,var=enable_reboost) YAML text;
+    default from config/settings.yml via ScopedSettings, except theme and noindex
+    which fall back to the unscoped Setting row
+  legacy_keys:
+    settings_var: enable_reboost
+    getter: setting_enable_reboost
+    form: setting_enable_reboost
+    initial_state_meta: enable_reboost
+  raw_type: nil_or_boolean
+  effective_type: boolean
+  default_source: settings.yml value is nil. A missing row and a stored nil follow
+    new_features_policy (off for conservative, on otherwise) and are not written back.
+    Explicit true or false wins.
+  read_sources:
+  - InitialState meta via setting_*
+  - Rails preferences form getter
+  write_sources:
+  - rails preferences update via LegacyWriter (other)
+  normalization: On write, auto and a blank value are stored as nil. on and true are
+    stored as true. off and false are stored as false. On read, nil follows new_features_policy
+    and is not saved. InitialState sends the boolean effective value.
+  availability: user preference
+  read_policy: general
+  write_policy: general
+  side_effects:
+  - 'form LegacyWriter: a real change advances revision and after COMMIT runs rewrite_cache,
+    legacy cache delete, and preferences_changed; a same-value resubmit does not'
+  - UserSettingsDecorator without a LegacyWriter refuses a non-nil contract-key write
+    before saving anything
+  apply_hint: reinitialize
+  client_reference:
+  - redux_meta_hydrated_unread
+  - dynamic_update_possible_if_selectors_replace_static_imports
+  configured_vs_effective: distinct
+  form_status: active
+  source_refs:
+  - config/settings.yml:89
+  - app/lib/user_settings_decorator.rb:163
+  - app/lib/user_preferences/legacy_writer.rb:21
+  - app/lib/user_settings_decorator.rb:292
+  - app/controllers/settings/preferences_controller.rb:47
+  - app/views/settings/preferences/other/show.html.haml:98
+  - app/serializers/initial_state_serializer.rb:94
+  - app/lib/reboost_preferences.rb:1
+  - app/models/user.rb:353
+  audit_status: verified
+  notes: 'Recommendation only: read_policy and write_policy are not an approved API
+    contract. Decorator group string. Getter is an override on User and is not the
+    raw stored value. Changing the stored value does not by itself update the open
+    WebUI.'
 - key: user.enable_status_polling
   category: other
   owner: user
@@ -3540,12 +3594,12 @@ entries:
   configured_vs_effective: effective_is_stored_or_yaml_default
   form_status: conditional
   source_refs:
-  - config/settings.yml:203
+  - config/settings.yml:206
   - app/lib/user_settings_decorator.rb:138
   - app/models/user.rb:166
   - app/controllers/settings/preferences_controller.rb:47
-  - app/views/settings/preferences/other/show.html.haml:185
-  - app/serializers/initial_state_serializer.rb:157
+  - app/views/settings/preferences/other/show.html.haml:189
+  - app/serializers/initial_state_serializer.rb:158
   - app/javascript/mastodon/initial_state.js:131
   audit_status: verified
   notes: 'Recommendation only: read_policy and write_policy are not an approved API
@@ -3593,12 +3647,12 @@ entries:
   configured_vs_effective: effective_is_stored_or_yaml_default
   form_status: conditional
   source_refs:
-  - config/settings.yml:204
+  - config/settings.yml:207
   - app/lib/user_settings_decorator.rb:139
   - app/models/user.rb:166
   - app/controllers/settings/preferences_controller.rb:47
-  - app/views/settings/preferences/other/show.html.haml:189
-  - app/serializers/initial_state_serializer.rb:158
+  - app/views/settings/preferences/other/show.html.haml:193
+  - app/serializers/initial_state_serializer.rb:159
   - app/javascript/mastodon/initial_state.js:132
   audit_status: verified
   notes: 'Recommendation only: read_policy and write_policy are not an approved API
@@ -3644,12 +3698,12 @@ entries:
   configured_vs_effective: effective_is_stored_or_yaml_default
   form_status: active
   source_refs:
-  - config/settings.yml:87
+  - config/settings.yml:90
   - app/lib/user_settings_decorator.rb:93
   - app/models/user.rb:166
   - app/controllers/settings/preferences_controller.rb:47
-  - app/views/settings/preferences/other/show.html.haml:130
-  - app/serializers/initial_state_serializer.rb:98
+  - app/views/settings/preferences/other/show.html.haml:134
+  - app/serializers/initial_state_serializer.rb:99
   - app/javascript/mastodon/initial_state.js:84
   audit_status: verified
   notes: 'Recommendation only: read_policy and write_policy are not an approved API
@@ -3697,12 +3751,12 @@ entries:
   configured_vs_effective: effective_is_stored_or_yaml_default
   form_status: active
   source_refs:
-  - config/settings.yml:101
+  - config/settings.yml:104
   - app/lib/user_settings_decorator.rb:119
   - app/models/user.rb:166
   - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/custom_emojis/settings/show.html.haml:35
-  - app/serializers/initial_state_serializer.rb:117
+  - app/serializers/initial_state_serializer.rb:118
   - app/javascript/mastodon/initial_state.js:91
   - app/helpers/accounts_helper.rb:129
   audit_status: verified
@@ -3751,12 +3805,12 @@ entries:
   configured_vs_effective: effective_is_stored_or_yaml_default
   form_status: active
   source_refs:
-  - config/settings.yml:102
+  - config/settings.yml:105
   - app/lib/user_settings_decorator.rb:120
   - app/models/user.rb:166
   - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/custom_emojis/settings/show.html.haml:51
-  - app/serializers/initial_state_serializer.rb:118
+  - app/serializers/initial_state_serializer.rb:119
   - app/javascript/mastodon/initial_state.js:92
   - app/helpers/accounts_helper.rb:129
   audit_status: verified
@@ -4006,7 +4060,7 @@ entries:
   configured_vs_effective: effective_is_stored_or_yaml_default
   form_status: active
   source_refs:
-  - config/settings.yml:151
+  - config/settings.yml:154
   - app/lib/user_settings_decorator.rb:96
   - app/models/user.rb:166
   - app/controllers/settings/preferences_controller.rb:47
@@ -4050,7 +4104,7 @@ entries:
   configured_vs_effective: effective_is_stored_or_yaml_default
   form_status: active
   source_refs:
-  - config/settings.yml:150
+  - config/settings.yml:153
   - app/lib/user_settings_decorator.rb:95
   - app/models/user.rb:166
   - app/controllers/settings/preferences_controller.rb:47
@@ -4098,12 +4152,12 @@ entries:
   configured_vs_effective: effective_is_stored_or_yaml_default
   form_status: active
   source_refs:
-  - config/settings.yml:154
+  - config/settings.yml:157
   - app/lib/user_settings_decorator.rb:99
   - app/models/user.rb:166
   - app/controllers/settings/preferences_controller.rb:47
-  - app/views/settings/preferences/other/show.html.haml:194
-  - app/serializers/initial_state_serializer.rb:119
+  - app/views/settings/preferences/other/show.html.haml:198
+  - app/serializers/initial_state_serializer.rb:120
   - app/javascript/mastodon/initial_state.js:111
   audit_status: verified
   notes: 'Recommendation only: read_policy and write_policy are not an approved API
@@ -4151,12 +4205,12 @@ entries:
   configured_vs_effective: effective_is_stored_or_yaml_default
   form_status: active
   source_refs:
-  - config/settings.yml:176
+  - config/settings.yml:179
   - app/lib/user_settings_decorator.rb:112
   - app/models/user.rb:166
   - app/controllers/settings/preferences_controller.rb:47
-  - app/views/settings/preferences/other/show.html.haml:145
-  - app/serializers/initial_state_serializer.rb:134
+  - app/views/settings/preferences/other/show.html.haml:149
+  - app/serializers/initial_state_serializer.rb:135
   - app/javascript/mastodon/initial_state.js:104
   audit_status: verified
   notes: 'Recommendation only: read_policy and write_policy are not an approved API
@@ -4248,12 +4302,12 @@ entries:
   configured_vs_effective: effective_is_stored_or_yaml_default
   form_status: active
   source_refs:
-  - config/settings.yml:192
+  - config/settings.yml:195
   - app/lib/user_settings_decorator.rb:127
   - app/models/user.rb:166
   - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/preferences/other/show.html.haml:28
-  - app/serializers/initial_state_serializer.rb:148
+  - app/serializers/initial_state_serializer.rb:149
   - app/javascript/mastodon/initial_state.js:122
   audit_status: verified
   notes: 'Recommendation only: read_policy and write_policy are not an approved API
@@ -4301,12 +4355,12 @@ entries:
   configured_vs_effective: effective_is_stored_or_yaml_default
   form_status: active
   source_refs:
-  - config/settings.yml:195
+  - config/settings.yml:198
   - app/lib/user_settings_decorator.rb:130
   - app/models/user.rb:166
   - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/preferences/other/show.html.haml:37
-  - app/serializers/initial_state_serializer.rb:145
+  - app/serializers/initial_state_serializer.rb:146
   - app/javascript/mastodon/initial_state.js:119
   audit_status: verified
   notes: 'Recommendation only: read_policy and write_policy are not an approved API
@@ -4397,12 +4451,12 @@ entries:
   configured_vs_effective: effective_is_stored_or_yaml_default
   form_status: active
   source_refs:
-  - config/settings.yml:191
+  - config/settings.yml:194
   - app/lib/user_settings_decorator.rb:126
   - app/models/user.rb:166
   - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/preferences/other/show.html.haml:25
-  - app/serializers/initial_state_serializer.rb:147
+  - app/serializers/initial_state_serializer.rb:148
   - app/javascript/mastodon/initial_state.js:121
   audit_status: verified
   notes: 'Recommendation only: read_policy and write_policy are not an approved API
@@ -4450,12 +4504,12 @@ entries:
   configured_vs_effective: effective_is_stored_or_yaml_default
   form_status: active
   source_refs:
-  - config/settings.yml:194
+  - config/settings.yml:197
   - app/lib/user_settings_decorator.rb:129
   - app/models/user.rb:166
   - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/preferences/other/show.html.haml:34
-  - app/serializers/initial_state_serializer.rb:144
+  - app/serializers/initial_state_serializer.rb:145
   - app/javascript/mastodon/initial_state.js:118
   audit_status: verified
   notes: 'Recommendation only: read_policy and write_policy are not an approved API
@@ -4502,12 +4556,12 @@ entries:
   configured_vs_effective: effective_is_stored_or_yaml_default
   form_status: active
   source_refs:
-  - config/settings.yml:196
+  - config/settings.yml:199
   - app/lib/user_settings_decorator.rb:131
   - app/models/user.rb:166
   - app/controllers/settings/preferences_controller.rb:47
-  - app/views/settings/preferences/other/show.html.haml:169
-  - app/serializers/initial_state_serializer.rb:150
+  - app/views/settings/preferences/other/show.html.haml:173
+  - app/serializers/initial_state_serializer.rb:151
   - app/javascript/mastodon/initial_state.js:124
   audit_status: verified
   notes: 'Recommendation only: read_policy and write_policy are not an approved API
@@ -4554,12 +4608,12 @@ entries:
   configured_vs_effective: effective_is_stored_or_yaml_default
   form_status: active
   source_refs:
-  - config/settings.yml:179
+  - config/settings.yml:182
   - app/lib/user_settings_decorator.rb:116
   - app/models/user.rb:166
   - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/preferences/appearance/show.html.haml:140
-  - app/serializers/initial_state_serializer.rb:138
+  - app/serializers/initial_state_serializer.rb:139
   - app/javascript/mastodon/initial_state.js:108
   audit_status: verified
   notes: 'Recommendation only: read_policy and write_policy are not an approved API
@@ -4607,12 +4661,12 @@ entries:
   configured_vs_effective: effective_is_stored_or_yaml_default
   form_status: active
   source_refs:
-  - config/settings.yml:198
+  - config/settings.yml:201
   - app/lib/user_settings_decorator.rb:133
   - app/models/user.rb:166
   - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/custom_emojis/settings/show.html.haml:48
-  - app/serializers/initial_state_serializer.rb:152
+  - app/serializers/initial_state_serializer.rb:153
   - app/javascript/mastodon/initial_state.js:126
   audit_status: verified
   notes: 'Recommendation only: read_policy and write_policy are not an approved API
@@ -4660,12 +4714,12 @@ entries:
   configured_vs_effective: effective_is_stored_or_yaml_default
   form_status: active
   source_refs:
-  - config/settings.yml:199
+  - config/settings.yml:202
   - app/lib/user_settings_decorator.rb:134
   - app/models/user.rb:166
   - app/controllers/settings/preferences_controller.rb:47
-  - app/views/settings/preferences/other/show.html.haml:172
-  - app/serializers/initial_state_serializer.rb:153
+  - app/views/settings/preferences/other/show.html.haml:176
+  - app/serializers/initial_state_serializer.rb:154
   - app/javascript/mastodon/initial_state.js:127
   audit_status: verified
   notes: 'Recommendation only: read_policy and write_policy are not an approved API
@@ -4713,12 +4767,12 @@ entries:
   configured_vs_effective: effective_is_stored_or_yaml_default
   form_status: active
   source_refs:
-  - config/settings.yml:200
+  - config/settings.yml:203
   - app/lib/user_settings_decorator.rb:135
   - app/models/user.rb:166
   - app/controllers/settings/preferences_controller.rb:47
-  - app/views/settings/preferences/other/show.html.haml:175
-  - app/serializers/initial_state_serializer.rb:154
+  - app/views/settings/preferences/other/show.html.haml:179
+  - app/serializers/initial_state_serializer.rb:155
   - app/javascript/mastodon/initial_state.js:128
   audit_status: verified
   notes: 'Recommendation only: read_policy and write_policy are not an approved API
@@ -4766,12 +4820,12 @@ entries:
   configured_vs_effective: effective_is_stored_or_yaml_default
   form_status: active
   source_refs:
-  - config/settings.yml:201
+  - config/settings.yml:204
   - app/lib/user_settings_decorator.rb:136
   - app/models/user.rb:166
   - app/controllers/settings/preferences_controller.rb:47
-  - app/views/settings/preferences/other/show.html.haml:178
-  - app/serializers/initial_state_serializer.rb:155
+  - app/views/settings/preferences/other/show.html.haml:182
+  - app/serializers/initial_state_serializer.rb:156
   - app/javascript/mastodon/initial_state.js:129
   audit_status: verified
   notes: 'Recommendation only: read_policy and write_policy are not an approved API
@@ -4867,8 +4921,8 @@ entries:
   - app/lib/user_settings_decorator.rb:114
   - app/models/user.rb:166
   - app/controllers/settings/preferences_controller.rb:47
-  - app/views/settings/preferences/other/show.html.haml:151
-  - app/serializers/initial_state_serializer.rb:136
+  - app/views/settings/preferences/other/show.html.haml:155
+  - app/serializers/initial_state_serializer.rb:137
   - app/javascript/mastodon/initial_state.js:106
   audit_status: verified
   notes: 'Recommendation only: read_policy and write_policy are not an approved API
@@ -4915,12 +4969,12 @@ entries:
   configured_vs_effective: effective_is_stored_or_yaml_default
   form_status: active
   source_refs:
-  - config/settings.yml:177
+  - config/settings.yml:180
   - app/lib/user_settings_decorator.rb:113
   - app/models/user.rb:166
   - app/controllers/settings/preferences_controller.rb:47
-  - app/views/settings/preferences/other/show.html.haml:148
-  - app/serializers/initial_state_serializer.rb:135
+  - app/views/settings/preferences/other/show.html.haml:152
+  - app/serializers/initial_state_serializer.rb:136
   - app/javascript/mastodon/initial_state.js:105
   audit_status: verified
   notes: 'Recommendation only: read_policy and write_policy are not an approved API
@@ -4967,12 +5021,12 @@ entries:
   configured_vs_effective: effective_is_stored_or_yaml_default
   form_status: active
   source_refs:
-  - config/settings.yml:180
+  - config/settings.yml:183
   - app/lib/user_settings_decorator.rb:117
   - app/models/user.rb:166
   - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/preferences/appearance/show.html.haml:143
-  - app/serializers/initial_state_serializer.rb:139
+  - app/serializers/initial_state_serializer.rb:140
   - app/javascript/mastodon/initial_state.js:109
   audit_status: verified
   notes: 'Recommendation only: read_policy and write_policy are not an approved API
@@ -5019,12 +5073,12 @@ entries:
   configured_vs_effective: effective_is_stored_or_yaml_default
   form_status: active
   source_refs:
-  - config/settings.yml:178
+  - config/settings.yml:181
   - app/lib/user_settings_decorator.rb:115
   - app/models/user.rb:166
   - app/controllers/settings/preferences_controller.rb:47
-  - app/views/settings/preferences/other/show.html.haml:154
-  - app/serializers/initial_state_serializer.rb:137
+  - app/views/settings/preferences/other/show.html.haml:158
+  - app/serializers/initial_state_serializer.rb:138
   - app/javascript/mastodon/initial_state.js:107
   audit_status: verified
   notes: 'Recommendation only: read_policy and write_policy are not an approved API
@@ -5071,12 +5125,12 @@ entries:
   configured_vs_effective: effective_is_stored_or_yaml_default
   form_status: active
   source_refs:
-  - config/settings.yml:197
+  - config/settings.yml:200
   - app/lib/user_settings_decorator.rb:132
   - app/models/user.rb:166
   - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/custom_emojis/settings/show.html.haml:45
-  - app/serializers/initial_state_serializer.rb:151
+  - app/serializers/initial_state_serializer.rb:152
   - app/javascript/mastodon/initial_state.js:125
   audit_status: verified
   notes: 'Recommendation only: read_policy and write_policy are not an approved API
@@ -5123,12 +5177,12 @@ entries:
   configured_vs_effective: effective_is_stored_or_yaml_default
   form_status: active
   source_refs:
-  - config/settings.yml:202
+  - config/settings.yml:205
   - app/lib/user_settings_decorator.rb:137
   - app/models/user.rb:166
   - app/controllers/settings/preferences_controller.rb:47
-  - app/views/settings/preferences/other/show.html.haml:181
-  - app/serializers/initial_state_serializer.rb:156
+  - app/views/settings/preferences/other/show.html.haml:185
+  - app/serializers/initial_state_serializer.rb:157
   - app/javascript/mastodon/initial_state.js:130
   audit_status: verified
   notes: 'Recommendation only: read_policy and write_policy are not an approved API
@@ -5220,12 +5274,12 @@ entries:
   configured_vs_effective: effective_is_stored_or_yaml_default
   form_status: active
   source_refs:
-  - config/settings.yml:190
+  - config/settings.yml:193
   - app/lib/user_settings_decorator.rb:125
   - app/models/user.rb:166
   - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/preferences/other/show.html.haml:60
-  - app/serializers/initial_state_serializer.rb:146
+  - app/serializers/initial_state_serializer.rb:147
   - app/javascript/mastodon/initial_state.js:120
   audit_status: verified
   notes: 'Recommendation only: read_policy and write_policy are not an approved API
@@ -5273,12 +5327,12 @@ entries:
   configured_vs_effective: effective_is_stored_or_yaml_default
   form_status: active
   source_refs:
-  - config/settings.yml:193
+  - config/settings.yml:196
   - app/lib/user_settings_decorator.rb:128
   - app/models/user.rb:166
   - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/preferences/other/show.html.haml:31
-  - app/serializers/initial_state_serializer.rb:149
+  - app/serializers/initial_state_serializer.rb:150
   - app/javascript/mastodon/initial_state.js:123
   audit_status: verified
   notes: 'Recommendation only: read_policy and write_policy are not an approved API
@@ -5325,12 +5379,12 @@ entries:
   configured_vs_effective: effective_is_stored_or_yaml_default
   form_status: active
   source_refs:
-  - config/settings.yml:181
+  - config/settings.yml:184
   - app/lib/user_settings_decorator.rb:118
   - app/models/user.rb:166
   - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/preferences/appearance/show.html.haml:146
-  - app/serializers/initial_state_serializer.rb:140
+  - app/serializers/initial_state_serializer.rb:141
   - app/javascript/mastodon/initial_state.js:110
   audit_status: verified
   notes: 'Recommendation only: read_policy and write_policy are not an approved API
@@ -5383,14 +5437,14 @@ entries:
   configured_vs_effective: type_may_diverge_after_form_save
   form_status: active
   source_refs:
-  - config/settings.yml:89
-  - app/lib/user_settings_decorator.rb:165
+  - config/settings.yml:92
+  - app/lib/user_settings_decorator.rb:166
   - app/lib/user_preferences/legacy_writer.rb:21
-  - app/lib/user_settings_decorator.rb:291
+  - app/lib/user_settings_decorator.rb:292
   - app/models/user.rb:166
   - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/preferences/appearance/show.html.haml:40
-  - app/serializers/initial_state_serializer.rb:109
+  - app/serializers/initial_state_serializer.rb:110
   - app/javascript/mastodon/initial_state.js:9
   - app/helpers/accounts_helper.rb:129
   audit_status: verified
@@ -5439,12 +5493,12 @@ entries:
   configured_vs_effective: effective_is_stored_or_yaml_default
   form_status: active
   source_refs:
-  - config/settings.yml:145
+  - config/settings.yml:148
   - app/lib/user_settings_decorator.rb:94
   - app/models/user.rb:166
   - app/controllers/settings/preferences_controller.rb:47
-  - app/views/settings/preferences/other/show.html.haml:133
-  - app/serializers/initial_state_serializer.rb:99
+  - app/views/settings/preferences/other/show.html.haml:137
+  - app/serializers/initial_state_serializer.rb:100
   - app/javascript/mastodon/initial_state.js:86
   audit_status: verified
   notes: 'Recommendation only: read_policy and write_policy are not an approved API
@@ -5491,12 +5545,12 @@ entries:
   configured_vs_effective: type_may_diverge_after_form_save
   form_status: active
   source_refs:
-  - config/settings.yml:235
-  - app/lib/user_settings_decorator.rb:183
+  - config/settings.yml:238
+  - app/lib/user_settings_decorator.rb:184
   - app/models/user.rb:166
   - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/custom_emojis/settings/show.html.haml:88
-  - app/serializers/initial_state_serializer.rb:173
+  - app/serializers/initial_state_serializer.rb:174
   - app/javascript/mastodon/initial_state.js:148
   audit_status: verified
   notes: 'Recommendation only: read_policy and write_policy are not an approved API
@@ -5543,7 +5597,7 @@ entries:
   form_status: active
   source_refs:
   - config/settings.yml:59
-  - app/lib/user_settings_decorator.rb:179
+  - app/lib/user_settings_decorator.rb:180
   - app/models/user.rb:166
   - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/preferences/appearance/show.html.haml:93
@@ -5597,7 +5651,7 @@ entries:
   form_status: active
   source_refs:
   - config/settings.yml:60
-  - app/lib/user_settings_decorator.rb:180
+  - app/lib/user_settings_decorator.rb:181
   - app/models/user.rb:166
   - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/preferences/appearance/show.html.haml:94
@@ -5705,7 +5759,7 @@ entries:
   - config/settings.yml:86
   - app/lib/user_settings_decorator.rb:162
   - app/lib/user_preferences/legacy_writer.rb:21
-  - app/lib/user_settings_decorator.rb:291
+  - app/lib/user_settings_decorator.rb:292
   - app/models/user.rb:166
   - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/preferences/other/show.html.haml:94
@@ -5801,11 +5855,11 @@ entries:
   configured_vs_effective: type_may_diverge_after_form_save
   form_status: absent
   source_refs:
-  - config/settings.yml:100
-  - app/lib/user_settings_decorator.rb:174
+  - config/settings.yml:103
+  - app/lib/user_settings_decorator.rb:175
   - app/models/user.rb:166
   - app/controllers/settings/preferences_controller.rb:47
-  - app/serializers/initial_state_serializer.rb:116
+  - app/serializers/initial_state_serializer.rb:117
   - app/javascript/mastodon/initial_state.js:90
   - app/helpers/accounts_helper.rb:129
   audit_status: verified
@@ -5856,7 +5910,7 @@ entries:
   - app/lib/user_settings_decorator.rb:78
   - app/models/user.rb:166
   - app/controllers/settings/preferences_controller.rb:47
-  - app/views/settings/preferences/other/show.html.haml:109
+  - app/views/settings/preferences/other/show.html.haml:113
   - app/serializers/initial_state_serializer.rb:82
   - app/javascript/mastodon/initial_state.js:69
   audit_status: verified
@@ -5903,12 +5957,12 @@ entries:
   configured_vs_effective: effective_is_stored_or_yaml_default
   form_status: active
   source_refs:
-  - config/settings.yml:146
+  - config/settings.yml:149
   - app/lib/user_settings_decorator.rb:43
   - app/models/user.rb:166
   - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/preferences/appearance/show.html.haml:113
-  - app/serializers/initial_state_serializer.rb:100
+  - app/serializers/initial_state_serializer.rb:101
   - app/javascript/mastodon/initial_state.js:28
   audit_status: verified
   notes: 'Recommendation only: read_policy and write_policy are not an approved API
@@ -5952,11 +6006,11 @@ entries:
   configured_vs_effective: effective_is_stored_or_yaml_default
   form_status: active
   source_refs:
-  - config/settings.yml:173
-  - app/lib/user_settings_decorator.rb:181
+  - config/settings.yml:176
+  - app/lib/user_settings_decorator.rb:182
   - app/models/user.rb:166
   - app/views/settings/preferences/safety/show.html.haml:58
-  - app/serializers/initial_state_serializer.rb:205
+  - app/serializers/initial_state_serializer.rb:206
   audit_status: verified
   notes: 'Recommendation only: read_policy and write_policy are not an approved API
     contract. Decorator group string. Getter is delegated to ScopedSettings with prefix
@@ -5997,12 +6051,12 @@ entries:
   configured_vs_effective: effective_is_stored_or_yaml_default
   form_status: active
   source_refs:
-  - config/settings.yml:174
-  - app/lib/user_settings_decorator.rb:182
+  - config/settings.yml:177
+  - app/lib/user_settings_decorator.rb:183
   - app/models/user.rb:166
   - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/preferences/safety/show.html.haml:61
-  - app/serializers/initial_state_serializer.rb:206
+  - app/serializers/initial_state_serializer.rb:207
   audit_status: verified
   notes: 'Recommendation only: read_policy and write_policy are not an approved API
     contract. Decorator group string. Getter is delegated to ScopedSettings with prefix
@@ -6053,7 +6107,7 @@ entries:
   - config/settings.yml:41
   - app/lib/user_settings_decorator.rb:53
   - app/lib/user_preferences/legacy_writer.rb:21
-  - app/lib/user_settings_decorator.rb:291
+  - app/lib/user_settings_decorator.rb:292
   - app/models/user.rb:166
   - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/preferences/appearance/show.html.haml:67
@@ -6150,7 +6204,7 @@ entries:
   - app/lib/user_settings_decorator.rb:75
   - app/models/user.rb:166
   - app/controllers/settings/preferences_controller.rb:47
-  - app/views/settings/preferences/other/show.html.haml:103
+  - app/views/settings/preferences/other/show.html.haml:107
   - app/serializers/initial_state_serializer.rb:79
   - app/javascript/mastodon/initial_state.js:66
   audit_status: verified
@@ -6198,12 +6252,12 @@ entries:
   configured_vs_effective: effective_is_stored_or_yaml_default
   form_status: active
   source_refs:
-  - config/settings.yml:93
+  - config/settings.yml:96
   - app/lib/user_settings_decorator.rb:150
   - app/models/user.rb:166
   - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/preferences/appearance/show.html.haml:43
-  - app/serializers/initial_state_serializer.rb:94
+  - app/serializers/initial_state_serializer.rb:95
   - app/javascript/mastodon/initial_state.js:81
   audit_status: verified
   notes: 'Recommendation only: read_policy and write_policy are not an approved API
@@ -6359,7 +6413,7 @@ entries:
   - app/lib/user_settings_decorator.rb:73
   - app/models/user.rb:166
   - app/controllers/settings/preferences_controller.rb:47
-  - app/views/settings/preferences/other/show.html.haml:97
+  - app/views/settings/preferences/other/show.html.haml:101
   - app/serializers/initial_state_serializer.rb:77
   - app/javascript/mastodon/initial_state.js:64
   audit_status: verified
@@ -6410,7 +6464,7 @@ entries:
   - app/lib/user_settings_decorator.rb:74
   - app/models/user.rb:166
   - app/controllers/settings/preferences_controller.rb:47
-  - app/views/settings/preferences/other/show.html.haml:100
+  - app/views/settings/preferences/other/show.html.haml:104
   - app/serializers/initial_state_serializer.rb:78
   - app/javascript/mastodon/initial_state.js:65
   audit_status: verified
@@ -6457,12 +6511,12 @@ entries:
   configured_vs_effective: effective_is_stored_or_yaml_default
   form_status: active
   source_refs:
-  - config/settings.yml:157
+  - config/settings.yml:160
   - app/lib/user_settings_decorator.rb:101
   - app/models/user.rb:166
   - app/controllers/settings/preferences_controller.rb:47
-  - app/views/settings/preferences/other/show.html.haml:139
-  - app/serializers/initial_state_serializer.rb:121
+  - app/views/settings/preferences/other/show.html.haml:143
+  - app/serializers/initial_state_serializer.rb:122
   - app/javascript/mastodon/initial_state.js:88
   audit_status: verified
   notes: 'Recommendation only: read_policy and write_policy are not an approved API
@@ -6512,7 +6566,7 @@ entries:
   - app/lib/user_settings_decorator.rb:87
   - app/models/user.rb:166
   - app/controllers/settings/preferences_controller.rb:47
-  - app/views/settings/preferences/other/show.html.haml:127
+  - app/views/settings/preferences/other/show.html.haml:131
   - app/serializers/initial_state_serializer.rb:91
   - app/javascript/mastodon/initial_state.js:78
   audit_status: verified
@@ -6563,7 +6617,7 @@ entries:
   - app/lib/user_settings_decorator.rb:76
   - app/models/user.rb:166
   - app/controllers/settings/preferences_controller.rb:47
-  - app/views/settings/preferences/other/show.html.haml:106
+  - app/views/settings/preferences/other/show.html.haml:110
   - app/serializers/initial_state_serializer.rb:80
   - app/javascript/mastodon/initial_state.js:67
   audit_status: verified
@@ -6666,7 +6720,7 @@ entries:
   - app/lib/user_settings_decorator.rb:79
   - app/models/user.rb:166
   - app/controllers/settings/preferences_controller.rb:47
-  - app/views/settings/preferences/other/show.html.haml:112
+  - app/views/settings/preferences/other/show.html.haml:116
   - app/serializers/initial_state_serializer.rb:83
   - app/javascript/mastodon/initial_state.js:70
   audit_status: verified
@@ -6775,11 +6829,11 @@ entries:
   - config/settings.yml:38
   - app/lib/user_settings_decorator.rb:161
   - app/lib/user_preferences/legacy_writer.rb:21
-  - app/lib/user_settings_decorator.rb:291
+  - app/lib/user_settings_decorator.rb:292
   - app/models/user.rb:344
   - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/preferences/appearance/show.html.haml:122
-  - app/serializers/initial_state_serializer.rb:107
+  - app/serializers/initial_state_serializer.rb:108
   - app/javascript/mastodon/initial_state.js:16
   - app/lib/translation_preferences.rb:11
   audit_status: verified
@@ -6965,11 +7019,11 @@ entries:
   form_status: active
   source_refs:
   - config/settings.yml:47
-  - app/lib/user_settings_decorator.rb:163
+  - app/lib/user_settings_decorator.rb:164
   - app/models/user.rb:166
   - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/preferences/appearance/show.html.haml:31
-  - app/serializers/initial_state_serializer.rb:96
+  - app/serializers/initial_state_serializer.rb:97
   - app/helpers/application_helper.rb:204
   audit_status: verified
   notes: 'Recommendation only: read_policy and write_policy are not an approved API
@@ -7017,7 +7071,7 @@ entries:
   - app/models/user.rb:166
   - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/preferences/appearance/show.html.haml:34
-  - app/serializers/initial_state_serializer.rb:97
+  - app/serializers/initial_state_serializer.rb:98
   - app/helpers/accounts_helper.rb:129
   audit_status: verified
   notes: 'Recommendation only: read_policy and write_policy are not an approved API
@@ -7067,11 +7121,11 @@ entries:
   - config/settings.yml:35
   - app/lib/user_settings_decorator.rb:160
   - app/lib/user_preferences/legacy_writer.rb:21
-  - app/lib/user_settings_decorator.rb:291
-  - app/models/user.rb:348
+  - app/lib/user_settings_decorator.rb:292
+  - app/models/user.rb:357
   - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/preferences/appearance/show.html.haml:123
-  - app/serializers/initial_state_serializer.rb:106
+  - app/serializers/initial_state_serializer.rb:107
   - app/javascript/mastodon/initial_state.js:15
   - app/lib/translation_preferences.rb:36
   audit_status: verified
@@ -7265,11 +7319,11 @@ entries:
   configured_vs_effective: effective_is_stored_or_yaml_default
   form_status: active
   source_refs:
-  - config/settings.yml:103
+  - config/settings.yml:106
   - app/lib/user_settings_decorator.rb:121
   - app/models/user.rb:166
   - app/controllers/settings/preferences_controller.rb:47
-  - app/views/settings/preferences/other/show.html.haml:157
+  - app/views/settings/preferences/other/show.html.haml:161
   audit_status: verified
   notes: 'Recommendation only: read_policy and write_policy are not an approved API
     contract. Decorator group boolean. Getter is delegated to ScopedSettings with
@@ -7311,12 +7365,12 @@ entries:
   configured_vs_effective: effective_is_stored_or_yaml_default
   form_status: active
   source_refs:
-  - config/settings.yml:148
+  - config/settings.yml:151
   - app/lib/user_settings_decorator.rb:45
   - app/models/user.rb:166
   - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/preferences/appearance/show.html.haml:115
-  - app/serializers/initial_state_serializer.rb:102
+  - app/serializers/initial_state_serializer.rb:103
   - app/javascript/mastodon/initial_state.js:30
   audit_status: verified
   notes: 'Recommendation only: read_policy and write_policy are not an approved API
@@ -7466,12 +7520,12 @@ entries:
   configured_vs_effective: effective_is_stored_or_yaml_default
   form_status: active
   source_refs:
-  - config/settings.yml:188
+  - config/settings.yml:191
   - app/lib/user_settings_decorator.rb:123
   - app/models/user.rb:166
   - app/controllers/settings/preferences_controller.rb:47
-  - app/views/settings/preferences/other/show.html.haml:163
-  - app/serializers/initial_state_serializer.rb:142
+  - app/views/settings/preferences/other/show.html.haml:167
+  - app/serializers/initial_state_serializer.rb:143
   - app/javascript/mastodon/initial_state.js:116
   audit_status: verified
   notes: 'Recommendation only: read_policy and write_policy are not an approved API
@@ -7518,12 +7572,12 @@ entries:
   configured_vs_effective: effective_is_stored_or_yaml_default
   form_status: active
   source_refs:
-  - config/settings.yml:189
+  - config/settings.yml:192
   - app/lib/user_settings_decorator.rb:124
   - app/models/user.rb:166
   - app/controllers/settings/preferences_controller.rb:47
-  - app/views/settings/preferences/other/show.html.haml:166
-  - app/serializers/initial_state_serializer.rb:143
+  - app/views/settings/preferences/other/show.html.haml:170
+  - app/serializers/initial_state_serializer.rb:144
   - app/javascript/mastodon/initial_state.js:117
   audit_status: verified
   notes: 'Recommendation only: read_policy and write_policy are not an approved API
@@ -7570,12 +7624,12 @@ entries:
   configured_vs_effective: effective_is_stored_or_yaml_default
   form_status: active
   source_refs:
-  - config/settings.yml:187
+  - config/settings.yml:190
   - app/lib/user_settings_decorator.rb:122
   - app/models/user.rb:166
   - app/controllers/settings/preferences_controller.rb:47
-  - app/views/settings/preferences/other/show.html.haml:160
-  - app/serializers/initial_state_serializer.rb:141
+  - app/views/settings/preferences/other/show.html.haml:164
+  - app/serializers/initial_state_serializer.rb:142
   - app/javascript/mastodon/initial_state.js:115
   audit_status: verified
   notes: 'Recommendation only: read_policy and write_policy are not an approved API
@@ -7673,12 +7727,12 @@ entries:
   configured_vs_effective: same_when_key_present_else_yaml_default
   form_status: active
   source_refs:
-  - config/settings.yml:104
+  - config/settings.yml:107
   - app/lib/user_settings_decorator.rb:28
   - app/controllers/settings/preferences_controller.rb:47
   - app/services/notify_service.rb:294
   - app/views/settings/preferences/notifications/show.html.haml:33
-  - app/models/user.rb:352
+  - app/models/user.rb:361
   audit_status: verified
   notes: Nested key of notification_emails. YAML present=true default=true. Permitted=true.
     Form inputs=1.
@@ -7720,7 +7774,7 @@ entries:
   configured_vs_effective: same_when_key_present_else_yaml_default
   form_status: active
   source_refs:
-  - config/settings.yml:104
+  - config/settings.yml:107
   - app/lib/user_settings_decorator.rb:28
   - app/controllers/settings/preferences_controller.rb:47
   - app/services/notify_service.rb:294
@@ -7766,7 +7820,7 @@ entries:
   configured_vs_effective: same_when_key_present_else_yaml_default
   form_status: active
   source_refs:
-  - config/settings.yml:104
+  - config/settings.yml:107
   - app/lib/user_settings_decorator.rb:28
   - app/controllers/settings/preferences_controller.rb:47
   - app/services/notify_service.rb:294
@@ -7812,7 +7866,7 @@ entries:
   configured_vs_effective: same_when_key_present_else_yaml_default
   form_status: active
   source_refs:
-  - config/settings.yml:104
+  - config/settings.yml:107
   - app/lib/user_settings_decorator.rb:28
   - app/controllers/settings/preferences_controller.rb:47
   - app/services/notify_service.rb:294
@@ -7858,7 +7912,7 @@ entries:
   configured_vs_effective: same_when_key_present_else_yaml_default
   form_status: active
   source_refs:
-  - config/settings.yml:104
+  - config/settings.yml:107
   - app/lib/user_settings_decorator.rb:28
   - app/controllers/settings/preferences_controller.rb:47
   - app/services/notify_service.rb:294
@@ -7903,7 +7957,7 @@ entries:
   configured_vs_effective: same_when_key_present_else_yaml_default
   form_status: active
   source_refs:
-  - config/settings.yml:104
+  - config/settings.yml:107
   - app/lib/user_settings_decorator.rb:28
   - app/controllers/settings/preferences_controller.rb:47
   - app/services/notify_service.rb:294
@@ -7950,7 +8004,7 @@ entries:
   configured_vs_effective: same_when_key_present_else_yaml_default
   form_status: absent
   source_refs:
-  - config/settings.yml:104
+  - config/settings.yml:107
   - app/lib/user_settings_decorator.rb:28
   - app/controllers/settings/preferences_controller.rb:47
   - app/services/notify_service.rb:294
@@ -8000,7 +8054,7 @@ entries:
   configured_vs_effective: same_when_key_present_else_yaml_default
   form_status: active
   source_refs:
-  - config/settings.yml:104
+  - config/settings.yml:107
   - app/lib/user_settings_decorator.rb:28
   - app/controllers/settings/preferences_controller.rb:47
   - app/services/notify_service.rb:294
@@ -8046,12 +8100,12 @@ entries:
   configured_vs_effective: same_when_key_present_else_yaml_default
   form_status: conditional
   source_refs:
-  - config/settings.yml:104
+  - config/settings.yml:107
   - app/lib/user_settings_decorator.rb:28
   - app/controllers/settings/preferences_controller.rb:47
   - app/services/notify_service.rb:294
   - app/views/settings/preferences/notifications/show.html.haml:27
-  - app/models/user.rb:352
+  - app/models/user.rb:361
   audit_status: verified
   notes: Nested key of notification_emails. YAML present=true default=true. Permitted=true.
     Form inputs=1. Staff-only inputs are omitted for other users, and the decorator
@@ -8094,7 +8148,7 @@ entries:
   configured_vs_effective: same_when_key_present_else_yaml_default
   form_status: active
   source_refs:
-  - config/settings.yml:104
+  - config/settings.yml:107
   - app/lib/user_settings_decorator.rb:28
   - app/controllers/settings/preferences_controller.rb:47
   - app/services/notify_service.rb:294
@@ -8140,12 +8194,12 @@ entries:
   configured_vs_effective: same_when_key_present_else_yaml_default
   form_status: conditional
   source_refs:
-  - config/settings.yml:104
+  - config/settings.yml:107
   - app/lib/user_settings_decorator.rb:28
   - app/controllers/settings/preferences_controller.rb:47
   - app/services/notify_service.rb:294
   - app/views/settings/preferences/notifications/show.html.haml:26
-  - app/models/user.rb:352
+  - app/models/user.rb:361
   audit_status: verified
   notes: Nested key of notification_emails. YAML present=true default=true. Permitted=true.
     Form inputs=1. Staff-only inputs are omitted for other users, and the decorator
@@ -8188,7 +8242,7 @@ entries:
   configured_vs_effective: same_when_key_present_else_yaml_default
   form_status: active
   source_refs:
-  - config/settings.yml:104
+  - config/settings.yml:107
   - app/lib/user_settings_decorator.rb:28
   - app/controllers/settings/preferences_controller.rb:47
   - app/services/notify_service.rb:294
@@ -8234,12 +8288,12 @@ entries:
   configured_vs_effective: same_when_key_present_else_yaml_default
   form_status: conditional
   source_refs:
-  - config/settings.yml:104
+  - config/settings.yml:107
   - app/lib/user_settings_decorator.rb:28
   - app/controllers/settings/preferences_controller.rb:47
   - app/services/notify_service.rb:294
   - app/views/settings/preferences/notifications/show.html.haml:29
-  - app/models/user.rb:352
+  - app/models/user.rb:361
   audit_status: verified
   notes: Nested key of notification_emails. YAML present=true default=true. Permitted=true.
     Form inputs=1. Staff-only inputs are omitted for other users, and the decorator
@@ -8282,7 +8336,7 @@ entries:
   configured_vs_effective: same_when_key_present_else_yaml_default
   form_status: active
   source_refs:
-  - config/settings.yml:117
+  - config/settings.yml:120
   - app/lib/user_settings_decorator.rb:28
   - app/controllers/settings/preferences_controller.rb:47
   - app/services/notify_service.rb:128
@@ -8331,7 +8385,7 @@ entries:
   configured_vs_effective: same_when_key_present_else_yaml_default
   form_status: active
   source_refs:
-  - config/settings.yml:117
+  - config/settings.yml:120
   - app/lib/user_settings_decorator.rb:28
   - app/controllers/settings/preferences_controller.rb:47
   - app/services/notify_service.rb:112
@@ -8378,7 +8432,7 @@ entries:
   configured_vs_effective: same_when_key_present_else_yaml_default
   form_status: active
   source_refs:
-  - config/settings.yml:117
+  - config/settings.yml:120
   - app/lib/user_settings_decorator.rb:28
   - app/controllers/settings/preferences_controller.rb:47
   - app/services/notify_service.rb:116
@@ -8425,7 +8479,7 @@ entries:
   configured_vs_effective: same_when_key_present_else_yaml_default
   form_status: active
   source_refs:
-  - config/settings.yml:117
+  - config/settings.yml:120
   - app/lib/user_settings_decorator.rb:28
   - app/controllers/settings/preferences_controller.rb:47
   - app/services/notify_service.rb:183
@@ -8472,7 +8526,7 @@ entries:
   configured_vs_effective: same_when_key_present_else_yaml_default
   form_status: active
   source_refs:
-  - config/settings.yml:117
+  - config/settings.yml:120
   - app/lib/user_settings_decorator.rb:28
   - app/controllers/settings/preferences_controller.rb:47
   - app/services/notify_service.rb:120
@@ -8519,7 +8573,7 @@ entries:
   configured_vs_effective: same_when_key_present_else_yaml_default
   form_status: active
   source_refs:
-  - config/settings.yml:117
+  - config/settings.yml:120
   - app/lib/user_settings_decorator.rb:28
   - app/controllers/settings/preferences_controller.rb:47
   - app/services/notify_service.rb:190
@@ -8566,7 +8620,7 @@ entries:
   configured_vs_effective: same_when_key_present_else_yaml_default
   form_status: active
   source_refs:
-  - config/settings.yml:117
+  - config/settings.yml:120
   - app/lib/user_settings_decorator.rb:28
   - app/controllers/settings/preferences_controller.rb:47
   - app/services/notify_service.rb:124
@@ -8604,7 +8658,7 @@ entries:
   configured_vs_effective: distinct_from_user_settings
   form_status: active
   source_refs:
-  - app/models/user.rb:640
+  - app/models/user.rb:649
   - app/controllers/settings/preferences_controller.rb:39
   audit_status: verified
   notes: InitialState meta.locale is I18n.locale at render, which preferences#update
@@ -8638,7 +8692,7 @@ entries:
   configured_vs_effective: distinct_from_user_settings
   form_status: active
   source_refs:
-  - app/models/user.rb:636
+  - app/models/user.rb:645
   - app/controllers/settings/preferences_controller.rb:39
   audit_status: verified
   notes: Not part of User.settings and not present in InitialState.
@@ -8671,7 +8725,7 @@ entries:
   configured_vs_effective: distinct_from_user_settings
   form_status: active
   source_refs:
-  - app/models/user.rb:630
+  - app/models/user.rb:639
   - app/controllers/settings/preferences_controller.rb:39
   audit_status: verified
   notes: Public-timeline language filter stored on users, not in settings. The other
@@ -9293,7 +9347,7 @@ entries:
   configured_vs_effective: site_default_shared_with_scoped_fallback
   form_status: absent
   source_refs:
-  - config/settings.yml:285
+  - config/settings.yml:288
   audit_status: verified
   notes: 'Read as an unscoped Setting. Readers: app/models/form/action_review_settings.rb,
     app/services/action_review/policy_settings.rb. Not a user preference candidate.'
@@ -9328,7 +9382,7 @@ entries:
   configured_vs_effective: site_default_shared_with_scoped_fallback
   form_status: absent
   source_refs:
-  - config/settings.yml:136
+  - config/settings.yml:139
   - app/models/form/admin_settings.rb:6
   audit_status: verified
   notes: Instance setting. It shares config/settings.yml with user defaults. Listed
@@ -9349,6 +9403,7 @@ entries:
     - app/serializers/initial_state_serializer.rb
     - app/serializers/rest/instance_serializer.rb
     - app/serializers/rest/v1/instance_serializer.rb
+    - app/services/post_drafts/media_links.rb
     - app/services/post_status_service.rb
     - app/services/update_status_service.rb
   raw_type: boolean
@@ -9370,7 +9425,7 @@ entries:
   configured_vs_effective: site_default_shared_with_scoped_fallback
   form_status: absent
   source_refs:
-  - config/settings.yml:182
+  - config/settings.yml:185
   - app/models/form/admin_settings.rb:6
   audit_status: verified
   notes: Instance setting. It shares config/settings.yml with user defaults. Listed
@@ -9394,6 +9449,7 @@ entries:
     - app/services/activitypub/process_status_update_service.rb
     - app/services/activitypub/process_status_update_text.rb
     - app/services/external_bridge/rss/media/sync.rb
+    - app/services/post_drafts/media_fields.rb
     - app/services/post_status_service.rb
     - app/services/posting_identity/delegated_media.rb
     - app/services/update_status_service.rb
@@ -9416,7 +9472,7 @@ entries:
   configured_vs_effective: site_default_shared_with_scoped_fallback
   form_status: absent
   source_refs:
-  - config/settings.yml:185
+  - config/settings.yml:188
   - app/models/form/admin_settings.rb:6
   audit_status: verified
   notes: Instance setting. It shares config/settings.yml with user defaults. Listed
@@ -9453,7 +9509,7 @@ entries:
   configured_vs_effective: site_default_shared_with_scoped_fallback
   form_status: absent
   source_refs:
-  - config/settings.yml:135
+  - config/settings.yml:138
   - app/models/form/admin_settings.rb:6
   audit_status: verified
   notes: Instance setting. It shares config/settings.yml with user defaults. Listed
@@ -9527,7 +9583,7 @@ entries:
   configured_vs_effective: site_default_shared_with_scoped_fallback
   form_status: absent
   source_refs:
-  - config/settings.yml:134
+  - config/settings.yml:137
   audit_status: inferred
   notes: config/settings.yml still has disallowed_hashtags. DisallowedHashtagsValidator
     does not read Setting.disallowed_hashtags; it rejects tags Tag#usable? is false
@@ -9598,7 +9654,7 @@ entries:
   configured_vs_effective: site_default_shared_with_scoped_fallback
   form_status: absent
   source_refs:
-  - config/settings.yml:250
+  - config/settings.yml:253
   audit_status: verified
   notes: 'Read as an unscoped Setting. Readers: app/services/external_bridge/atproto/feature.rb.
     Not a user preference candidate.'
@@ -9632,7 +9688,7 @@ entries:
   configured_vs_effective: site_default_shared_with_scoped_fallback
   form_status: absent
   source_refs:
-  - config/settings.yml:251
+  - config/settings.yml:254
   audit_status: verified
   notes: 'Read as an unscoped Setting. Readers: app/services/external_bridge/atproto/feature.rb.
     Not a user preference candidate.'
@@ -9667,7 +9723,7 @@ entries:
   configured_vs_effective: site_default_shared_with_scoped_fallback
   form_status: absent
   source_refs:
-  - config/settings.yml:258
+  - config/settings.yml:261
   audit_status: verified
   notes: 'Read as an unscoped Setting. Readers: app/services/external_bridge/visibility_switch.rb.
     Not a user preference candidate.'
@@ -9701,7 +9757,7 @@ entries:
   configured_vs_effective: site_default_shared_with_scoped_fallback
   form_status: absent
   source_refs:
-  - config/settings.yml:266
+  - config/settings.yml:269
   audit_status: verified
   notes: 'Read as an unscoped Setting. Readers: app/services/external_bridge/feeds/feature.rb.
     Not a user preference candidate.'
@@ -9735,7 +9791,7 @@ entries:
   configured_vs_effective: site_default_shared_with_scoped_fallback
   form_status: absent
   source_refs:
-  - config/settings.yml:267
+  - config/settings.yml:270
   audit_status: verified
   notes: 'Read as an unscoped Setting. Readers: app/services/external_bridge/feeds/feature.rb.
     Not a user preference candidate.'
@@ -9769,7 +9825,7 @@ entries:
   configured_vs_effective: site_default_shared_with_scoped_fallback
   form_status: absent
   source_refs:
-  - config/settings.yml:274
+  - config/settings.yml:277
   audit_status: verified
   notes: 'Read as an unscoped Setting. Readers: app/services/external_bridge/link_sharing/feature.rb.
     Not a user preference candidate.'
@@ -9804,7 +9860,7 @@ entries:
   configured_vs_effective: site_default_shared_with_scoped_fallback
   form_status: absent
   source_refs:
-  - config/settings.yml:275
+  - config/settings.yml:278
   audit_status: verified
   notes: 'Read as an unscoped Setting. Readers: app/services/external_bridge/link_sharing/feature.rb.
     Not a user preference candidate.'
@@ -9838,7 +9894,7 @@ entries:
   configured_vs_effective: site_default_shared_with_scoped_fallback
   form_status: absent
   source_refs:
-  - config/settings.yml:241
+  - config/settings.yml:244
   audit_status: verified
   notes: 'Read as an unscoped Setting. Readers: app/services/external_bridge/feature.rb.
     Not a user preference candidate.'
@@ -9873,7 +9929,7 @@ entries:
   configured_vs_effective: site_default_shared_with_scoped_fallback
   form_status: absent
   source_refs:
-  - config/settings.yml:243
+  - config/settings.yml:246
   - app/services/external_bridge/rss/activity_pub/schedule.rb:10
   audit_status: verified
   notes: Read by ExternalBridge::RSS::ActivityPub::Schedule.enabled?, and only when
@@ -9912,7 +9968,7 @@ entries:
   configured_vs_effective: site_default_shared_with_scoped_fallback
   form_status: absent
   source_refs:
-  - config/settings.yml:244
+  - config/settings.yml:247
   audit_status: verified
   notes: 'Read as an unscoped Setting. Readers: app/services/external_bridge/feature.rb.
     Not a user preference candidate.'
@@ -9952,7 +10008,7 @@ entries:
   configured_vs_effective: out_of_range_reads_as_default_20
   form_status: absent
   source_refs:
-  - config/settings.yml:284
+  - config/settings.yml:287
   - app/models/form/admin_external_content_settings.rb:7
   - app/services/external_bridge/rss/media/policy.rb:34
   - app/controllers/admin/external_content_settings_controller.rb:12
@@ -9995,7 +10051,7 @@ entries:
   configured_vs_effective: unknown_stored_string_reads_as_remote
   form_status: absent
   source_refs:
-  - config/settings.yml:283
+  - config/settings.yml:286
   - app/models/form/admin_external_content_settings.rb:7
   - app/services/external_bridge/rss/media/policy.rb:18
   - app/controllers/admin/external_content_settings_controller.rb:12
@@ -10036,7 +10092,7 @@ entries:
   configured_vs_effective: site_default_shared_with_scoped_fallback
   form_status: absent
   source_refs:
-  - config/settings.yml:296
+  - config/settings.yml:299
   - app/services/group_creation_requests/feature.rb:10
   - app/services/group_creation_requests/approve_service.rb:22
   - app/controllers/settings/group_creation_requests_controller.rb:100
@@ -10081,7 +10137,7 @@ entries:
   configured_vs_effective: site_default_shared_with_scoped_fallback
   form_status: absent
   source_refs:
-  - config/settings.yml:304
+  - config/settings.yml:307
   - app/services/group_registration_invites/update_site_defaults.rb:19
   - app/services/group_registration_invites/site_defaults.rb:12
   - app/controllers/admin/group_registration_invite_defaults_controller.rb:14
@@ -10128,7 +10184,7 @@ entries:
   configured_vs_effective: site_default_shared_with_scoped_fallback
   form_status: absent
   source_refs:
-  - config/settings.yml:310
+  - config/settings.yml:313
   - app/services/group_registration_invites/update_site_defaults.rb:19
   - app/services/group_registration_invites/site_defaults.rb:37
   - app/controllers/admin/group_registration_invite_defaults_controller.rb:14
@@ -10177,7 +10233,7 @@ entries:
   configured_vs_effective: nil_on_read_when_indefinite
   form_status: absent
   source_refs:
-  - config/settings.yml:309
+  - config/settings.yml:312
   - app/services/group_registration_invites/update_site_defaults.rb:19
   - app/services/group_registration_invites/site_defaults.rb:17
   - app/controllers/admin/group_registration_invite_defaults_controller.rb:14
@@ -10227,7 +10283,7 @@ entries:
   configured_vs_effective: nil_on_read_when_unlimited_uses
   form_status: absent
   source_refs:
-  - config/settings.yml:307
+  - config/settings.yml:310
   - app/services/group_registration_invites/update_site_defaults.rb:19
   - app/services/group_registration_invites/site_defaults.rb:15
   - app/controllers/admin/group_registration_invite_defaults_controller.rb:14
@@ -10275,7 +10331,7 @@ entries:
   configured_vs_effective: site_default_shared_with_scoped_fallback
   form_status: absent
   source_refs:
-  - config/settings.yml:308
+  - config/settings.yml:311
   - app/services/group_registration_invites/update_site_defaults.rb:19
   - app/services/group_registration_invites/site_defaults.rb:33
   - app/controllers/admin/group_registration_invite_defaults_controller.rb:14
@@ -10323,7 +10379,7 @@ entries:
   configured_vs_effective: site_default_shared_with_scoped_fallback
   form_status: absent
   source_refs:
-  - config/settings.yml:305
+  - config/settings.yml:308
   - app/services/group_registration_invites/update_site_defaults.rb:19
   - app/services/group_registration_invites/site_defaults.rb:13
   - app/controllers/admin/group_registration_invite_defaults_controller.rb:14
@@ -10371,7 +10427,7 @@ entries:
   configured_vs_effective: site_default_shared_with_scoped_fallback
   form_status: absent
   source_refs:
-  - config/settings.yml:306
+  - config/settings.yml:309
   - app/services/group_registration_invites/update_site_defaults.rb:19
   - app/services/group_registration_invites/site_defaults.rb:14
   - app/controllers/admin/group_registration_invite_defaults_controller.rb:14
@@ -10491,7 +10547,7 @@ entries:
   configured_vs_effective: site_default_shared_with_scoped_fallback
   form_status: absent
   source_refs:
-  - config/settings.yml:137
+  - config/settings.yml:140
   - app/models/form/admin_settings.rb:6
   audit_status: verified
   notes: Instance setting. It shares config/settings.yml with user defaults. Listed
@@ -10531,7 +10587,7 @@ entries:
   configured_vs_effective: site_default_shared_with_scoped_fallback
   form_status: absent
   source_refs:
-  - config/settings.yml:186
+  - config/settings.yml:189
   - app/models/form/admin_settings.rb:6
   audit_status: verified
   notes: Instance setting. It shares config/settings.yml with user defaults. Listed
@@ -10571,7 +10627,7 @@ entries:
   configured_vs_effective: site_default_shared_with_scoped_fallback
   form_status: absent
   source_refs:
-  - config/settings.yml:183
+  - config/settings.yml:186
   - app/models/form/admin_settings.rb:6
   audit_status: verified
   notes: Instance setting. It shares config/settings.yml with user defaults. Listed
@@ -10692,7 +10748,7 @@ entries:
   configured_vs_effective: site_default_shared_with_scoped_fallback
   form_status: absent
   source_refs:
-  - config/settings.yml:184
+  - config/settings.yml:187
   - app/models/form/admin_settings.rb:6
   audit_status: verified
   notes: Instance setting. It shares config/settings.yml with user defaults. Listed
@@ -10775,7 +10831,7 @@ entries:
   configured_vs_effective: site_default_shared_with_scoped_fallback
   form_status: absent
   source_refs:
-  - config/settings.yml:234
+  - config/settings.yml:237
   - app/models/form/admin_settings.rb:6
   audit_status: verified
   notes: Instance setting. It shares config/settings.yml with user defaults. Listed
@@ -10813,7 +10869,7 @@ entries:
   configured_vs_effective: site_default_shared_with_scoped_fallback
   form_status: absent
   source_refs:
-  - config/settings.yml:233
+  - config/settings.yml:236
   - app/models/form/admin_settings.rb:6
   audit_status: verified
   notes: Instance setting. It shares config/settings.yml with user defaults. Listed
@@ -10852,7 +10908,7 @@ entries:
   configured_vs_effective: site_default_shared_with_scoped_fallback
   form_status: absent
   source_refs:
-  - config/settings.yml:144
+  - config/settings.yml:147
   - app/models/form/admin_settings.rb:6
   audit_status: verified
   notes: Instance setting. It shares config/settings.yml with user defaults. Listed
@@ -10889,7 +10945,7 @@ entries:
   configured_vs_effective: site_default_shared_with_scoped_fallback
   form_status: absent
   source_refs:
-  - config/settings.yml:125
+  - config/settings.yml:128
   audit_status: verified
   notes: 'Read as an unscoped Setting. Readers: app/models/group_creation_request.rb,
     app/validators/unreserved_username_validator.rb. Not a user preference candidate.'
@@ -10966,7 +11022,7 @@ entries:
   configured_vs_effective: site_default_shared_with_scoped_fallback
   form_status: absent
   source_refs:
-  - config/settings.yml:142
+  - config/settings.yml:145
   - app/models/form/admin_settings.rb:6
   audit_status: verified
   notes: Instance setting. It shares config/settings.yml with user defaults. Listed
@@ -11004,7 +11060,7 @@ entries:
   configured_vs_effective: site_default_shared_with_scoped_fallback
   form_status: absent
   source_refs:
-  - config/settings.yml:143
+  - config/settings.yml:146
   - app/models/form/admin_settings.rb:6
   audit_status: verified
   notes: Instance setting. It shares config/settings.yml with user defaults. Listed
@@ -11042,7 +11098,7 @@ entries:
   configured_vs_effective: site_default_shared_with_scoped_fallback
   form_status: absent
   source_refs:
-  - config/settings.yml:138
+  - config/settings.yml:141
   - app/models/form/admin_settings.rb:6
   audit_status: verified
   notes: Instance setting. It shares config/settings.yml with user defaults. Listed
@@ -11079,7 +11135,7 @@ entries:
   configured_vs_effective: site_default_shared_with_scoped_fallback
   form_status: absent
   source_refs:
-  - config/settings.yml:139
+  - config/settings.yml:142
   - app/models/form/admin_settings.rb:6
   audit_status: verified
   notes: Instance setting. It shares config/settings.yml with user defaults. Listed
@@ -11116,7 +11172,7 @@ entries:
   configured_vs_effective: site_default_shared_with_scoped_fallback
   form_status: absent
   source_refs:
-  - config/settings.yml:141
+  - config/settings.yml:144
   - app/models/form/admin_settings.rb:6
   audit_status: verified
   notes: Instance setting. It shares config/settings.yml with user defaults. Listed
@@ -11153,7 +11209,7 @@ entries:
   configured_vs_effective: site_default_shared_with_scoped_fallback
   form_status: absent
   source_refs:
-  - config/settings.yml:140
+  - config/settings.yml:143
   - app/models/form/admin_settings.rb:6
   audit_status: verified
   notes: Instance setting. It shares config/settings.yml with user defaults. Listed
@@ -11552,7 +11608,7 @@ entries:
   source_refs:
   - app/controllers/api/web/settings_controller.rb:7
   - app/javascript/mastodon/actions/settings.js:23
-  - config/routes.rb:985
+  - config/routes.rb:986
   - app/helpers/application_helper.rb:207
   - app/javascript/mastodon/reducers/settings.js:12
   audit_status: verified
@@ -12235,7 +12291,7 @@ entries:
   - app/helpers/languages_helper.rb:266
   - app/serializers/rest/preferences_serializer.rb:20
   - app/serializers/rest/credential_account_serializer.rb:18
-  - app/serializers/initial_state_serializer.rb:202
+  - app/serializers/initial_state_serializer.rb:203
   audit_status: verified
   notes: Preferences API and InitialState compose use this cascade. Credentials source.language
     and the Rails form use setting_default_language, the raw stored value, which can
@@ -12302,7 +12358,7 @@ entries:
   form_status: absent
   source_refs:
   - app/lib/translation_service.rb:70
-  - app/serializers/initial_state_serializer.rb:108
+  - app/serializers/initial_state_serializer.rb:109
   - app/javascript/mastodon/initial_state.js:18
   audit_status: verified
   notes: Capability flag, not a preference. Personal DeepL versus the instance backend

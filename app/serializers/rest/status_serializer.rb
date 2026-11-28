@@ -15,6 +15,7 @@ class REST::StatusSerializer < ActiveModel::Serializer
 
   attribute :favourited, if: :current_user?
   attribute :reblogged, if: :current_user?
+  attribute :reboost_retry_after, if: :reboost_waiting?
   attribute :muted, if: :current_user?
   attribute :bookmarked, if: :current_user?
   attribute :emoji_reactioned, if: :current_user?
@@ -290,6 +291,19 @@ class REST::StatusSerializer < ActiveModel::Serializer
 
   def status_reference_ids
     object.references.map(&:id).map(&:to_s)
+  end
+
+  def reboost_retry_after
+    if instance_options && instance_options[:relationships]
+      map = instance_options[:relationships].reboost_retry_after
+      map[object.id] || (object.reblog_of_id && map[object.reblog_of_id])
+    elsif current_user?
+      ReboostCooldown.remaining_seconds(current_user.account_id, object.reblog_of_id || object.id)
+    end
+  end
+
+  def reboost_waiting?
+    current_user? && reboost_retry_after.to_i.positive?
   end
 
   def reblogged

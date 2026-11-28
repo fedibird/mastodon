@@ -232,7 +232,7 @@ RSpec.describe FeedManager do
 
   describe '#push_to_home' do
     it 'trims timelines if they will have more than FeedManager::MAX_ITEMS' do
-      account = Fabricate(:account)
+      account = Fabricate(:user, current_sign_in_at: Time.now.utc).account
       status = Fabricate(:status)
       members = FeedManager::MAX_ITEMS.times.map { |count| [count, count] }
       redis.zadd("feed:home:#{account.id}", members)
@@ -244,7 +244,7 @@ RSpec.describe FeedManager do
 
     context 'reblogs' do
       it 'saves reblogs of unseen statuses' do
-        account = Fabricate(:account)
+        account = Fabricate(:user, current_sign_in_at: Time.now.utc).account
         reblogged = Fabricate(:status)
         reblog = Fabricate(:status, reblog: reblogged)
 
@@ -252,7 +252,7 @@ RSpec.describe FeedManager do
       end
 
       it 'does not save a new reblog of a recent status' do
-        account = Fabricate(:account)
+        account = Fabricate(:user, current_sign_in_at: Time.now.utc).account
         reblogged = Fabricate(:status)
         reblog = Fabricate(:status, reblog: reblogged)
 
@@ -262,7 +262,7 @@ RSpec.describe FeedManager do
       end
 
       it 'saves a new reblog of an old status' do
-        account = Fabricate(:account)
+        account = Fabricate(:user, current_sign_in_at: Time.now.utc).account
         reblogged = Fabricate(:status)
         reblog = Fabricate(:status, reblog: reblogged)
 
@@ -277,7 +277,7 @@ RSpec.describe FeedManager do
       end
 
       it 'does not save a new reblog of a recently-reblogged status' do
-        account = Fabricate(:account)
+        account = Fabricate(:user, current_sign_in_at: Time.now.utc).account
         reblogged = Fabricate(:status)
         reblogs = 2.times.map { Fabricate(:status, reblog: reblogged) }
 
@@ -288,20 +288,184 @@ RSpec.describe FeedManager do
         expect(FeedManager.instance.push_to_home(account, reblogs.last)).to be false
       end
 
-      it 'saves a new reblog of a recently-reblogged status when previous reblog has been deleted' do
-        account = Fabricate(:account)
+      it 'bounds seen history while the timeline stays inside the falloff' do
+        account = Fabricate(:user, current_sign_in_at: Time.now.utc).account
+        seen_key = FeedManager.instance.key(:home, account.id, 'reblogs:seen')
+        originals = Array.new(FeedManager::REBLOG_FALLOFF + 2) { Fabricate(:status) }
+
+        originals.each do |original|
+          reblog = Fabricate(:status, reblog: original)
+          FeedManager.instance.push_to_home(account, reblog)
+          FeedManager.instance.unpush_from_home(account, reblog)
+        end
+
+        expect(redis.zcard(seen_key)).to be <= FeedManager::REBLOG_FALLOFF
+        expect(redis.zscore(seen_key, originals.last.id)).to be_present
+        expect(FeedManager.instance.push_to_home(account, Fabricate(:status, reblog: originals.last))).to be false
+      end
+
+      it 'keeps seen history that ties the trim cutoff' do
+        account = Fabricate(:user, current_sign_in_at: Time.now.utc).account
+        reblogged = Fabricate(:status)
+        timeline = FeedManager.instance.key(:home, account.id)
+        seen_key = FeedManager.instance.key(:home, account.id, 'reblogs:seen')
+        seen_score = '100000000000000001'
+        redis.zadd(timeline, seen_score, 'tied-a')
+        redis.zadd(timeline, '100000000000000000', 'tied-b')
+        3.times { |index| redis.zadd(timeline, (100_000_000_000_000_000 + ((index + 1) * 1000)).to_s, "newer-#{index}") }
+        redis.zadd(seen_key, seen_score, reblogged.id)
+
+        FeedManager.instance.send(:trim, :home, account.id)
+
+        expect(redis.zscore(seen_key, reblogged.id)).to be_present
+        expect(FeedManager.instance.push_to_home(account, Fabricate(:status, reblog: reblogged))).to be false
+      end
+
+      it 'does not count a tied snowflake score as a newer entry' do
+        account = Fabricate(:user, current_sign_in_at: Time.now.utc).account
+        reblogged = Fabricate(:status)
+        timeline = FeedManager.instance.key(:home, account.id)
+        seen_key = FeedManager.instance.key(:home, account.id, 'reblogs:seen')
+        redis.zadd(timeline, '100000000000000000', 'tied-older')
+        3.times { |index| redis.zadd(timeline, (100_000_000_000_000_000 + ((index + 1) * 1000)).to_s, "newer-#{index}") }
+        redis.zadd(seen_key, '100000000000000001', reblogged.id)
+
+        reblog = Fabricate(:status, reblog: reblogged)
+
+        expect(FeedManager.instance.push_to_home(account, reblog)).to be false
+      end
+
+      it 'does not restore a suppressed reblog after that reblog is removed' do
+        account = Fabricate(:user, current_sign_in_at: Time.now.utc).account
+        reblogged = Fabricate(:status)
+        visible = Fabricate(:status, reblog: reblogged)
+        suppressed = Fabricate(:status, reblog: reblogged)
+        timeline = FeedManager.instance.key(:home, account.id)
+        extra = FeedManager.instance.key(:home, account.id, "reblogs:#{reblogged.id}")
+
+        expect(FeedManager.instance.push_to_home(account, visible)).to be true
+        expect(FeedManager.instance.push_to_home(account, suppressed)).to be false
+        expect(redis.sismember(extra, suppressed.id.to_s)).to be true
+
+        expect(FeedManager.instance.unpush_from_home(account, suppressed)).to be false
+        expect(redis.sismember(extra, suppressed.id.to_s)).to be false
+        suppressed.destroy!
+
+        expect(FeedManager.instance.unpush_from_home(account, visible)).to be true
+        expect(redis.zscore(timeline, suppressed.id.to_s)).to be_nil
+        expect(redis.zscore(timeline, visible.id.to_s)).to be_nil
+      end
+
+      it 'restores a snowflake-sized extra reblog id exactly' do
+        account = Fabricate(:user, current_sign_in_at: Time.now.utc).account
+        reblogged = Fabricate(:status)
+        reblog = Fabricate(:status, reblog: reblogged)
+        extra_id = '100000000000000001'
+
+        FeedManager.instance.push_to_home(account, reblog)
+        redis.sadd(FeedManager.instance.key(:home, account.id, "reblogs:#{reblogged.id}"), extra_id)
+
+        expect(FeedManager.instance.unpush_from_home(account, reblog)).to be true
+
+        timeline = FeedManager.instance.key(:home, account.id)
+        expect(redis.zscore(timeline, extra_id)).not_to be_nil
+        expect(redis.zscore(timeline, extra_id.to_f.to_i.to_s)).to be_nil
+      end
+
+      it 'keeps seen history when the original is only removed from the feed' do
+        account = Fabricate(:user, current_sign_in_at: Time.now.utc).account
+        author = Fabricate(:account)
+        reblogged = Fabricate(:status, account: author)
+        reblog = Fabricate(:status, reblog: reblogged)
+
+        FeedManager.instance.push_to_home(account, reblog)
+        FeedManager.instance.unpush_from_home(account, reblog)
+        seen = "feed:home:#{account.id}:reblogs:seen"
+        expect(redis.zscore(seen, reblogged.id)).to be_present
+
+        FeedManager.instance.unmerge_from_home(author, account)
+
+        expect(redis.zscore(seen, reblogged.id)).to be_present
+      end
+
+      it 'drops seen history when the original itself is deleted' do
+        account = Fabricate(:user, current_sign_in_at: Time.now.utc).account
+        reblogged = Fabricate(:status)
+        reblog = Fabricate(:status, reblog: reblogged)
+
+        FeedManager.instance.push_to_home(account, reblog)
+        FeedManager.instance.unpush_from_home(account, reblog)
+        seen = "feed:home:#{account.id}:reblogs:seen"
+        expect(redis.zscore(seen, reblogged.id)).to be_present
+
+        reblogged.discard
+        FeedManager.instance.unpush_from_home(account, reblogged)
+
+        expect(redis.zscore(seen, reblogged.id)).to be_nil
+      end
+
+      it 'keeps the higher seen score when an older wrapper is removed afterwards' do
+        account = Fabricate(:user, current_sign_in_at: Time.now.utc).account
+        reblogged = Fabricate(:status)
+        timeline = FeedManager.instance.key(:home, account.id)
+        seen = FeedManager.instance.key(:home, account.id, 'reblogs:seen')
+        reblog_key = FeedManager.instance.key(:home, account.id, 'reblogs')
+        extra = FeedManager.instance.key(:home, account.id, "reblogs:#{reblogged.id}")
+        redis.zadd(timeline, '200', '200')
+        redis.zadd(timeline, '100', '100')
+        40.times { |index| redis.zadd(timeline, (101 + index).to_s, "between-#{index}") }
+
+        redis.eval(FeedManager::REBLOG_SEEN_REMOVE, keys: [timeline, reblog_key, seen, extra], argv: ['200', reblogged.id.to_s])
+        redis.eval(FeedManager::REBLOG_SEEN_REMOVE, keys: [timeline, reblog_key, seen, extra], argv: ['100', reblogged.id.to_s])
+
+        expect(redis.zscore(seen, reblogged.id).to_i).to eq 200
+        expect(FeedManager.instance.push_to_home(account, Fabricate(:status, reblog: reblogged))).to be false
+      end
+
+      it 'does not save a new reblog of a recently-reblogged status when previous reblog has been deleted' do
+        account = Fabricate(:user, current_sign_in_at: Time.now.utc).account
         reblogged = Fabricate(:status)
         old_reblog = Fabricate(:status, reblog: reblogged)
 
-        # The first reblog should be accepted
         expect(FeedManager.instance.push_to_home(account, old_reblog)).to be true
-
-        # The first reblog should be successfully removed
         expect(FeedManager.instance.unpush_from_home(account, old_reblog)).to be true
 
         reblog = Fabricate(:status, reblog: reblogged)
 
-        # The second reblog should be accepted
+        expect(FeedManager.instance.push_to_home(account, reblog)).to be false
+        expect(redis.zscore("feed:home:#{account.id}", reblog.id)).to be_nil
+        expect(redis.zscore("feed:home:#{account.id}:reblogs:seen", reblogged.id)).to be_present
+      end
+
+      it 'saves a reboost once the original has left the recent window' do
+        account = Fabricate(:user, current_sign_in_at: Time.now.utc).account
+        reblogged = Fabricate(:status)
+        old_reblog = Fabricate(:status, reblog: reblogged)
+
+        FeedManager.instance.push_to_home(account, old_reblog)
+        FeedManager.instance.unpush_from_home(account, old_reblog)
+        seen_score = redis.zscore(FeedManager.instance.key(:home, account.id, 'reblogs:seen'), reblogged.id).to_f
+        timeline = FeedManager.instance.key(:home, account.id)
+        FeedManager::REBLOG_FALLOFF.times do |index|
+          score = seen_score
+          (index + 1).times { score = score.next_float }
+          redis.zadd(timeline, score, "later-#{index}")
+        end
+
+        reblog = Fabricate(:status, reblog: reblogged)
+        expect(FeedManager.instance.push_to_home(account, reblog)).to be true
+      end
+
+      it 'saves a reboost immediately when aggregation is off' do
+        user = Fabricate(:user, current_sign_in_at: Time.now.utc)
+        user.settings.aggregate_reblogs = false
+        account = user.account
+        reblogged = Fabricate(:status)
+        old_reblog = Fabricate(:status, reblog: reblogged)
+
+        expect(FeedManager.instance.push_to_home(account, old_reblog)).to be true
+        expect(FeedManager.instance.unpush_from_home(account, old_reblog)).to be true
+        reblog = Fabricate(:status, reblog: reblogged)
         expect(FeedManager.instance.push_to_home(account, reblog)).to be true
       end
 
@@ -322,7 +486,7 @@ RSpec.describe FeedManager do
       end
 
       it 'saves a new reblog of a long-ago-reblogged status' do
-        account = Fabricate(:account)
+        account = Fabricate(:user, current_sign_in_at: Time.now.utc).account
         reblogged = Fabricate(:status)
         reblogs = 2.times.map { Fabricate(:status, reblog: reblogged) }
 
@@ -340,7 +504,7 @@ RSpec.describe FeedManager do
     end
 
     it "does not push when the given status's reblog is already inserted" do
-      account = Fabricate(:account)
+      account = Fabricate(:user, current_sign_in_at: Time.now.utc).account
       reblog = Fabricate(:status)
       status = Fabricate(:status, reblog: reblog)
       FeedManager.instance.push_to_home(account, status)

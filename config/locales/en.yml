@@ -3189,6 +3189,9 @@ en:
       invalid_audience_visibility: Audience targets can only be used with public or unlisted posts
       audience_on_reply: Audience targets cannot be used on replies
       unreleased_activity_object: This activity object is not available yet
+      reboost_cooldown: Wait %{seconds} seconds before boosting this post again
+      reboost_disabled: Reboost is turned off in your settings
+      reboost_unsupported: This post cannot be reboosted
       invalid_ap_object_type: Activity object type must be note or page
       page_title_required: A page needs a title
       page_shape_unsupported: A page cannot be a reply, boost, quote, poll, or remote post

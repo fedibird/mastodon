@@ -74,6 +74,7 @@ class UserPreferences::Definition
       translation_bar,
       translation_mode,
       features_policy,
+      reboost,
       content_font,
       info_font,
       motion,
@@ -249,6 +250,31 @@ class UserPreferences::Definition
       legacy_formats: [],
       source_refs: ['app/lib/translation_preferences.rb', 'config/settings.yml', 'app/lib/user_preferences/reader.rb'],
       api_key_candidate: 'user.translation_preferred_mode',
+      storage_constraint: nil
+    )
+  end
+
+  def self.reboost
+    new(
+      key: 'enable_reboost',
+      category: :translation,
+      owner: :user,
+      storage_key: 'enable_reboost',
+      derived: false,
+      configured_type: [:nil, :boolean],
+      effective_type: [:boolean],
+      public_type: [:boolean],
+      allowed_values: nil,
+      allowed_values_source: 'nil follows new_features_policy; true and false are explicit and are not rewritten when the policy changes',
+      ui_range: nil,
+      default_source: 'ReboostPreferences.enabled?; a missing row and a stored nil follow new_features_policy and are not written back',
+      dependencies: ['new_features_policy'],
+      read_policy: :general,
+      write_policy: :general,
+      apply_hint: :reinitialize,
+      legacy_formats: [nil],
+      source_refs: ['app/lib/reboost_preferences.rb', 'app/models/user.rb', 'app/lib/user_preferences/reader.rb'],
+      api_key_candidate: 'user.enable_reboost',
       storage_constraint: nil
     )
   end

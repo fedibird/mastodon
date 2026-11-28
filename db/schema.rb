@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema.define(version: 2026_11_24_200000) do
+ActiveRecord::Schema.define(version: 2026_11_24_203000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "plpgsql"
 
@@ -2236,6 +2236,54 @@ create_table "managed_groups", force: :cascade do |t|
     t.datetime "updated_at", precision: 6, null: false
   end
 
+  create_table "reboost_count_releases", primary_key: "status_id", id: :bigint, default: nil, force: :cascade do |t|
+    t.datetime "created_at", precision: 6, null: false
+    t.datetime "updated_at", precision: 6, null: false
+  end
+
+  create_table "reboost_cooldowns", force: :cascade do |t|
+    t.bigint "account_id", null: false
+    t.bigint "status_id", null: false
+    t.datetime "boosted_at", null: false
+    t.datetime "created_at", precision: 6, null: false
+    t.datetime "updated_at", precision: 6, null: false
+    t.index ["account_id", "status_id"], name: "index_reboost_cooldowns_on_account_and_status", unique: true
+    t.index ["account_id"], name: "index_reboost_cooldowns_on_account_id"
+    t.index ["status_id"], name: "index_reboost_cooldowns_on_status_id"
+  end
+
+  create_table "reboost_operations", force: :cascade do |t|
+    t.bigint "account_id", null: false
+    t.bigint "reblog_of_id", null: false
+    t.bigint "old_status_id"
+    t.bigint "new_status_id"
+    t.string "state", null: false
+    t.string "visibility"
+    t.bigint "circle_id"
+    t.string "idempotency_key"
+    t.boolean "reboost", default: false, null: false
+    t.datetime "available_at"
+    t.datetime "removal_started_at"
+    t.datetime "removal_finished_at"
+    t.datetime "completed_at"
+    t.string "error_code"
+    t.text "undo_payload"
+    t.jsonb "undo_inboxes", default: [], null: false
+    t.jsonb "options", default: {}, null: false
+    t.datetime "undo_enqueued_at", precision: 6
+    t.datetime "local_enqueued_at", precision: 6
+    t.datetime "federation_enqueued_at", precision: 6
+    t.datetime "notification_enqueued_at", precision: 6
+    t.datetime "created_at", precision: 6, null: false
+    t.datetime "updated_at", precision: 6, null: false
+    t.index ["account_id", "idempotency_key"], name: "index_reboost_operations_on_idempotency", unique: true, where: "(idempotency_key IS NOT NULL)"
+    t.index ["account_id", "reblog_of_id"], name: "index_reboost_operations_one_open", unique: true, where: "((state)::text = ANY ((ARRAY['pending'::character varying, 'federating'::character varying])::text[]))"
+    t.index ["account_id", "reblog_of_id", "state"], name: "index_reboost_operations_on_account_status_and_state"
+    t.index ["local_enqueued_at", "notification_enqueued_at", "federation_enqueued_at"], name: "index_reboost_operations_federating_delivery", where: "((state)::text = 'federating'::text)"
+    t.index ["account_id"], name: "index_reboost_operations_on_account_id"
+    t.index ["reblog_of_id"], name: "index_reboost_operations_on_reblog_of_id"
+  end
+
   create_table "redirect_links", force: :cascade do |t|
     t.string "url", null: false
     t.string "redirected_url", null: false
@@ -2930,6 +2978,10 @@ create_table "managed_groups", force: :cascade do |t|
 
   add_foreign_key "posting_identity_link_requests", "users", column: "target_user_id", on_delete: :cascade
   add_foreign_key "preview_card_trends", "preview_cards", on_delete: :cascade
+  add_foreign_key "reboost_cooldowns", "accounts", on_delete: :cascade
+  add_foreign_key "reboost_cooldowns", "statuses", on_delete: :cascade
+  add_foreign_key "reboost_operations", "accounts", on_delete: :cascade
+  add_foreign_key "reboost_operations", "statuses", column: "reblog_of_id", on_delete: :cascade
   add_foreign_key "report_notes", "accounts", on_delete: :cascade
   add_foreign_key "report_notes", "reports", on_delete: :cascade
   add_foreign_key "reports", "accounts", column: "action_taken_by_account_id", name: "fk_bca45b75fd", on_delete: :nullify

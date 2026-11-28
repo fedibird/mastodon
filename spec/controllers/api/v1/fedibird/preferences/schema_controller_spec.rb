@@ -29,6 +29,7 @@ RSpec.describe Api::V1::Fedibird::Preferences::SchemaController, type: :controll
         user.show_translation_bar
         user.translation_preferred_mode
         user.new_features_policy
+        user.enable_reboost
         user.content_font_size
         user.info_font_size
         user.reduce_motion

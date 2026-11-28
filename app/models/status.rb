@@ -134,7 +134,8 @@ class Status < ApplicationRecord
   validates :text, presence: true, unless: -> { with_media? || reblog? }
   validates_with StatusLengthValidator
   validates_with DisallowedHashtagsValidator
-  validates :reblog, uniqueness: { scope: :account }, if: :reblog?
+  # A discarded row, including one kept for an open report, is not the active boost.
+  validates :reblog, uniqueness: { scope: :account, conditions: -> { where(deleted_at: nil) } }, if: :reblog?
   validates :visibility, exclusion: { in: %w(direct) }, if: :reblog?
   validates :quote_visibility, inclusion: { in: %w(public unlisted) }, if: :quote?
   validates_with ExpiresValidator, on: :create, if: :local?
@@ -696,6 +697,7 @@ class Status < ApplicationRecord
   end
 
   after_create_commit  :increment_counter_caches
+  before_destroy :remember_reblog_count_release
   after_destroy_commit :decrement_counter_caches
 
   after_create_commit :store_uri, if: :local?
@@ -751,7 +753,9 @@ class Status < ApplicationRecord
     end
 
     def reblogs_map(status_ids, account_id)
-      unscoped.select('reblog_of_id').where(reblog_of_id: status_ids).where(account_id: account_id).each_with_object({}) { |s, h| h[s.reblog_of_id] = true }
+      # unscoped skips the default order. A discarded wrapper kept for an open
+      # report is not an active boost.
+      unscoped.select('reblog_of_id').where(reblog_of_id: status_ids, account_id: account_id, deleted_at: nil).each_with_object({}) { |s, h| h[s.reblog_of_id] = true }
     end
 
     def mutes_map(conversation_ids, account_id)
@@ -1078,11 +1082,15 @@ class Status < ApplicationRecord
     ExternalBridge::LinkSharing::BoostEvents.wrapper_discarded!(id)
   end
 
+  def remember_reblog_count_release
+    @reblog_count_already_released = reblog? && Reboost::RetainedCount.released?(id)
+  end
+
   def decrement_counter_caches
     return if uncount_visibility? || new_record? || ap_page?
 
     account&.decrement_count!(:statuses_count)
-    reblog&.decrement_count!(:reblogs_count) if reblog?
+    reblog&.decrement_count!(:reblogs_count) if reblog? && !@reblog_count_already_released
     thread&.decrement_count!(:replies_count) if in_reply_to_id.present? && distributable?
   end
 

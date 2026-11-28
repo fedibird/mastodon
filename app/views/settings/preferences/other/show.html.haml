@@ -94,6 +94,10 @@
     = f.input :setting_new_features_policy, collection: ['conservative', 'default', 'tester'], label_method: lambda { |item| t("simple_form.labels.defaults.setting_new_features_policy_#{item}") }, hint: t("simple_form.hints.defaults.setting_new_features_policy"), as: :radio_buttons, collection_wrapper_tag: 'ul', item_wrapper_tag: 'li', wrapper: :with_floating_label
 
   .fields-group
+    %span.fedibird_features.float Fedibird
+    = f.input :setting_enable_reboost, collection: %w(auto on off), label_method: lambda { |item| t("simple_form.labels.defaults.setting_enable_reboost_#{item}", state: current_user.setting_new_features_policy == 'conservative' ? t('simple_form.labels.defaults.setting_enable_reboost_off') : t('simple_form.labels.defaults.setting_enable_reboost_on')) }, hint: true, as: :radio_buttons, collection_wrapper_tag: 'ul', item_wrapper_tag: 'li', wrapper: :with_floating_label, fedibird_features: true
+
+  .fields-group
     = f.input :setting_show_navigation_panel, as: :boolean, wrapper: :with_label, fedibird_features: true
 
   .fields-group
