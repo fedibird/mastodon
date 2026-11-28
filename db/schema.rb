@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema.define(version: 2026_11_24_203000) do
+ActiveRecord::Schema.define(version: 2026_11_24_211000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "plpgsql"
 
@@ -2236,6 +2236,20 @@ create_table "managed_groups", force: :cascade do |t|
     t.datetime "updated_at", precision: 6, null: false
   end
 
+  create_table "reboost_announce_states", force: :cascade do |t|
+    t.bigint "account_id", null: false
+    t.bigint "reblog_of_id"
+    t.string "uri", null: false
+    t.datetime "published_at"
+    t.string "state", null: false
+    t.datetime "created_at", precision: 6, null: false
+    t.datetime "updated_at", precision: 6, null: false
+    t.index ["account_id", "reblog_of_id"], name: "index_reboost_announce_states_one_current", unique: true, where: "((state)::text = 'current'::text) AND (reblog_of_id IS NOT NULL)"
+    t.index ["account_id", "uri"], name: "index_reboost_announce_states_on_account_and_uri", unique: true
+    t.index ["account_id"], name: "index_reboost_announce_states_on_account_id"
+    t.index ["reblog_of_id"], name: "index_reboost_announce_states_on_reblog_of_id"
+  end
+
   create_table "reboost_count_releases", primary_key: "status_id", id: :bigint, default: nil, force: :cascade do |t|
     t.datetime "created_at", precision: 6, null: false
     t.datetime "updated_at", precision: 6, null: false
@@ -2298,6 +2312,22 @@ create_table "managed_groups", force: :cascade do |t|
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
     t.integer "state", default: 0, null: false
+  end
+
+  create_table "remote_reboost_holds", force: :cascade do |t|
+    t.bigint "account_id", null: false
+    t.bigint "reblog_of_id", null: false
+    t.string "activity_uri", null: false
+    t.datetime "published_at"
+    t.datetime "available_at", null: false
+    t.jsonb "payload", default: {}, null: false
+    t.datetime "apply_enqueued_at", precision: 6
+    t.jsonb "delivery_options", default: {}, null: false
+    t.datetime "created_at", precision: 6, null: false
+    t.datetime "updated_at", precision: 6, null: false
+    t.index ["account_id", "reblog_of_id"], name: "index_remote_reboost_holds_on_account_and_status", unique: true
+    t.index ["account_id"], name: "index_remote_reboost_holds_on_account_id"
+    t.index ["reblog_of_id"], name: "index_remote_reboost_holds_on_reblog_of_id"
   end
 
   create_table "report_notes", force: :cascade do |t|
@@ -2978,10 +3008,14 @@ create_table "managed_groups", force: :cascade do |t|
 
   add_foreign_key "posting_identity_link_requests", "users", column: "target_user_id", on_delete: :cascade
   add_foreign_key "preview_card_trends", "preview_cards", on_delete: :cascade
+  add_foreign_key "reboost_announce_states", "accounts", on_delete: :cascade
+  add_foreign_key "reboost_announce_states", "statuses", column: "reblog_of_id", on_delete: :cascade
   add_foreign_key "reboost_cooldowns", "accounts", on_delete: :cascade
   add_foreign_key "reboost_cooldowns", "statuses", on_delete: :cascade
   add_foreign_key "reboost_operations", "accounts", on_delete: :cascade
   add_foreign_key "reboost_operations", "statuses", column: "reblog_of_id", on_delete: :cascade
+  add_foreign_key "remote_reboost_holds", "accounts", on_delete: :cascade
+  add_foreign_key "remote_reboost_holds", "statuses", column: "reblog_of_id", on_delete: :cascade
   add_foreign_key "report_notes", "accounts", on_delete: :cascade
   add_foreign_key "report_notes", "reports", on_delete: :cascade
   add_foreign_key "reports", "accounts", column: "action_taken_by_account_id", name: "fk_bca45b75fd", on_delete: :nullify

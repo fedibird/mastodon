@@ -291,11 +291,12 @@ class ActivityPub::Activity
 
     # If the payload was delivered to a specific inbox, the inbox owner must have
     # access to it, unless they already have access to it anyway
-    return if @options[:delivered_to_account_id].nil? || @mentions.any? { |mention| mention.account_id == @options[:delivered_to_account_id] }
+    Array(@options[:delivered_to_account_id]).concat(Array(@options[:delivered_to_account_ids])).compact.uniq.each do |account_id|
+      next if @mentions.any? { |mention| mention.account_id == account_id }
 
-    @mentions << Mention.new(account_id: @options[:delivered_to_account_id], silent: true)
-
-    @params[:visibility] = :limited if @params[:visibility] == :direct
+      @mentions << Mention.new(account_id: account_id, silent: true)
+      @params[:visibility] = :limited if @params[:visibility] == :direct
+    end
   end
 
   def postprocess_audience_and_deliver
