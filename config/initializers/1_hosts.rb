@@ -17,6 +17,18 @@ Rails.application.configure do
 
   config.x.alternate_domains = alternate_domains
 
+  # Candidates only. Strict mode is not an environment variable, and these
+  # hosts are not added to config.hosts, WebAuthn, or federation identity.
+  config.x.web_ui_domains = WebUiDomains::Configuration.load!(
+    ENV.fetch('WEB_UI_DOMAINS', nil),
+    domains: WebUiDomains::ConfiguredDomains.new(
+      local_domain: host,
+      web_domain: web_host,
+      alternate_domains: alternate_domains,
+      use_https: https
+    )
+  )
+
   config.action_mailer.default_url_options = { host: web_host, protocol: https ? 'https://' : 'http://', trailing_slash: false }
 
   config.x.streaming_api_base_url = ENV.fetch('STREAMING_API_BASE_URL') do
@@ -28,9 +40,20 @@ Rails.application.configure do
   end
 
   unless Rails.env.test?
-    config.hosts << host if host.present?
-    config.hosts << web_host if web_host.present?
-    config.hosts.concat(alternate_domains) if alternate_domains.present?
+    config.hosts.concat(
+      WebUiDomains::HostAuthorizationList.legacy(
+        local_domain: host,
+        web_domain: web_host,
+        alternate_domains: alternate_domains
+      )
+    )
     config.host_authorization = { exclude: ->(request) { request.path == '/health' } }
+  end
+
+  if config.x.web_ui_domains.additional_hosts.any?
+    Rails.logger.info(
+      "WEB_UI_DOMAINS parsed #{config.x.web_ui_domains.additional_hosts.size} candidate host(s). " \
+      'Strict mode is off, and these hosts were not added to config.hosts.'
+    )
   end
 end
