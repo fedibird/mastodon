@@ -42,7 +42,9 @@ module Mastodon
       cannot replace a newer live document. A changed mapping still purges
       only the index whose specification changed. Set GROUP_DIRECTORY_INDEX
       only after the index exists and its size has been measured. Unset it
-      to stop live sync. The directory API keeps using PostgreSQL either way.
+      to stop live sync. The directory API keeps using PostgreSQL until
+      GROUP_DIRECTORY_ES_SEARCH is set, and that flag also requires a
+      finished `--rebuild` (the backfill marker). It is separate and defaults off.
     LONG_DESC
     # The importer predates the complexity cap. Group directory adds a fenced
     # path and a rebuild exit; splitting the loop would only move the same
@@ -71,8 +73,10 @@ module Mastodon
 
       # First, ensure all indices are created and have the correct
       # structure, so that live data can already be written
+      upgraded_group_directory = false
       indices.select { |index| index.specification.changed? }.each do |index|
         progress.title = "Upgrading #{index} "
+        upgraded_group_directory = true if GroupDirectory::Indexing.before_index_purge!(index)
         index.purge
         index.specification.lock!
       end
@@ -186,6 +190,11 @@ module Mastodon
         exit(1)
       end
 
+      bounded_ids = options[:min].present? || options[:max].present?
+      GroupDirectory::Indexing.complete_index_upgrade!(upgraded_group_directory, bounded: bounded_ids)
+      if upgraded_group_directory && bounded_ids
+        say('Group directory was upgraded with --min or --max, so search stays disabled until tootctl search deploy --only group_directory --rebuild', :yellow, true)
+      end
       say("Indexed #{added.value} records, de-indexed #{removed.value}", :green, true)
     end
     # rubocop:enable Metrics/PerceivedComplexity

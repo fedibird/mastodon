@@ -85,6 +85,8 @@ class GroupDirectory::Import
     end
 
     def rebuild!(index: nil)
+      # Cleared first so a failed or in-progress rebuild cannot be read.
+      GroupDirectory::Indexing.clear_backfill_complete!
       if index
         index.clear
       else
@@ -99,6 +101,7 @@ class GroupDirectory::Import
         call(ids, index: index)
       end
       GroupDirectory::Indexing.clear_version_gap!
+      GroupDirectory::Indexing.mark_backfill_complete!
     end
 
     private
