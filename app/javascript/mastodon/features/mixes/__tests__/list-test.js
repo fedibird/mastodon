@@ -69,8 +69,12 @@ describe('mix list', () => {
     const settings = screen.getByRole('link', { name: 'Mix settings' });
 
     expect(labelsIn(container)).toEqual(['Home', 'mstdn.jp', '#fedibird', 'Friends', 'Newsroom', 'Ada']);
+    const sources = container.querySelector('.mix-list__sources');
+
     expect(open.getAttribute('href')).toBe('/timelines/mixes/mix-1');
-    expect(open.contains(container.querySelector('.mix-list__sources'))).toBe(true);
+    expect(open.getAttribute('aria-describedby')).toBe('mix-list-sources-mix-1');
+    expect(sources.getAttribute('id')).toBe('mix-list-sources-mix-1');
+    expect(open.contains(sources)).toBe(true);
     expect(open.contains(settings)).toBe(false);
     expect(settings.getAttribute('href')).toBe('/mixes/mix-1/edit');
     expect(settings.getAttribute('title')).toBe('Mix settings');
@@ -121,6 +125,46 @@ describe('mix list', () => {
 
     expect(labelsIn(container)).toEqual([1, 2, 3, 4, 5, 6, 7, 8].map(index => `node${index}.example`));
     expect(screen.getByRole('link', { name: /Wide/ }).getAttribute('href')).toBe('/timelines/mixes/mix-8');
+  });
+
+  it('gives punctuation and underscores different description ids and leaves a uuid unchanged', () => {
+    const { container } = renderList({
+      mixes: fromJS([
+        { id: 'mix.1', title: 'Dot', version: 1, sources: [{ type: 'home', params: {} }] },
+        { id: 'mix_1', title: 'Score', version: 1, sources: [{ type: 'home', params: {} }] },
+        { id: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee', title: 'Uuid', version: 1, sources: [{ type: 'home', params: {} }] },
+      ]),
+    });
+    const dot = container.querySelector('a[href="/timelines/mixes/mix.1"]');
+    const score = container.querySelector('a[href="/timelines/mixes/mix_1"]');
+    const uuid = container.querySelector('a[href="/timelines/mixes/aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"]');
+
+    expect(dot.getAttribute('aria-describedby')).toBe('mix-list-sources-mix_2e_1');
+    expect(score.getAttribute('aria-describedby')).toBe('mix-list-sources-mix_5f_1');
+    expect(uuid.getAttribute('aria-describedby')).toBe('mix-list-sources-aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee');
+    expect(document.getElementById(dot.getAttribute('aria-describedby')).textContent).toContain('Home');
+    expect(document.getElementById(score.getAttribute('aria-describedby')).textContent).toContain('Home');
+  });
+
+  it('names an empty title Mix and keeps the source list as the description', () => {
+    const { container } = renderList({
+      mixes: fromJS([{
+        id: 'mix-empty',
+        title: '',
+        version: 1,
+        sources: [{ type: 'group', id: '8', title: 'Newsroom', params: {} }],
+      }]),
+    });
+    const open = container.querySelector('a.mix-list__link');
+    const sources = document.getElementById('mix-list-sources-mix-empty');
+
+    expect(open.getAttribute('href')).toBe('/timelines/mixes/mix-empty');
+    expect(container.querySelector('.mix-list__title').textContent).toBe('');
+    expect(open.getAttribute('aria-label')).toBe('Mix');
+    expect(open.getAttribute('aria-describedby')).toBe('mix-list-sources-mix-empty');
+    expect(sources.textContent).toContain('Newsroom');
+    expect(open.contains(sources)).toBe(true);
+    expect(container.querySelector('a.mix-list__settings').getAttribute('aria-label')).toBe('Mix settings');
   });
 
   it('shows the empty list and the create button for any signed-in viewer', () => {

@@ -25,7 +25,9 @@ const REACTION_HOST_ATTRIBUTES = [
   'data-emoji-custom-emoji-id',
 ];
 
-const READABLE_ATTRIBUTES = ['alt', 'title', 'aria-label', 'aria-description', 'aria-valuetext'];
+// data-preview-title is the swipe preview's display string. It is projected
+// from the same plain source as the tab label, and it is not a route id.
+const READABLE_ATTRIBUTES = ['alt', 'title', 'aria-label', 'aria-description', 'aria-valuetext', 'data-preview-title'];
 const SKIP_TEXT_PARENTS = new Set(['SCRIPT', 'STYLE', 'TEXTAREA', 'INPUT', 'NOSCRIPT']);
 
 export const emojiMuteLiveDomProbe = { scans: 0 };
@@ -675,7 +677,7 @@ export function scrubUnverifiedEmojiFrom(root, sink) {
     input.setAttribute('aria-label', next);
   });
 
-  root.querySelectorAll('[alt], [title], [aria-label], [aria-description], [aria-valuetext]').forEach(element => {
+  root.querySelectorAll('[alt], [title], [aria-label], [aria-description], [aria-valuetext], [data-preview-title]').forEach(element => {
     READABLE_ATTRIBUTES.forEach(name => {
       const displayHtml = emojiMuteAttributeDisplayHtml(element, name);
 

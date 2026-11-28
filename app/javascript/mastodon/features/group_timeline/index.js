@@ -434,7 +434,7 @@ class GroupTimeline extends React.PureComponent {
     // The landmark writes the mounted attribute, so a mute does not rebuild
     // the timeline underneath it.
     const title = named ? (
-      <EmojiMutedPlain tag='span' plain={plainTitle} html={displayNameHtml} />
+      <EmojiMutedPlain tag='span' plain={plainTitle} html={displayNameHtml} emptyLabel={intl.formatMessage(messages.title)} />
     ) : plainTitle;
 
     const groupDetail = (

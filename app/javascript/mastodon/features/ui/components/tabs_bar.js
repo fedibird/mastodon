@@ -1,7 +1,7 @@
 import React from 'react';
 import PropTypes from 'prop-types';
 import { NavLink, withRouter } from 'react-router-dom';
-import { FormattedMessage, injectIntl } from 'react-intl';
+import { defineMessages, FormattedMessage, injectIntl } from 'react-intl';
 import { debounce, memoize } from 'lodash';
 import { isUserTouching } from '../../../is_mobile';
 import Icon from 'mastodon/components/icon';
@@ -11,6 +11,130 @@ import ImmutablePropTypes from 'react-immutable-proptypes';
 import { connect } from 'react-redux';
 import { createSelector } from 'reselect';
 import classNames from 'classnames';
+import { EmojiMutedPlain, withEmojiMuteTextIndex } from 'mastodon/components/emoji_muted_html';
+import { forgetEmojiMuteAttributeSource, rememberEmojiMuteAttributeSource } from 'mastodon/features/emoji/emoji_mute_sources';
+import { emojiMutedPlainText } from 'mastodon/features/emoji/emoji_mute_text';
+
+const messages = defineMessages({
+  lists: { id: 'column.lists', defaultMessage: 'Lists' },
+});
+
+// The memoized NavLink stays the control record. The raw title stays in
+// this map, not in a display attribute. Route id, path, and key do not use it.
+const favouriteListTitles = new WeakMap();
+
+const accessibleListName = (plain, index, emptyLabel) => {
+  const projected = emojiMutedPlainText(typeof plain === 'string' ? plain : '', '', index);
+  const visible = typeof projected === 'string' ? projected : '';
+
+  return visible.trim() === '' ? emptyLabel : visible;
+};
+
+class FavouriteListLabelsInner extends React.PureComponent {
+
+  static propTypes = {
+    plain: PropTypes.string.isRequired,
+    intl: PropTypes.object.isRequired,
+    emojiMuteTextIndex: PropTypes.object,
+  };
+
+  componentDidMount() {
+    this.bindHost();
+  }
+
+  componentDidUpdate() {
+    this.bindHost();
+  }
+
+  componentWillUnmount() {
+    this.releaseHost();
+  }
+
+  setNode = node => {
+    this.node = node;
+  };
+
+  host() {
+    return this.node && this.node.closest ? this.node.closest('a') : null;
+  }
+
+  bindHost() {
+    const host = this.host();
+
+    if (!host) {
+      return;
+    }
+
+    const plain = this.props.plain;
+    const emptyLabel = this.props.intl.formatMessage(messages.lists);
+    const name = accessibleListName(plain, this.props.emojiMuteTextIndex, emptyLabel);
+
+    if (host.getAttribute('aria-label') !== name) {
+      host.setAttribute('aria-label', name);
+    }
+
+    if (host.getAttribute('data-preview-title') !== name) {
+      host.setAttribute('data-preview-title', name);
+    }
+
+    rememberEmojiMuteAttributeSource(host, 'aria-label', plain, 'plain', emptyLabel, true);
+    rememberEmojiMuteAttributeSource(host, 'data-preview-title', plain, 'plain', emptyLabel, true);
+  }
+
+  releaseHost() {
+    const host = this.host();
+
+    if (!host) {
+      return;
+    }
+
+    forgetEmojiMuteAttributeSource(host, 'aria-label');
+    forgetEmojiMuteAttributeSource(host, 'data-preview-title');
+  }
+
+  render() {
+    const { plain } = this.props;
+
+    return (
+      <React.Fragment>
+        <span className='tabs-bar__link__full-label' ref={this.setNode}>
+          <EmojiMutedPlain tag='span' plain={plain} html='' />
+        </span>
+        <span className='tabs-bar__link__short-label'>
+          <EmojiMutedPlain tag='span' plain={plain} html='' />
+        </span>
+      </React.Fragment>
+    );
+  }
+
+}
+
+const FavouriteListLabels = withEmojiMuteTextIndex(injectIntl(FavouriteListLabelsInner));
+
+export function swipeLoadingTitle(link, formatMessage) {
+  if (!link || !link.props) {
+    return '';
+  }
+
+  if (favouriteListTitles.has(link)) {
+    return (
+      <EmojiMutedPlain
+        tag='span'
+        plain={favouriteListTitles.get(link)}
+        html=''
+        emptyLabel={formatMessage(messages.lists)}
+      />
+    );
+  }
+
+  if (typeof link.props['data-preview-title'] === 'string') {
+    return link.props['data-preview-title'];
+  }
+
+  const id = link.props['data-preview-title-id'];
+
+  return typeof id === 'string' && id !== '' ? formatMessage({ id }) : '';
+}
 
 const link_home = <NavLink className='tabs-bar__link' to='/timelines/home' data-preview-title-id='column.home' data-preview-icon='home' ><Icon id='home' fixedWidth /><span className='tabs-bar__link__full-label'><FormattedMessage id='tabs_bar.home' defaultMessage='Home' children={msg=> <>{msg}</>} /></span><span className='tabs-bar__link__short-label'><FormattedMessage id='navigation_bar.short.home' defaultMessage='Home' children={msg=> <>{msg}</>} /></span></NavLink>;
 const link_limited = <NavLink className='tabs-bar__link tabs-bar__limited' to='/timelines/limited' data-preview-title-id='column.limited' data-preview-icon='lock' ><Icon id='lock' fixedWidth /><span className='tabs-bar__link__full-label'><FormattedMessage id='tabs_bar.limited_timeline' defaultMessage='Limited' children={msg=> <>{msg}</>} /></span><span className='tabs-bar__link__short-label'><FormattedMessage id='navigation_bar.short.limited_timeline' defaultMessage='Ltd.' children={msg=> <>{msg}</>} /></span></NavLink>;
@@ -30,12 +154,17 @@ export const getLinks = memoize((favouriteLists = null) => {
       return null;
     }
 
-    return (
-      <NavLink className='tabs-bar__link' exact to={`/timelines/list/${list.get('id')}`} data-preview-title={list.get('title')} data-preview-title-id={`list/${list.get('id')}`} data-preview-icon='list-ul' >
-        <Icon id='list-ul' fixedWidth /><span className='tabs-bar__link__full-label'>{list.get('title')}</span>
-        <span className='tabs-bar__link__short-label'>{list.get('title')}</span>
+    const title = list.get('title');
+    const plain = typeof title === 'string' ? title : '';
+    const link = (
+      <NavLink className='tabs-bar__link' exact to={`/timelines/list/${list.get('id')}`} data-preview-title-id={`list/${list.get('id')}`} data-preview-icon='list-ul' >
+        <Icon id='list-ul' fixedWidth />
+        <FavouriteListLabels plain={plain} />
       </NavLink>
     );
+
+    favouriteListTitles.set(link, plain);
+    return link;
   }).toArray() : null;
 
   return [
@@ -141,7 +270,21 @@ class TabsBar extends React.PureComponent {
     return (
       <div className='tabs-bar__wrapper'>
         <nav className={classNames('tabs-bar', { 'bottom-bar': place_tab_bar_at_bottom })} ref={this.setRef}>
-          {getLinks(favouriteLists).map(link => React.cloneElement(link, { key: link.props.to, className: classNames(link.props.className, { 'short-label': show_tab_bar_label }), onClick: link.props.href ? null : this.handleClick, 'aria-label': link.props['data-preview-title'] ?? formatMessage({ id: link.props['data-preview-title-id'] }) }))}
+          {getLinks(favouriteLists).map(link => {
+            const props = {
+              key: link.props.to,
+              className: classNames(link.props.className, { 'short-label': show_tab_bar_label }),
+              onClick: link.props.href ? null : this.handleClick,
+            };
+
+            // List tabs name themselves from the projected title. Their
+            // data-preview-title-id is the route key, not a message id.
+            if (!favouriteListTitles.has(link)) {
+              props['aria-label'] = link.props['data-preview-title'] ?? formatMessage({ id: link.props['data-preview-title-id'] });
+            }
+
+            return React.cloneElement(link, props);
+          })}
         </nav>
 
         <div id='tabs-bar__portal' />

@@ -10,6 +10,7 @@ import ColumnBackButtonSlim from '../../components/column_back_button_slim';
 import Icon from 'mastodon/components/icon';
 import { defaultColumnWidth } from 'mastodon/initial_state';
 import { describeMixSource } from 'mastodon/mix/source_badges';
+import { EmojiMutedPlain } from 'mastodon/components/emoji_muted_html';
 import messages from './messages';
 
 const mapStateToProps = state => ({
@@ -18,6 +19,15 @@ const mapStateToProps = state => ({
   accounts: state.get('accounts'),
   columnWidth: defaultColumnWidth,
 });
+
+// The description id is a control key. It is not the projected title or a source label.
+// Letters, digits, and hyphens stay as written. Every other code unit, including
+// "_", becomes its own hex form so mix.1 and mix_1 do not share an element id.
+const mixSourcesDescriptionId = (id) => {
+  const token = String(id).replace(/[^A-Za-z0-9-]/g, (character) => `_${character.codePointAt(0).toString(16)}_`);
+
+  return `mix-list-sources-${token}`;
+};
 
 const sourceRows = (mix, formatMessage, lists, accounts) => {
   const sources = mix && mix.get ? mix.get('sources') : null;
@@ -56,24 +66,41 @@ class MixListItem extends React.PureComponent {
 
   render () {
     const { mix, intl, lists, accounts } = this.props;
-    const title = mix.get('title') || intl.formatMessage(messages.heading);
+    const storedTitle = mix.get('title');
+    const fallback = intl.formatMessage(messages.heading);
+    const plainTitle = typeof storedTitle === 'string' ? storedTitle : '';
     const settingsLabel = intl.formatMessage(messages.settings);
     const rows = sourceRows(mix, (message, values) => intl.formatMessage(message, values), lists, accounts);
+    const mixId = mix.get('id');
+    const sourcesId = rows.length > 0 && mixId !== undefined && mixId !== null && String(mixId) !== ''
+      ? mixSourcesDescriptionId(mixId)
+      : undefined;
 
     return (
       <li className='mix-list__item'>
-        <Link className='mix-list__link' to={`/timelines/mixes/${mix.get('id')}`}>
+        <Link className='mix-list__link' to={`/timelines/mixes/${mixId}`} aria-describedby={sourcesId}>
           <Icon id='random' fixedWidth className='column-link__icon' />
           <span className='mix-list__text'>
-            <span className='mix-list__title'>{title}</span>
+            <span className='mix-list__title'>
+              <EmojiMutedPlain tag='span' plain={plainTitle} html='' emptyLabel={fallback} />
+            </span>
             {rows.length > 0 && (
-              <span className='mix-list__sources'>
-                {rows.map(row => (
-                  <span className='mix-list__source' key={`${row.key || 'source'}:${row.position}`}>
-                    <Icon id={row.icon} className='mix-list__source-icon' aria-hidden='true' />
-                    <span className='mix-list__source-label'>{row.label}</span>
-                  </span>
-                ))}
+              <span className='mix-list__sources' id={sourcesId}>
+                {rows.map(row => {
+                  const accountName = row.labelOrigin === 'account-display-name';
+                  const project = accountName || row.showChip;
+
+                  return (
+                    <span className='mix-list__source' key={`${row.key || 'source'}:${row.position}`}>
+                      <Icon id={row.icon} className='mix-list__source-icon' aria-hidden='true' />
+                      <span className='mix-list__source-label'>
+                        {project ? (
+                          <EmojiMutedPlain tag='span' plain={row.label || ''} html={accountName ? (row.labelHtml || '') : ''} />
+                        ) : row.label}
+                      </span>
+                    </span>
+                  );
+                })}
               </span>
             )}
           </span>

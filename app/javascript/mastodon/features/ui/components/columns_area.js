@@ -5,7 +5,7 @@ import ImmutablePropTypes from 'react-immutable-proptypes';
 import ImmutablePureComponent from 'react-immutable-pure-component';
 
 import ReactSwipeableViews from 'react-swipeable-views';
-import TabsBar, { getSwipeableIndex, getSwipeableLink } from './tabs_bar';
+import TabsBar, { getSwipeableIndex, getSwipeableLink, swipeLoadingTitle } from './tabs_bar';
 import { Link } from 'react-router-dom';
 
 import { disableSwiping, place_tab_bar_at_bottom, enableLimitedTimeline, enableFederatedTimeline, enableLocalTimeline } from 'mastodon/initial_state';
@@ -268,7 +268,7 @@ class ColumnsArea extends ImmutablePureComponent {
 
   renderView = (link, index) => {
     const columnIndex = getSwipeableIndex(this.props.favouriteLists, this.context.router.history.location.pathname);
-    const title = link.props['data-preview-title'] ?? this.props.intl.formatMessage({ id: link.props['data-preview-title-id'] });
+    const title = swipeLoadingTitle(link, this.props.intl.formatMessage);
     const icon = link.props['data-preview-icon'];
 
     const view = (index === columnIndex) ?

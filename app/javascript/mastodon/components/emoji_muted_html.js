@@ -278,50 +278,52 @@ class EmojiMutedPlainInner extends React.PureComponent {
     this.node = node;
   };
 
-  titleButton() {
+  labelHost() {
     const emptyLabel = this.props.emptyLabel;
 
     if (typeof emptyLabel !== 'string' || emptyLabel.trim() === '' || !this.node || !this.node.closest) {
       return null;
     }
 
-    return this.node.closest('button');
+    // The visible string lives in this node. The control that announces it
+    // is the nearest button or link, which is what the guard rewrites.
+    return this.node.closest('button, a');
   }
 
   bindButtonName() {
-    const button = this.titleButton();
+    const host = this.labelHost();
 
-    if (!button) {
+    if (!host) {
       return;
     }
 
     const projected = this.node.textContent || '';
     const name = projected.trim() === '' ? this.props.emptyLabel : projected;
 
-    if (button.getAttribute('aria-label') !== name) {
-      button.setAttribute('aria-label', name);
+    if (host.getAttribute('aria-label') !== name) {
+      host.setAttribute('aria-label', name);
     }
 
     const plain = typeof this.props.plain === 'string' ? this.props.plain : '';
     const html = typeof this.props.html === 'string' ? this.props.html : '';
 
     if (html !== '') {
-      rememberEmojiMuteDisplayAttribute(button, 'aria-label', plain, html, this.props.emptyLabel, true);
+      rememberEmojiMuteDisplayAttribute(host, 'aria-label', plain, html, this.props.emptyLabel, true);
       return;
     }
 
-    rememberEmojiMuteAttributeSource(button, 'aria-label', plain, 'plain', this.props.emptyLabel, true);
+    rememberEmojiMuteAttributeSource(host, 'aria-label', plain, 'plain', this.props.emptyLabel, true);
   }
 
   releaseButtonName() {
-    const button = this.titleButton();
+    const host = this.labelHost();
 
-    if (!button) {
+    if (!host) {
       return;
     }
 
-    button.removeAttribute('aria-label');
-    forgetEmojiMuteAttributeSource(button, 'aria-label');
+    host.removeAttribute('aria-label');
+    forgetEmojiMuteAttributeSource(host, 'aria-label');
   }
 
   bindDisplaySource() {

@@ -178,6 +178,7 @@ describe('group column emoji mute landmark', () => {
     const { container } = renderGroup(store);
 
     expect(headingText()).toBe('Group [on]');
+    expect(headingButton().getAttribute('aria-label')).toBe('Group [on]');
     expect(region(container).getAttribute('aria-label')).toBe('Group [on]');
     expect(store.getState().getIn(['accounts', '7', 'display_name'])).toBe(plain);
     expect(store.getState().getIn(['accounts', '7', 'display_name_html'])).toBe(html);
@@ -207,6 +208,7 @@ describe('group column emoji mute landmark', () => {
     const projected = 'Group [base] [skin] <img src=x onerror=alert(1)> [local] :blob: :blob: [remote] :blob:';
 
     expect(headingText(container)).toBe(projected);
+    expect(button.getAttribute('aria-label')).toBe(projected);
     expect(region(container).getAttribute('aria-label')).toBe(projected);
     expect(container.querySelector('h1 img')).toBeNull();
     expect(container.querySelector('img[onerror]')).toBeNull();
@@ -465,12 +467,15 @@ describe('group column emoji mute landmark', () => {
 
   const mountGuardedGroup = (store) => {
     const guard = createUnverifiedEmojiGuard();
-    const during = { region: '', heading: '' };
+    const during = { region: '', heading: '', button: '' };
 
     store.subscribe(() => guard(store.getState()));
     store.subscribe(() => {
+      const titleButton = document.querySelector('#tabs-bar__portal h1 button');
+
       during.region = document.querySelector('.emoji-mutes-privacy-portal [role="region"]')?.getAttribute('aria-label') || '';
-      during.heading = document.querySelector('#tabs-bar__portal h1 button')?.textContent || '';
+      during.heading = titleButton?.textContent || '';
+      during.button = titleButton?.getAttribute('aria-label') || '';
     });
 
     const privacy = document.createElement('div');
@@ -505,19 +510,25 @@ describe('group column emoji mute landmark', () => {
 
     expect(region(container).getAttribute('aria-label')).toBe(COLUMN_TITLE);
     expect(headingText()).toBe('');
+    expect(headingButton().getAttribute('aria-label')).toBe(COLUMN_TITLE);
+    expect(headingButton().getAttribute('aria-label')).not.toContain(THUMB);
     expect(region(container).getAttribute('aria-label')).not.toContain(THUMB);
 
     act(() => {
       store.dispatch({ type: EMOJI_MUTES_REVISION, revision: '3' });
       expect(during.region).not.toContain(THUMB);
       expect(during.heading).not.toContain(THUMB);
+      expect(during.button).not.toContain(THUMB);
+      expect(during.button).toBe(COLUMN_TITLE);
       store.dispatch({ type: EMOJI_MUTES_APPLY, revision: '3', mutes: blank, availability: 'enabled' });
       expect(during.region).toBe(COLUMN_TITLE);
       expect(during.heading).toBe('');
+      expect(during.button).toBe(COLUMN_TITLE);
     });
 
     expect(region(container).getAttribute('aria-label')).toBe(COLUMN_TITLE);
     expect(headingText()).toBe('');
+    expect(headingButton().getAttribute('aria-label')).toBe(COLUMN_TITLE);
     expect(store.getState().getIn(['accounts', '7', 'display_name'])).toBe(plain);
 
     act(() => {
@@ -531,6 +542,7 @@ describe('group column emoji mute landmark', () => {
 
     expect(region(container).getAttribute('aria-label')).toBe('[named]');
     expect(headingText()).toBe('[named]');
+    expect(headingButton().getAttribute('aria-label')).toBe('[named]');
 
     apply(store, blank, '5');
 
@@ -554,6 +566,8 @@ describe('group column emoji mute landmark', () => {
 
     expect(region(container).getAttribute('aria-label')).toBe(COLUMN_TITLE);
     expect(headingText()).toBe('');
+    expect(headingButton().getAttribute('aria-label')).toBe(COLUMN_TITLE);
+    expect(headingButton().getAttribute('aria-label')).not.toContain(':blob:');
     expect(region(container).getAttribute('aria-label')).not.toContain(':blob:');
 
     act(() => {
@@ -607,6 +621,8 @@ describe('group column emoji mute landmark', () => {
 
     expect(region(container).getAttribute('aria-label')).toBe(COLUMN_TITLE);
     expect(headingText()).toBe('   ');
+    expect(headingButton().getAttribute('aria-label')).toBe(COLUMN_TITLE);
+    expect(headingButton().getAttribute('aria-label')).not.toContain(THUMB);
 
     act(() => {
       store.dispatch({ type: EMOJI_MUTES_REVISION, revision: '5' });
